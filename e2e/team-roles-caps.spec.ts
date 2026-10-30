@@ -1,9 +1,7 @@
 /**
  * Team roles, caps and read limits — gateway side (TR5/TR6/TR7).
  *
- * suveren-gateway draft PR #119 (branch feat/team-roles-caps-ui) against
- * suveren-as #86 (feat/team-roles-caps, merged to main) + #87
- * (fix/profile-config-compat, merged to main): grantor vs approver roles,
+ * Grantor vs approver roles,
  * hard vs approval-kind caps in the mandate editor, the above-cap approval
  * card (including "you can't approve your own action"), and the team read
  * ceiling (min(local, signed) in team mode only).
@@ -63,27 +61,10 @@
  * directly via the Authority Server API instead of through the broken UI
  * step — see that test's own comment.
  *
- * FIXED 2026-10-15 (was: a production security regression — see
- * suveren-as's fix/review-above-cap-bypass branch and
- * apps/mcp-server/src/lib/attestation-cache.ts's matching gateway fix):
- * the escalation chain's SECOND test ("a first write succeeds; a second...
- * should escalate") used to document that an above-cap mandate's
- * commitment_mode was unconditionally promoted to `review_above_cap`, which
- * the Authority Server unconditionally paired with
- * `deferred_commitment_domains` — forcing the real gateway through the
- * DOMAIN-deferred commit path for every single call, including a bypass
- * where the mandate OWNER could commit his own domain proposal and clear
- * the team's cap without any above-cap approver ever seeing it. Both the
- * Authority Server (mandate/route.ts never defers a domain for
- * review_above_cap now; ticket/route.ts's cap check is skipped only for a
- * proposal actually cleared by the required distinct above-cap approvers)
- * and the gateway (`isCommitmentDowngrade` no longer treats a
- * review_above_cap authority's absent deferred domain as a downgrade — it
- * is the correct, expected shape) are fixed at the root. The test below now
- * exercises the REAL flow: the first (within-cap) write executes directly,
- * with no proposal at all; the second (over-cap) write produces a genuine
- * above-cap proposal naming Lisa/Andreas (and Tom, as creator) — never
- * something Tom can clear by himself.
+ * The escalation chain exercises the real flow: the first (within-cap) write
+ * executes directly, with no proposal at all; the second (over-cap) write
+ * produces a genuine above-cap proposal naming Lisa/Andreas (and Tom, as
+ * creator) — never something Tom can clear by himself.
  */
 import { randomUUID } from 'node:crypto';
 import { existsSync, readFileSync } from 'node:fs';

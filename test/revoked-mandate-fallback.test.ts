@@ -1,8 +1,7 @@
 /**
  * Revoked-mandate fallback — Gateway E2E.
  *
- * THE BUG (suveren-as/docs/work-plan.md "first call after a revoke fails
- * instead of falling back"): when a mandate is revoked and another valid
+ * THE BUG (first call after a revoke failed instead of falling back): when a mandate is revoked and another valid
  * mandate on the same profile exists, the next ticketed call could still
  * select the revoked one. The Authority Server refuses ("revoked"), the
  * gateway purges it from its cache (tool-proxy.ts, 403 path) — and THAT CALL

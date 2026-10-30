@@ -1,6 +1,5 @@
 /**
- * RJ6 (suveren-as docs/work-plan.md "Added 2026-10-11 — Reject or ask for a
- * change"): the person rejects or asks for a change on the approval card, and
+ * RJ6 — reject or ask for a change: the person rejects or asks for a change on the approval card, and
  * the AI learns which — through the real stack (AS + whole gateway + records
  * connector under a review mandate + a real browser).
  *

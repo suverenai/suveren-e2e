@@ -116,7 +116,7 @@ export class SPClient {
   }
 
   /**
-   * Join a team with its invite code. Since WS0 (suveren-as, 2026-10-11) the
+   * Join a team with its invite code. Since 2026-10-11 the
    * code only creates a request (202) and the team admin confirms it; pass the
    * admin's key to confirm in the same step. An older AS still joins at once
    * (200) — both work.

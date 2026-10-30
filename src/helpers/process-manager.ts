@@ -83,7 +83,7 @@ export class ProcessManager {
    * 27 suites — ~9s to boot plus a stall on each new endpoint, against ~1s to
    * boot here.
    *
-   * Storage (work-plan step 3: Redis → Postgres): the Authority Server has no
+   * Storage: the Authority Server has no
    * in-memory fallback anymore — it requires SUVEREN_DB_URL unconditionally.
    * Dual-mode, and deliberately with no silent fallback of our own:
    *   - SUVEREN_DB_URL set in THIS process's env (the caller's Postgres) →

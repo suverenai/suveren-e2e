@@ -51,7 +51,7 @@ export default async function setup(): Promise<void> {
   // AS_DIR resolves to `suveren-as/` or, in an npm-workspaces monorepo layout,
   // `suveren-as/apps/as/` — see src/helpers/as-dir.ts.
   console.error('[E2E] Building Authority Server (once for the whole run)...');
-  // Storage (work-plan step 3: Redis → Postgres): the AS has no in-memory
+  // Storage: the AS has no in-memory
   // fallback, and `next build` attempts to statically render several API
   // routes, which touch the store — so the build itself needs a reachable
   // Postgres, not just each suite's spawned server. Uses process.env.SUVEREN_DB_URL
@@ -63,7 +63,7 @@ export default async function setup(): Promise<void> {
   if (!process.env.SUVEREN_DB_URL) {
     throw new Error(
       '[E2E] SUVEREN_DB_URL is not set. The Authority Server has no in-memory ' +
-        'fallback (work-plan step 3: Redis → Postgres) — building and running it ' +
+        'fallback — building and running it ' +
         'requires a reachable Postgres. Set SUVEREN_DB_URL before running this suite.',
     );
   }

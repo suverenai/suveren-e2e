@@ -1,6 +1,6 @@
-# hap-e2e — HAP conformance suite
+# suveren-e2e — Suveren's end-to-end and conformance suite
 
-The only place HAP enforcement is proven end to end: a real Authority Server,
+The only place Suveren's HAP enforcement is proven end to end: a real Authority Server,
 a real gateway built from source, and real MCP servers over stdio. No mocks,
 no stubbed transports.
 
@@ -25,7 +25,7 @@ Suveren Authority Server is not. That is a deliberate split, stated in the
 protocol's own positioning, and it has a consequence you should know before you
 start: the layer-2 tests spawn Suveren's Authority Server from source, so
 without that checkout they cannot run. What you *can* run is layer 1, and what
-you can *read* is `CONFORMANCE.md` — Suveren's report of where its
+you can *read* is [`CONFORMANCE.md`](https://github.com/suverenai/suveren-gateway/blob/main/docs/CONFORMANCE.md) — Suveren's report of where its
 implementation stands against the specification, requirement by requirement.
 
 ## Bring your own Authority Server
@@ -68,7 +68,7 @@ inside it:
 
 ```
 <workspace>/
-  hap-e2e/            ← you are here                                  (public)
+  suveren-e2e/        ← you are here                                  (public)
   hap-protocol/       ← specification, vectors, ledger                (public)
   hap-profiles/       ← published profiles                            (public)
   suveren-gateway/    ← Gatekeeper + Executor                         (public)
@@ -168,7 +168,7 @@ grepping the files under-counts).
 
 | Repo | Location | Cases | Runs in CI |
 |---|---|---|---|
-| **hap-e2e** | `test/` (vitest, real stack) | 233 + 32 skipped | ✅ `e2e.yml` |
+| **suveren-e2e** | `test/` (vitest, real stack) | 233 + 32 skipped | ✅ `e2e.yml` |
 | | `e2e/` (Playwright, browser journeys) | 31 | ✅ same workflow |
 | | `conformance/` (the MUST map — data, not tests) | — | ✅ checked by `test/conformance-map.test.ts` |
 | **suveren-as** | `src/__tests__/` | 284 | ✅ `ci.yml` |
@@ -189,7 +189,7 @@ gateway agree on the `hap-core` version).
 
 ### Which layer to put a test in
 
-Default to **hap-e2e, against real servers**. Use an in-repo unit test only
+Default to **suveren-e2e, against real servers**. Use an in-repo unit test only
 where the wire boundary cannot reach the state under test, and say so in the
 file. Current legitimate examples:
 
@@ -236,7 +236,7 @@ claim is not actually written where it says.
 ## Known gaps
 
 Recorded so that "untested" is never silently read as "not required". The
-authoritative list is **`CONFORMANCE.md`** in this repository — Suveren's
+authoritative list is **[`CONFORMANCE.md`](https://github.com/suverenai/suveren-gateway/blob/main/docs/CONFORMANCE.md)** in the Suveren Gateway repository — Suveren's
 implementation report. (It used to be a register inside the specification's
 `review.md`; implementation status left the specification on 2026-09-03,
 because a spec must be checkable by readers who cannot see the implementation,

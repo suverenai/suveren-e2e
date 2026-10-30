@@ -7,7 +7,7 @@
  * (the Authority Server never learns a test is running): only connectors that
  * declare a simulation mode start, forced into it; everything else stays off.
  *
- * Also pinned here (SIM1, work-plan "Added 2026-10-13"): in gateway-wide
+ * Also pinned here (SIM1): in gateway-wide
  * simulation mode, `load_simulation`/`clear_simulation` are listed for every
  * agent REGARDLESS of mandate — like every other connector tool since 0.25
  * — so the tool list no longer changes mid-session once a setup mandate is

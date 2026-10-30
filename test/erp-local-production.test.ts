@@ -13,7 +13,7 @@
  * asks the REAL EU VIES and skips, saying so, when it cannot be reached.
  *
  *   1. master-data mandates: review only — the AS refuses automatic and
- *      review_above_cap (suveren-as PR #109);
+ *      review_above_cap;
  *   2. create_customer → card → approve → ticket; update_customer_tax_data on a
  *      customer with issued invoices shows the "already issued" line; a stale
  *      revision is refused before any card (blocking `revision` check), and an

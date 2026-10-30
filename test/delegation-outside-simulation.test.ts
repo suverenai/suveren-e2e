@@ -1,6 +1,5 @@
 /**
- * DL7 (suveren-as docs/work-plan.md "Added 2026-10-10 — Delegation outside
- * simulation mode"): the AI proposes mandates and its agent brief on a gateway
+ * DL7 — delegation outside simulation mode: the AI proposes mandates and its agent brief on a gateway
  * that is NOT in simulation mode — bounded by delegation 0.4's scope.
  *
  * Real stack: Authority Server, the whole gateway (control plane + MCP server)

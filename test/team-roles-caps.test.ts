@@ -4,10 +4,8 @@
  *
  * Direction: content/0.7/review.md — "Group roles: who may grant, who
  * approves above the cap" and "A group can cap reads and capability
- * switches" (hap-protocol #14). Implementation: suveren-as draft PR #86
- * (branch feat/team-roles-caps). Written from the DECISIONS (Andreas,
- * 2026-10-14), not from the PR's own code or its unit test
- * (team-roles-caps.test.ts in the suveren-as repo) — this file calls the
+ * switches" (hap-protocol #14). Written from the DECISIONS (Andreas,
+ * 2026-10-14), not from the implementation's code or its unit test — this file calls the
  * real running AS over HTTP exactly as a gateway or another conformant
  * client would, the same style as the existing team-approval.test.ts.
  *
@@ -63,7 +61,7 @@ import { AS_DIR } from '../src/helpers/as-dir.js';
 // ── Feature gate: skip only when this AS checkout lacks TR5/TR6 ────────────
 // Mirrors ws-account-one-workspace.test.ts's gate (a known route file must
 // exist AND mention the new concept) so CI shows a loud skip, never a
-// silent false pass, against an AS checkout that predates PR #86.
+// silent false pass, against an AS checkout that predates team roles and caps.
 const PROFILE_CONFIG_ROUTE = join(AS_DIR, 'src', 'app', 'api', 'groups', '[id]', 'profile-config', '[profileId]', 'route.ts');
 const hasTeamRolesCaps =
   existsSync(PROFILE_CONFIG_ROUTE) && readFileSync(PROFILE_CONFIG_ROUTE, 'utf8').includes('grantors');

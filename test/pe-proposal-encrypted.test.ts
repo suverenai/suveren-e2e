@@ -1,6 +1,5 @@
 /**
- * PE phase 1 (suveren-as docs/work-plan.md "proposals encrypted end to end";
- * hap-protocol content/0.7/review.md "The Authority Server never sees what an
+ * PE phase 1 (hap-protocol content/0.7/review.md "The Authority Server never sees what an
  * action contains"): a review-mode proposal leaves the gateway encrypted. The
  * Authority Server stores ciphertext and a fingerprint, never the content —
  * checked in its own database. The person still sees the content on the card

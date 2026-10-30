@@ -2,7 +2,7 @@
  * AS team page — every tab renders, in a real browser, with team settings saved.
  *
  * Why this exists: the Profiles tab crashed on suveren.ai for every team
- * (React #310: a hook after an early return, suveren-as #92). It typechecked,
+ * (React #310: a hook after an early return). It typechecked,
  * built and passed every API-level team test, because nothing ever opened the
  * page — the crash only happens once the tab has loaded its data and renders
  * a second time. So each tab here is opened, waited on until its loaded

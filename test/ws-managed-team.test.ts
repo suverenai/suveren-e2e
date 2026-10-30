@@ -1,5 +1,5 @@
 /**
- * WS4 (suveren-as docs/work-plan.md "an account is Personal OR in one team"):
+ * WS4 (an account is Personal OR in one team):
  * a gateway installed by the company's IT carries a locked policy value
  * `Team` (registry / policy file, docs/managed-settings.md). Such a gateway
  * only signs in an account that is in that team, and stops when the account

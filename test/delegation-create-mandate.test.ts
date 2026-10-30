@@ -4,7 +4,7 @@
  * (control plane + MCP server) in simulation mode, the shipped profiles.
  *
  * Two people, two gateways: an account is EITHER Personal OR in one team
- * (suveren-as WS0–WS2) — while it is in a team, Personal is paused and a new
+ * — while it is in a team, Personal is paused and a new
  * Personal mandate is refused (403 PERSONAL_PAUSED). So the Personal cases run
  * for Anna, who is in no team, on her own gateway; the team cases run for
  * Bernd, a member of "Sales Vienna", on a second gateway with his own data dir,

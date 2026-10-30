@@ -1,5 +1,5 @@
 /**
- * AU2 (suveren-as/docs/work-plan.md "Added 2026-10-09") — every refusal of a
+ * AU2 — every refusal of a
  * gated tool call is recorded locally, not only reads. This is the real-path
  * check unit tests cannot give: a real gateway process, started from the
  * worktree under test with its own `SUVEREN_DATA_DIR`, refusing a real call
