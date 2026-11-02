@@ -1,5 +1,5 @@
 /**
- * AU3 + AU4 (suveren-as/docs/work-plan.md "Added 2026-10-09"): the approval
+ * AU3 + AU4: the approval
  * card shows what will happen, read from the system before it runs, bound to
  * a document version — on the real stack (Authority Server + the gateway's
  * control plane AND MCP server + the published erp connector).

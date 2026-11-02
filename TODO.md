@@ -1,4 +1,4 @@
-# hap-e2e — TODO
+# suveren-e2e — TODO
 
 Work items for the conformance suite. Protocol-level directions live in the
 specification's forward ledger (`hap-protocol/content/<version>/review.md`);

@@ -1,6 +1,5 @@
 /**
- * v0.7 wire switch — the hard-switch behaviours the plan calls out by name
- * (suveren-as/docs/v07-wire-plan.md, "Phase 4 — hap-e2e"):
+ * v0.7 wire switch — the hard-switch behaviours, by name:
  *
  *   - POST /api/as/receipt answers 410 (the gateway too old — update story).
  *   - A mandate request naming only pre-0.7 supported_versions is refused

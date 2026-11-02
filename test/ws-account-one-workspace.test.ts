@@ -1,6 +1,5 @@
 /**
- * WS0–WS2 (suveren-as docs/work-plan.md "an account is Personal OR in one
- * team"): joining a team is a request the team admin confirms; on confirm the
+ * WS0–WS2 (an account is Personal OR in one team): joining a team is a request the team admin confirms; on confirm the
  * account moves and its Personal mandates end (kept); while in a team Personal
  * is paused; leaving makes Personal usable again. Real stack: Authority Server,
  * the whole gateway with the records connector, a real browser on suveren.ai's

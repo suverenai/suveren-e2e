@@ -25,7 +25,7 @@ import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { AS_DIR } from '../src/helpers/as-dir.js';
 
-// TR5/TR6 (suveren-as #86): cumulative team caps escalate from the first write
+// TR5/TR6: cumulative team caps escalate from the first write
 // over the cap. An AS checkout before it escalated only past the mandate's own
 // bound. Detected from the AS source (same gate as team-roles-caps.test.ts).
 const PROFILE_CONFIG_ROUTE = join(AS_DIR, 'src', 'app', 'api', 'groups', '[id]', 'profile-config', '[profileId]', 'route.ts');
@@ -209,7 +209,7 @@ describe('Intent disclosure — C2 binding', () => {
 describe('Team approval (above-cap escalation)', () => {
   it('allows actions up to the bound, then escalates to approval_required', async () => {
     // The team's configured cap is write_daily_max: 1 (the mandate's OWN bound
-    // is 2 — the outer, hard ceiling). TR5/TR6 (suveren-as PR #86) made the
+    // is 2 — the outer, hard ceiling). TR5/TR6 made the
     // above-cap check dispatch through checkBound itself, so this CUMULATIVE
     // team cap now actually governs starting from the second write — it did
     // not before (content/0.7/review.md's "emails per day" example: a

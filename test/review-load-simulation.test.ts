@@ -258,7 +258,7 @@ describe.skipIf(!available)('review-mode load_simulation: an approved proposal m
  * cumulative/bounds check, so a bound refusal left the proposal `executed`
  * regardless. Fixed: the AS now answers a genuine terminal `status:
  * 'refused'` (with a `refusal: { code, message, at }`) for exactly this
- * case — see suveren-as/docs/architecture.md §3.4.
+ * case.
  *
  * Own SP + gateway + CRM connector (own ProcessManager, own actor, own
  * ports) — NOT the describe above. Cumulative counting is scoped to

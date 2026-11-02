@@ -1,6 +1,5 @@
 /**
- * Core objects — approvals, mandates, tickets (UI spec §12, suveren-as
- * docs/ui-spec; signed-off mockup core-objects.html C2). Real stack: AS +
+ * Core objects — approvals, mandates, tickets (Suveren UI spec §12). Real stack: AS +
  * gateway + the CRM connector; the agent is a real MCP client.
  *
  *   setup  an automatic customers mandate → 3 contacts created (automatic

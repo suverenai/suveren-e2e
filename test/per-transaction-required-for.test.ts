@@ -5,8 +5,7 @@
  * lacked its `of` field: a cap of 5,000 refused a declared 6,000 but admitted
  * a call declaring no value at all. `requiredFor` closes that — see
  * content/0.7/review.md → "Per-transaction bounds must be able to require
- * their value" and suveren-as/docs/work-plan.md → "Missing value passes a
- * per-transaction bound".
+ * their value".
  *
  * No published hap-profiles profile declares `requiredFor` yet (that is
  * Andreas's decision, next version of sales/charge/purchase) — so this test
