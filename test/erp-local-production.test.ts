@@ -201,19 +201,19 @@ describe.skipIf(!available)('ERP Local in production (real AS + gateway + erp-mc
 
   // ── 1. master-data: review only ────────────────────────────────────────
   describe('1. master-data mandates are review only (Authority Server)', () => {
-    it('automatic → refused 422 commitment_mode_not_allowed, nothing signed', async () => {
+    it('automatic → refused 422 COMMITMENT_MODE_NOT_ALLOWED, nothing signed', async () => {
       const r = await s.submitMandate(MASTER_DATA, MD_BOUNDS, {}, 'E2E: automatic master data', 'automatic');
       expect(r.status, JSON.stringify(r.body)).toBe(422);
-      expect(r.body.errors?.[0]).toMatchObject({ code: 'commitment_mode_not_allowed', allowed: ['review'] });
+      expect(r.body.errors?.[0]).toMatchObject({ code: 'COMMITMENT_MODE_NOT_ALLOWED', allowed: ['review'] });
       expect(r.body.blob).toBeUndefined();
     });
 
-    it('review_above_cap (well-formed: caps + approver) → refused 422 commitment_mode_not_allowed, nothing signed', async () => {
+    it('review_above_cap (well-formed: caps + approver) → refused 422 COMMITMENT_MODE_NOT_ALLOWED, nothing signed', async () => {
       const r = await s.submitMandate(MASTER_DATA, MD_BOUNDS, {}, 'E2E: above-cap master data', 'review_above_cap', {
         above_cap_caps: { customer_create_daily_max: 1 }, above_cap_approvers: [s.userId],
       });
       expect(r.status, JSON.stringify(r.body)).toBe(422);
-      expect(r.body.errors?.[0]).toMatchObject({ code: 'commitment_mode_not_allowed', allowed: ['review'] });
+      expect(r.body.errors?.[0]).toMatchObject({ code: 'COMMITMENT_MODE_NOT_ALLOWED', allowed: ['review'] });
       expect(r.body.blob).toBeUndefined();
     });
 

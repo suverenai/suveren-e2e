@@ -18,6 +18,12 @@ export function hashGateContent(content: { intent: string }): Record<string, str
 
 /**
  * Hash an execution context object (deterministic JSON serialization).
+ *
+ * NOT the v0.8 `execution_context_hash`: that is the hash of the PROFILE's
+ * executionContextSchema (computeExecutionContextHash below), and a v0.8
+ * Authority Server refuses anything else (MALFORMED_MANDATE). A 0.7 mandate
+ * request signs the value as sent, so the suite's 0.7 requests still use
+ * this; a 0.8 request uses computeExecutionContextHash.
  */
 export function hashExecutionContext(ctx: Record<string, unknown>): string {
   const sorted = Object.keys(ctx)
@@ -175,4 +181,13 @@ function canonicalizeJCS(value: unknown): string {
  */
 export function computeProfileHash(parsedProfile: unknown): string {
   return sha256Hash(canonicalizeJCS(parsedProfile));
+}
+
+/**
+ * v0.8 `execution_context_hash` — `"sha256:" + sha256(JCS(executionContextSchema))`
+ * of the parsed profile (protocol.md → *Execution Context Schema*), `{}` when
+ * the profile declares none. Same duplicate-canonicalizer rationale as above.
+ */
+export function computeExecutionContextHash(parsedProfile: { executionContextSchema?: unknown }): string {
+  return sha256Hash(canonicalizeJCS(parsedProfile.executionContextSchema ?? {}));
 }
