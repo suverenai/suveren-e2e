@@ -33,7 +33,7 @@ import { fileURLToPath } from 'node:url';
 import { signMandate, signTicket, type MandatePayload, type TicketPayload } from '@humanagencyp/hap-core';
 import { computeProfileHash } from '../src/helpers/crypto';
 
-const VECTOR_DIR = 'content/0.7/vectors';
+const VECTOR_DIR = 'content/0.8/vectors';
 const CANDIDATES = (name: string) => [
   fileURLToPath(new URL(`../../${VECTOR_DIR}/${name}`, import.meta.url)),
   fileURLToPath(new URL(`../../hap-protocol/${VECTOR_DIR}/${name}`, import.meta.url)),
@@ -116,5 +116,17 @@ describe.skipIf(!signatureVectors.path)('payload signatures — spec conformance
     if (!vc) return;
     const signed = await signTicket(vc.payload as Omit<TicketPayload, 'signature'>, privateKey('as'));
     expect(signed.signature).toBe(vc.signature);
+  });
+
+  it('ticket-payload-review (v0.8): the review-path ticket — proposalId, proposalContentHash, approvalSignature — reproduces', async () => {
+    const vc = caseById('ticket-payload-review');
+    expect(vc, 'the v0.8 set has a ticket-payload-review case').toBeTruthy();
+    const signed = await signTicket(vc.payload as Omit<TicketPayload, 'signature'>, privateKey('as'));
+    expect(signed.signature).toBe(vc.signature);
+    expect(vc.payload.approvalSignature.signature).toBe(caseById('approval').signature);
+  });
+
+  it('every v0.8 case is version "0.8"', () => {
+    for (const c of signatureVectors.data.cases) expect(c.payload.version, c.id).toBe('0.8');
   });
 });
