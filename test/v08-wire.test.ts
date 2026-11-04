@@ -352,6 +352,7 @@ describe('v0.8 — proposals (protocol.md → Proposals — what the Authority S
   let authorizationId: string;
   let mandateId: string;
   let boundsHash: string;
+  let promoted: Record<string, any>;
   const chargeBounds = { profile: '', amount_max: 500, amount_daily_max: 5000, amount_monthly_max: 50_000, transaction_count_daily_max: 50 };
 
   /** A structurally complete envelope; the AS never decrypts, so the bytes
@@ -395,13 +396,19 @@ describe('v0.8 — proposals (protocol.md → Proposals — what the Authority S
     });
     expect(r.status, JSON.stringify(r.body)).toBeLessThan(300);
     authorizationId = r.body.authorization_id as string;
-    const m = decodeBlob(r.body.blob as string);
-    mandateId = m.payload.mandate_id;
-    boundsHash = m.payload.bounds_hash;
-    expect(m.payload.commitment_mode).toBe('review_above_cap');
-    expect(m.payload.above_cap_approvers).toEqual([approver.did]);
-    expect(m.payload.above_cap_approvals).toBe(1);
+    promoted = decodeBlob(r.body.blob as string).payload;
+    mandateId = promoted.mandate_id;
+    boundsHash = promoted.bounds_hash;
   }, 120_000);
+
+  it('the group promotes the automatic request to review_above_cap and signs the approver by key-bearing DID and the count (Group roles, rules 2 and 7)', () => {
+    expect(promoted.commitment_mode).toBe('review_above_cap');
+    expect(promoted.above_cap_approvers).toEqual([approver.did]);
+    expect(promoted.above_cap_approvals).toBe(1);
+    // Group roles, rule 2: each approver is named by a key-bearing DID, so the
+    // approval signature verifies without a key the AS serves.
+    expect(approver.did).toMatch(/^did:key:z6Mk/);
+  });
 
   const args = { amount: 250, description: 'Annual licence', customer_id: 'cus_1' };
   const proposalBody = (over: Record<string, unknown> = {}) => ({
