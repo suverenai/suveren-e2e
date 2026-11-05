@@ -27,7 +27,7 @@ import {
 } from '../src/helpers/crypto';
 
 /** The spec repo is the parent in a local checkout, a sibling in CI. */
-const VECTOR_REL = 'content/0.7/vectors/canonical-bounds-and-scope.json';
+const VECTOR_REL = 'content/0.8/vectors/canonical-bounds-and-scope.json';
 const CANDIDATES = [
   fileURLToPath(new URL(`../../${VECTOR_REL}`, import.meta.url)),
   fileURLToPath(new URL(`../../hap-protocol/${VECTOR_REL}`, import.meta.url)),

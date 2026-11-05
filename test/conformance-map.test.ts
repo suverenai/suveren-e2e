@@ -71,9 +71,9 @@ describe('conformance map — the enforcement core of protocol.md v0.6', () => {
   it('covers all three core sections', () => {
     const sections = new Set(CORE_MUSTS.map(m => m.section));
     expect(sections).toEqual(
-      new Set(['Receipt Issuance', 'Gatekeeper & Executor', 'Read Authorization']),
+      new Set(['Receipt Issuance', 'Gatekeeper & Executor', 'Read Authorization', 'Mandate Issuance', 'Proposals']),
     );
-    expect(CORE_MUSTS.length).toBeGreaterThanOrEqual(25);
+    expect(CORE_MUSTS.length).toBeGreaterThanOrEqual(45);
   });
 
   it('uses unique ids', () => {

@@ -25,8 +25,8 @@ import { ProcessManager } from './process-manager.js';
 import { SPClient } from './sp-client.js';
 import { GatewayClient } from './gateway-client.js';
 import { ControlPlaneClient, GW_DIR, PROFILES_DIR } from './gateway-stack.js';
-import { hashGateContent, hashExecutionContext, computeBoundsHash, computeScopeHash } from './crypto.js';
-import { profileHashFor } from './profiles.js';
+import { hashGateContent, computeBoundsHash, computeScopeHash } from './crypto.js';
+import { profileHashFor, executionContextHashFor } from './profiles.js';
 
 export const ERP_MANIFEST_PATH = join(GW_DIR, 'content', 'integrations', 'erp.json');
 export const P = 'github.com/humanagencyprotocol/hap-profiles';
@@ -226,7 +226,7 @@ export class ErpLocalStack {
       bounds, bounds_hash: computeBoundsHash(bounds, doc.boundsSchema.keyOrder),
       scope_hash: computeScopeHash(scope, scopeKeys), domain: 'owner', did: this.did,
       commitment_mode: mode, gate_content_hashes: hashGateContent(gate),
-      execution_context_hash: hashExecutionContext({ intent }),
+      execution_context_hash: executionContextHashFor(profileId, PROFILES_DIR),
       ...extra,
     });
   }

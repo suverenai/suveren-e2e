@@ -141,7 +141,7 @@ describe.skipIf(!available)('delegation: the AI proposes its agent brief, a pers
       execution_context_hash: hashExecutionContext({ m: 'automatic' }),
     });
     expect(r.status).toBe(422);
-    expect((r.body.errors as Array<{ code: string }>)[0].code).toBe('commitment_mode_not_allowed');
+    expect((r.body.errors as Array<{ code: string }>)[0].code).toBe('COMMITMENT_MODE_NOT_ALLOWED');
   });
 
   it('with a review delegation mandate the tool is listed', async () => {

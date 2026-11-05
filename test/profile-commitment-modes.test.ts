@@ -102,7 +102,8 @@ describe('profile commitment_modes (real AS)', () => {
     const r = await attest(reviewOnly, 'automatic', reviewOnlyDoc);
     expect(r.status).toBe(422);
     const err = (r.body.errors as Array<Record<string, unknown>>)[0];
-    expect(err.code).toBe('commitment_mode_not_allowed');
+    // v0.8: the canonical code (protocol.md → Error Codes); the lowercase pre-0.8 spelling is retired.
+    expect(err.code).toBe('COMMITMENT_MODE_NOT_ALLOWED');
     expect(err.allowed).toEqual(['review']);
     expect(r.body.blob).toBeUndefined();
   });

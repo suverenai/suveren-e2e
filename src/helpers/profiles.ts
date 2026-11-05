@@ -16,7 +16,7 @@
  */
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { computeProfileHash } from './crypto.js';
+import { computeProfileHash, computeExecutionContextHash } from './crypto.js';
 
 /** The newest (v0.7-wire) version of each profile, as of hap-profiles
  *  `feat/v07-profiles` (draft PR #9). Keep in sync with that branch's
@@ -73,4 +73,10 @@ export function loadProfile(profileId: string, profilesDir: string): Record<stri
  *  AS was started with (local-profiles.ts) — pass the same `profilesDir`. */
 export function profileHashFor(profileId: string, profilesDir: string): string {
   return computeProfileHash(loadProfile(profileId, profilesDir));
+}
+
+/** v0.8 `execution_context_hash` for `profileId` — the hash of its
+ *  executionContextSchema, over the same bytes the local AS serves. */
+export function executionContextHashFor(profileId: string, profilesDir: string): string {
+  return computeExecutionContextHash(loadProfile(profileId, profilesDir) as { executionContextSchema?: unknown });
 }

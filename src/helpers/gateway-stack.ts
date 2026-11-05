@@ -22,8 +22,8 @@ import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js';
 import type { ProcessManager } from './process-manager';
 import type { SPClient } from './sp-client';
-import { computeBoundsHash, computeScopeHash, hashExecutionContext, hashGateContent } from './crypto';
-import { PROFILE_V07, profileHashFor } from './profiles';
+import { computeBoundsHash, computeScopeHash, hashGateContent } from './crypto';
+import { PROFILE_V07, profileHashFor, executionContextHashFor } from './profiles';
 
 // src/helpers/ → src → hap-e2e → workspace root
 export const ROOT = join(import.meta.dirname, '..', '..', '..');
@@ -261,7 +261,7 @@ export async function grantRecordsMandate(
     did: opts.did,
     commitment_mode: opts.mode,
     gate_content_hashes: hashGateContent(gateContent),
-    execution_context_hash: hashExecutionContext({ profile: RECORDS_PROFILE_ID, domain: 'owner' }),
+    execution_context_hash: executionContextHashFor(RECORDS_PROFILE_ID, PROFILES_DIR),
   });
   return { authorizationId: att.authorization_id, boundsHash, scopeHash, gateContent };
 }
