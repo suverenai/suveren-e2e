@@ -83,6 +83,7 @@ beforeAll(async () => {
 
   dataDir = pm.getDataDir();
   await pm.startGateway({
+    simulation: true,
     port: GW_PORT,
     spUrl: `http://localhost:${SP_PORT}`,
     spApiKey: apiKey,

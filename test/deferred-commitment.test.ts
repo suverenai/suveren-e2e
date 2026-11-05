@@ -9,7 +9,7 @@ import { SSEClientTransport } from '@modelcontextprotocol/sdk/client/sse.js';
 import { ProcessManager } from '../src/helpers/process-manager';
 import { SPClient } from '../src/helpers/sp-client';
 import { GatewayClient } from '../src/helpers/gateway-client';
-import { computeBoundsHash, hashGateContent, hashExecutionContext } from '../src/helpers/crypto';
+import { computeBoundsHash, computeScopeHash, hashGateContent, hashExecutionContext } from '../src/helpers/crypto';
 import { PROFILE_V07, profileHashFor } from '../src/helpers/profiles';
 
 const PROFILES_DIR = `${process.cwd()}/../hap-profiles`;
@@ -36,6 +36,7 @@ beforeAll(async () => {
   groupId = await sp.getPersonalGroupId(apiKey);
 
   await pm.startGateway({
+    simulation: true,
     port: GW_PORT,
     spUrl: `http://localhost:${SP_PORT}`,
     spApiKey: apiKey,
@@ -146,12 +147,20 @@ describe('Deferred Commitment', () => {
   }, 15_000);
 
   it('immediate commitment tool call executes directly', async () => {
-    // Create a new authorization WITHOUT deferred commitment for records
-    const profile = PROFILE_V07.records;
+    // A second mandate WITHOUT deferred commitment (automatic), for the lead
+    // contacts only. The gateway is in simulation mode (the practice CRM is
+    // its downstream), where the real records connector is paused by design —
+    // so the immediate-execution check runs on the same practice CRM, under a
+    // narrower scope that selection prefers over the review mandate above.
+    const profile = PROFILE_V07.customers;
     const path = profile;
-    const bounds = { profile, read_access: 'unlimited', write_daily_max: 10, delete_access: 'allowed', archive_access: 'allowed' };
-    const bh = computeBoundsHash(bounds, ['profile', 'read_access', 'write_daily_max', 'delete_access', 'archive_access']);
-    const ch = computeBoundsHash({}, []);
+    const bounds = {
+      profile, read_access: 'unlimited', export_access: 'none',
+      write_daily_max: 10, delete_daily_max: 5, setup_daily_max: 0,
+    };
+    const bh = computeBoundsHash(bounds, ['profile', 'read_access', 'export_access', 'write_daily_max', 'delete_daily_max', 'setup_daily_max']);
+    const scope = { contact_type: 'lead' };
+    const ch = computeScopeHash(scope, ['contact_type']);
     const gh = hashGateContent({ intent: 'test' });
     const eh = hashExecutionContext({ profile, domain: 'owner' });
 
@@ -170,7 +179,7 @@ describe('Deferred Commitment', () => {
     });
 
     await gw.pushGateContent(
-      { authorizationId: att2.authorization_id, boundsHash: bh, contextHash: ch, context: {} },
+      { authorizationId: att2.authorization_id, boundsHash: bh, contextHash: ch, context: scope },
       path,
       { intent: 'test' },
     );
@@ -183,10 +192,10 @@ describe('Deferred Commitment', () => {
     mcpClient = new Client({ name: 'test-agent', version: '1.0.0' }, { capabilities: {} });
     await mcpClient.connect(transport);
 
-    // Records tool should execute immediately (no proposal)
+    // The CRM tool should execute immediately (no proposal)
     const result = await mcpClient.callTool({
-      name: 'records__create_record',
-      arguments: { type: 'note', title: 'Test Note', content: 'Immediate execution' },
+      name: 'crm__create_contact',
+      arguments: { name: 'Test Note', type: 'lead' },
     });
     expect(result.isError).toBeFalsy();
     const text = (result.content as Array<{ text: string }>)[0].text;

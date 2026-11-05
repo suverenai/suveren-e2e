@@ -142,7 +142,7 @@ describe.skipIf(!available)('review-mode load_simulation: an approved proposal m
     const reg = await sp.register('Review Sim Test', `review-load-sim-${Date.now()}@test.local`);
     apiKey = reg.apiKey; did = reg.user.did;
     groupId = await sp.getPersonalGroupId(apiKey);
-    await pm.startGateway({ port: GW_PORT, spUrl: SP_URL, spApiKey: apiKey, profilesDir: PROFILES_DIR });
+    await pm.startGateway({ simulation: true, port: GW_PORT, spUrl: SP_URL, spApiKey: apiKey, profilesDir: PROFILES_DIR });
     await gw.configure({ sessionCookie: 'review-load-sim-e2e', apiKey });
 
     await gw.waitForIntegration('erp');
@@ -351,7 +351,7 @@ describe.skipIf(!refusedAvailable)('review-mode load_simulation: the Authority S
     const reg = await sp2.register('AS Refused Ticket Test', `as-refused-ticket-${Date.now()}@test.local`);
     apiKey2 = reg.apiKey; did2 = reg.user.did;
     groupId2 = await sp2.getPersonalGroupId(apiKey2);
-    await pm2.startGateway({ port: GW_PORT_2, spUrl: SP_URL_2, spApiKey: apiKey2, profilesDir: PROFILES_DIR });
+    await pm2.startGateway({ simulation: true, port: GW_PORT_2, spUrl: SP_URL_2, spApiKey: apiKey2, profilesDir: PROFILES_DIR });
     await gw2.configure({ sessionCookie: 'as-refused-ticket-e2e', apiKey: apiKey2 });
     await gw2.waitForIntegration('crm');
 

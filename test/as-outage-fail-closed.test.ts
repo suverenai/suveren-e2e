@@ -59,6 +59,7 @@ beforeAll(async () => {
   const groupId = await sp.getPersonalGroupId(apiKey);
 
   await pm.startGateway({
+    simulation: true,
     port: GW_PORT,
     spUrl: `http://localhost:${SP_PORT}`,
     spApiKey: apiKey,

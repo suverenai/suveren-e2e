@@ -105,7 +105,7 @@ beforeAll(async () => {
   apiKey = reg.apiKey;
   did = reg.user.did;
   groupId = await sp.getPersonalGroupId(apiKey);
-  await pm.startGateway({ port: GW_PORT, spUrl: SP_URL, spApiKey: apiKey, profilesDir: PROFILES_DIR });
+  await pm.startGateway({ simulation: true, port: GW_PORT, spUrl: SP_URL, spApiKey: apiKey, profilesDir: PROFILES_DIR });
   await gw.configure({ sessionCookie: 'crm-revisions-e2e', apiKey });
   // Automatic for changes; review for archiving/restoring — both "customers only".
   await grant('automatic', { read_access: 'unlimited', export_access: 'none', write_daily_max: 20, delete_daily_max: 0, setup_daily_max: 0 }, 'E2E: change customer records automatically.');

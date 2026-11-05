@@ -80,7 +80,7 @@ const work = mkdtempSync(join(tmpdir(), 'hap-e2e-au3-files-'));
 const secret = newSecret();
 const stack: StackOptions = {
   dataDir, ports: { cp: CP_PORT, mcp: MCP_PORT }, secret, asUrl: AS_URL,
-  extraEnv: { SUVEREN_DISABLE_AUTO_INTEGRATIONS: '1' },
+  extraEnv: { SUVEREN_DISABLE_AUTO_INTEGRATIONS: '1', SUVEREN_SIMULATION: '1' },
 };
 const cp = new ControlPlaneClient(CP_URL);
 const mcpInternal = new GatewayClient(MCP_URL, secret);

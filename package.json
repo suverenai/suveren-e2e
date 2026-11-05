@@ -6,8 +6,8 @@
     "test": "vitest run",
     "test:offline": "vitest run --config vitest.offline.config.ts",
     "test:watch": "vitest",
-    "test:browser": "npx playwright test",
-    "test:browser:headed": "npx playwright test --headed"
+    "test:browser": "npx playwright test && npx playwright test -c playwright.simulation.config.ts",
+    "test:browser:headed": "npx playwright test --headed && npx playwright test -c playwright.simulation.config.ts --headed"
   },
   "devDependencies": {
     "@humanagencyp/hap-core": "^0.12.0",

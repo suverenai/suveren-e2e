@@ -96,7 +96,7 @@ describe('v0.8 — personal mode: an agent\'s review proposal, built by the real
   beforeAll(async () => {
     owner = await register('Readers Owner');
     const groupId = await sp.getPersonalGroupId(owner.apiKey);
-    await ownerPm.startGateway({ port: OWNER_GW.mcp, cpPort: OWNER_GW.cp, spUrl: SP_URL, spApiKey: owner.apiKey, profilesDir: PROFILES_DIR });
+    await ownerPm.startGateway({ simulation: true, port: OWNER_GW.mcp, cpPort: OWNER_GW.cp, spUrl: SP_URL, spApiKey: owner.apiKey, profilesDir: PROFILES_DIR });
     const gw = new GatewayClient(`http://localhost:${OWNER_GW.mcp}`);
     await gw.configure({ sessionCookie: `api-key=${owner.apiKey}`, apiKey: owner.apiKey });
 
@@ -183,8 +183,8 @@ describe('v0.8 — a team with an above-cap approver: the gateway-built envelope
     expect(cfg.status, JSON.stringify(cfg.body)).toBeLessThan(300);
 
     // Both run their own real gateway; sign-in registers each one's reader key at the AS.
-    await grantorPm.startGateway({ port: GRANTOR_GW.mcp, cpPort: GRANTOR_GW.cp, spUrl: SP_URL, spApiKey: grantor.apiKey, profilesDir: PROFILES_DIR });
-    await approverPm.startGateway({ port: APPROVER_GW.mcp, cpPort: APPROVER_GW.cp, spUrl: SP_URL, spApiKey: approver.apiKey, profilesDir: PROFILES_DIR });
+    await grantorPm.startGateway({ simulation: true, port: GRANTOR_GW.mcp, cpPort: GRANTOR_GW.cp, spUrl: SP_URL, spApiKey: grantor.apiKey, profilesDir: PROFILES_DIR });
+    await approverPm.startGateway({ simulation: true, port: APPROVER_GW.mcp, cpPort: APPROVER_GW.cp, spUrl: SP_URL, spApiKey: approver.apiKey, profilesDir: PROFILES_DIR });
 
     const bounds = { profile: CHARGE, amount_max: 500, amount_daily_max: 5000, amount_monthly_max: 50_000, transaction_count_daily_max: 50 };
     const r = await sp.submitMandateRaw(grantor.apiKey, {

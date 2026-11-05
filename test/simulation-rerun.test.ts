@@ -4,11 +4,12 @@
  * The same cases must be able to run again under a different setup (other
  * mandates, another agent brief), and other cases under the same setup. Each
  * simulator therefore has `clear_simulation` next to `load_simulation`: both are
- * ticketed `setup` actions, hidden from an agent without a setup mandate. What
- * must hold:
+ * ticketed `setup` actions. The gateway runs in simulation mode (a gateway is
+ * simulation OR production, never both), where both tools are listed for every
+ * agent (SIM1). What must hold:
  *
- * - clear_simulation is invisible to the working agent and appears only with a
- *   setup mandate;
+ * - the working agent cannot run clear_simulation (refused, no mandate covers
+ *   it, no ticket); a setup mandate lets it run;
  * - after a clear, each simulator holds nothing but the record of the clear
  *   itself, and the same package loads again (same fingerprint);
  * - every trace left in the three simulators is a ticket the AS issued — the
@@ -135,7 +136,7 @@ describe.skipIf(!available)('simulation re-run: clear, then load again (real AS 
     const reg = await sp.register('Sim Rerun Test', `sim-rerun-${Date.now()}@test.local`);
     apiKey = reg.apiKey; did = reg.user.did;
     groupId = await sp.getPersonalGroupId(apiKey);
-    await pm.startGateway({ port: GW_PORT, spUrl: SP_URL, spApiKey: apiKey, profilesDir: PROFILES_DIR });
+    await pm.startGateway({ simulation: true, port: GW_PORT, spUrl: SP_URL, spApiKey: apiKey, profilesDir: PROFILES_DIR });
     await gw.configure({ sessionCookie: 'sim-rerun-e2e', apiKey });
 
     await gw.waitForIntegration('erp');
@@ -154,18 +155,25 @@ describe.skipIf(!available)('simulation re-run: clear, then load again (real AS 
     await pm.killAll();
   }, 30_000);
 
-  it('the working agent can neither see nor call clear_simulation — no ticket', async () => {
+  it('the working agent cannot call clear_simulation (listed in simulation mode, SIM1, but refused: no mandate covers it) — no ticket', async () => {
     for (const k of ['sales', 'customers', 'email'] as const) await grant(k, 'work');
     await reconnect();
     const names = await toolNames();
     expect(names).toContain('erp__create_quote');
-    for (const c of SYSTEMS) expect(names).not.toContain(`${c}__clear_simulation`);
-    for (const c of SYSTEMS) expect((await call(`${c}__clear_simulation`, {})).denied).toBe(true);
+    // On a simulation gateway the tool is listed for every agent regardless of
+    // mandate (SIM1, simulation-mode.test.ts); what the work mandate cannot do
+    // is call it.
+    for (const c of SYSTEMS) expect(names).toContain(`${c}__clear_simulation`);
+    for (const c of SYSTEMS) {
+      const r = await call(`${c}__clear_simulation`, {});
+      expect(r.denied).toBe(true);
+      expect(r.text).toMatch(/no mandate covers .*\(setup\).*No ticket was requested/);
+    }
     const { tickets: receipts } = await sp.getMyTicketsPage(apiKey, { limit: 50 });
     expect(receipts).toHaveLength(0);
   });
 
-  it('a setup mandate makes clear_simulation appear; the package loads into all three', async () => {
+  it('a setup mandate lets clear_simulation run; the package loads into all three', async () => {
     for (const k of ['sales', 'customers', 'email'] as const) await grant(k, 'setup');
     await reconnect();
     const names = await toolNames();

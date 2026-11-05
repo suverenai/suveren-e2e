@@ -269,6 +269,16 @@ export class ProcessManager {
      * cannot make review proposals (sealing them needs the signed-in vault).
      */
     signIn?: boolean;
+    /**
+     * Run the gateway in simulation mode (SUVEREN_SIMULATION=1). A gateway is
+     * EITHER in simulation OR in production, never both: in simulation every
+     * connector whose current mode is not simulated (records, gmail, calendar,
+     * mollie, or crm/erp set to live) is paused; in production a connector in
+     * simulated mode (crm/erp/mail at their default) does not start. A suite
+     * that uses the practice CRM/ERP/mailbox as its downstream therefore
+     * passes `simulation: true`; one that needs a real connector must not.
+     */
+    simulation?: boolean;
   }): Promise<ChildProcess> {
     const dataDir = this.getDataDir();
     const cpPort = opts.cpPort ?? await freePort();
@@ -283,6 +293,7 @@ export class ProcessManager {
       extraEnv: {
         SUVEREN_PROFILES_DIR: opts.profilesDir,
         SUVEREN_AS_API_KEY: opts.spApiKey,
+        ...(opts.simulation ? { SUVEREN_SIMULATION: '1' } : {}),
         // opts.mode is retained for caller compatibility; the gateway no
         // longer reads a MODE env var (group type is set via the AS).
       },

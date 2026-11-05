@@ -136,7 +136,7 @@ describe.skipIf(!available)('simulation setup + first case (real AS + gateway + 
     const reg = await sp.register('Sim Setup Test', `sim-setup-${Date.now()}@test.local`);
     apiKey = reg.apiKey; did = reg.user.did;
     groupId = await sp.getPersonalGroupId(apiKey);
-    await pm.startGateway({ port: GW_PORT, spUrl: SP_URL, spApiKey: apiKey, profilesDir: PROFILES_DIR });
+    await pm.startGateway({ simulation: true, port: GW_PORT, spUrl: SP_URL, spApiKey: apiKey, profilesDir: PROFILES_DIR });
     await gw.configure({ sessionCookie: 'sim-setup-e2e', apiKey });
 
     // erp + crm: personal defaults, installed from npm by the gateway on start.
@@ -214,10 +214,12 @@ describe.skipIf(!available)('simulation setup + first case (real AS + gateway + 
     for (const c of ['erp', 'crm', 'mail'] as const) {
       const first = await call(`${c}__load_simulation`, { package: pkg });
       expect(first.denied).toBe(true);
-      expect(first.text).toMatch(/revoked|setup_daily_max|limit|exceed/i);
+      expect(first.text).toMatch(/revoked|setup_daily_max|limit|exceed|no mandate covers .*\(setup\)/i);
       const r = await call(`${c}__load_simulation`, { package: pkg });
       expect(r.denied).toBe(true);
-      expect(r.text).toMatch(/setup_daily_max|limit|exceed/i);
+      // On a simulation gateway the load tool is always listed and the refusal names
+      // the missing setup mandate (the work mandate's setup_daily_max = 0 covers no setup).
+      expect(r.text).toMatch(/setup_daily_max|limit|exceed|no mandate covers .*\(setup\)/i);
     }
   });
 

@@ -2,8 +2,12 @@
  * ERP Local in production — customers (with the EU VIES check), quotes and the
  * catalogue — on the real stack: Authority Server + the whole gateway (control
  * plane + MCP server) + the erp connector in live mode "local" (real company
- * file, SQLite, PDFs, write-once archive) + the email connector (simulated
- * mailbox). Contract: hap-erp-mcp docs/local-production-contract.md, incl. §11
+ * file, SQLite, PDFs, write-once archive). NO mailbox: a gateway is simulation
+ * OR production, and the practice mailbox only runs in simulation - do not re-add
+ * it here. The email-with-attachment-by-reference journey lives in
+ * invoice-email-attachment.test.ts (simulation gateway, simulated ERP); the
+ * production path "ERP archive PDF -> real email" is covered by the Rehearsal's
+ * A3 against a real Gmail test account (passed 2026-11-05). Contract: hap-erp-mcp docs/local-production-contract.md, incl. §11
  * (AM1–AM4), §12 (Andreas's decisions D1–D5) and §13 (F1–F14).
  *
  * The ONLY stand-in is the EU VIES service: a local HTTP server
@@ -26,9 +30,9 @@
  *      reverse charge without a VIES-valid VAT ID (D1), non-EU customer (F3)
  *      on an invoice and on a quote — each refused
  *      before any proposal, with a Blocked entry, nothing in the ERP;
- *   5. quote (number from the request, own series) → quote PDF → email with the
- *      PDF attached by reference (sha = archive) → create_invoice {quote_id} →
- *      invoice; conversion refused after a tax-data change (AM2);
+ *   5. quote (number from the request, own series) → quote PDF (archive = the
+ *      previewed file) → create_invoice {quote_id} → invoice; conversion refused
+ *      after a tax-data change (AM2);
  *   6. catalogue: item; an invoice line priced off the list shows the notice
  *      check; an item_revision pin is refused after a price change;
  *   7. migration: a Local DB made by erp-mcp 0.9.5 (fixture copied from
@@ -64,7 +68,6 @@ const preinstalledErp = PREINSTALLED ? join(PREINSTALLED, 'node_modules', '@huma
 const gaps: string[] = [];
 if (!erpManifest?.toolGating?.overrides?.create_customer?.checks) gaps.push('a gateway whose erp.json declares create_customer with `checks` (suveren-gateway feat/erp-local-production)');
 if (!existsSync(join(PROFILES_DIR, 'master-data', '0.1.profile.json'))) gaps.push('hap-profiles master-data@0.1');
-if (!existsSync(join(PROFILES_DIR, 'email', '0.9.profile.json'))) gaps.push('hap-profiles email@0.9');
 // The Local production tools ship in erp-mcp 0.10.0 (contract §0). Either the
 // manifest pins that release (the gateway installs it from npm, as in CI), or a
 // local build that has them is preinstalled.
@@ -81,7 +84,6 @@ if (!available) console.warn(`[ERP LOCAL E2E] SKIPPED — needs ${gaps.join('; '
 const MASTER_DATA = `${P}/master-data@0.1`;
 const INVOICING = `${P}/invoicing@0.1`;
 const SALES = `${P}/sales@0.4`;
-const EMAIL = `${P}/email@0.9`;
 
 const MD_BOUNDS = {
   profile: MASTER_DATA, read_access: 'unlimited', customer_create_daily_max: 30, customer_update_daily_max: 30,
@@ -99,8 +101,7 @@ const SALES_BOUNDS = {
 
 // ── test data (MUSTER: invented throughout) ──────────────────────────────
 
-const CUSTOMER_DOMAIN = 'kunde-gmbh.example';
-const CUSTOMER_EMAIL = `buchhaltung@${CUSTOMER_DOMAIN}`;
+const CUSTOMER_EMAIL = 'buchhaltung@kunde-gmbh.example';
 const C1 = { name: 'Kunde GmbH', address_lines: ['Kundenweg 2', '4020 Linz'], country: 'AT', uid: 'ATU11111111', email: CUSTOMER_EMAIL, crm_contact_id: 'crm-contact-1' };
 const C1_NEW_UID = 'ATU44444444';
 const VAT_INVALID = 'ATU22222222';
@@ -183,14 +184,14 @@ function check(checks: any[], key: string, index?: number): any {
 
 // ── suite ────────────────────────────────────────────────────────────────
 
-describe.skipIf(!available)('ERP Local in production (real AS + gateway + erp-mcp live/local + email-mcp; VIES = local stand-in)', () => {
+describe.skipIf(!available)('ERP Local in production (real AS + gateway + erp-mcp live/local; VIES = local stand-in)', () => {
   beforeAll(async () => {
     const url = await vies.start();
     vies.set(C1.uid, { kind: 'valid', name: 'KUNDE GMBH', address: 'Kundenweg 2, 4020 Linz' });
     vies.set(C1_NEW_UID, { kind: 'valid' });
     vies.set(VAT_INVALID, { kind: 'invalid' });
     vies.set(DE_UNREACHABLE.uid, { kind: 'unavailable' });
-    s = new ErpLocalStack({ asPort: 19940, mcpPort: 19941, cpPort: 19942, viesUrl: url, label: 'main', mail: true });
+    s = new ErpLocalStack({ asPort: 19940, mcpPort: 19941, cpPort: 19942, viesUrl: url, label: 'main' });
     await s.start();
   }, 300_000);
 
@@ -217,16 +218,13 @@ describe.skipIf(!available)('ERP Local in production (real AS + gateway + erp-mc
       expect(r.body.blob).toBeUndefined();
     });
 
-    it('review → signed; with invoicing, sales and email 0.9 (quote-pdf allowed) mandates the tools are listed', async () => {
+    it('review → signed; with invoicing and sales mandates the tools are listed', async () => {
       await s.grant(MASTER_DATA, MD_BOUNDS, {}, 'E2E: customers and catalogue, each change approved.');
       await s.grant(INVOICING, INV_BOUNDS, { currency: 'EUR' }, 'E2E: invoices, each approved before it is issued.');
       await s.grant(SALES, SALES_BOUNDS, { currency: 'EUR' }, 'E2E: quotes, each approved before it is issued.');
-      await s.grant(EMAIL, { profile: EMAIL, read_access: 'unlimited', recipient_max: 1, send_daily_max: 20, read_max_age_days: 30, setup_daily_max: 0 },
-        { allowed_recipients: CUSTOMER_EMAIL, allowed_domains: CUSTOMER_DOMAIN, allowed_attachment_sources: 'erp:quote-pdf' },
-        'E2E: send quotes to the customer, each email approved.');
       await new Promise((r) => setTimeout(r, 1_000));
       const names = (await s.agent.listTools()).tools.map((t) => t.name);
-      for (const t of ['erp__create_customer', 'erp__update_customer_tax_data', 'erp__create_item', 'erp__update_item_price', 'erp__create_quote', 'erp__create_invoice', 'mail__send_message']) {
+      for (const t of ['erp__create_customer', 'erp__update_customer_tax_data', 'erp__create_item', 'erp__update_item_price', 'erp__create_quote', 'erp__create_invoice']) {
         expect(names).toContain(t);
       }
       // Card-only reads are the gateway's, never the AI's.
@@ -460,8 +458,8 @@ describe.skipIf(!available)('ERP Local in production (real AS + gateway + erp-mc
     });
   });
 
-  // ── 5. quote → PDF → email → invoice ───────────────────────────────────
-  describe('5. quote (number from the request) → PDF → email by reference → invoice; AM2', () => {
+  // ── 5. quote → PDF → invoice ───────────────────────────────────
+  describe('5. quote (number from the request) → PDF → invoice; AM2', () => {
     const QUOTE_NO = 'A-2026-001';
     const QUOTE_LINES = [{ description: 'Workshop Prozessanalyse', qty: 2, unit: 'Tag', unit_price: 950, vat_rate: 20 }];
     let quoteProposal = '';
@@ -504,30 +502,6 @@ describe.skipIf(!available)('ERP Local in production (real AS + gateway + erp-mc
       note('invoice with the quote number', r.denied ? 'refused at the call' : 'proposal made, refused at execution', text);
       expect(text).toMatch(/already|used|Refused/i);
       expect(await invoiceCount()).toBe(before);
-    });
-
-    let mailProposal = '';
-    it('send_message with the quote PDF by reference: the card seals the archived file', async () => {
-      mailProposal = await propose('mail__send_message', {
-        to: [CUSTOMER_EMAIL], subject: `Angebot ${QUOTE_NO}`, body: 'Sehr geehrte Damen und Herren,\n\nanbei unser Angebot.\n\nMaria Muster',
-        attachments: [{ connector: 'erp', kind: 'quote-pdf', id: QUOTE_NO }],
-      });
-      const args = await s.cardArgs(mailProposal);
-      const sealed = args._attachmentsSealed?.attachments;
-      expect(sealed, JSON.stringify(args).slice(0, 500)).toHaveLength(1);
-      expect(sealed[0]).toMatchObject({ connector: 'erp', kind: 'quote-pdf', id: QUOTE_NO, contentType: 'application/pdf', sha256: previewSha });
-      const prev = await s.cpGet(`/proposal-status/${mailProposal}/attachment-preview/${previewSha}`);
-      expect(prev.body.status, JSON.stringify(prev.body).slice(0, 300)).toBe('ok');
-    });
-
-    it('approved → the mailbox holds exactly the archived quote PDF', async () => {
-      const sent = await approveOk(mailProposal);
-      const msg = await s.mailboxCall('get_message', { id: sent.id });
-      expect(msg.to).toEqual([CUSTOMER_EMAIL]);
-      expect(msg.attachments).toHaveLength(1);
-      expect(msg.attachments[0]).toMatchObject({ contentType: 'application/pdf', sha256: previewSha });
-      const file = await s.mailboxCall('get_attachment', { message_id: sent.id, sha256: previewSha });
-      expect(sha256(Buffer.from(file.contentBase64, 'base64'))).toBe(previewSha);
     });
 
     it('create_invoice {quote_id, quote_revision} → card shows the quote → approved → invoice with the quote\'s lines; quote converted', async () => {

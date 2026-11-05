@@ -97,10 +97,13 @@ Layer 2, with all six repositories checked out as siblings:
 ```bash
 npm ci
 npx vitest run            # protocol conformance
-npx playwright test       # browser journeys
+npx playwright test       # browser journeys, production gateway
+npx playwright test -c playwright.simulation.config.ts   # the specs that use the practice CRM/ERP/mailbox (simulation gateway)
 ```
 
-Both spawn their own Authority Server and gateway on dedicated ports and tear
+A gateway is EITHER in simulation mode OR in production, never both: suites that use the practice CRM / ERP / mailbox start their gateway with `simulation: true` (vitest) or are listed in `e2e/simulation-specs.ts` (Playwright); a suite that needs a real connector (records, calendar, gmail, ERP/CRM live) runs on a production gateway. They cannot be mixed in one gateway.
+
+All of them spawn their own Authority Server and gateway on dedicated ports and tear
 them down afterwards. **Do not run them concurrently** — they compete for those
 ports.
 

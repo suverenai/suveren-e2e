@@ -176,7 +176,7 @@ beforeAll(async () => {
   }));
 
   // signIn: false — sign-in would unlock the vault and encrypt denials.json (see header).
-  await pm.startGateway({ port: GW_PORT, spUrl: SP_URL, spApiKey: apiKey, profilesDir, signIn: false });
+  await pm.startGateway({ simulation: true, port: GW_PORT, spUrl: SP_URL, spApiKey: apiKey, profilesDir, signIn: false });
   await gw.configure({ sessionCookie: 'au2-blocked-e2e', apiKey });
 
   // Per-transaction cap 5,000; cumulative daily cap of exactly 1 write — the
