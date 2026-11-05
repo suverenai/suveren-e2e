@@ -7,12 +7,10 @@
  * Each test gets a fresh page, so we must login + do all checks in one test,
  * navigating via sidebar clicks (SPA navigation) not page.goto (full reload).
  */
-import { test, expect, ensureUsersRegistered, ALICE, signInToGateway, handleOnboarding, createAuthorization, activateIntegration, SP_URL, GW_URL , ensureProfileEnabledForActiveGroups, latestProfileId} from './fixtures';
+import { test, expect, ensureUsersRegistered, ALICE, signInToGateway, handleOnboarding, createAuthorization, activateIntegration, SP_URL, GW_URL , ensureProfileEnabledForActiveGroups, latestProfileId, cardTitlePattern} from './fixtures';
 
 // The version the gateway's Records wizard grants under (newest) — see latestProfileId.
 const RECORDS_PROFILE = latestProfileId('records');
-// The version the gateway's CRM wizard grants under (newest) — see latestProfileId.
-const CUSTOMERS_PROFILE = latestProfileId('customers');
 
 test.describe.serial('Journey 1: Personal User', () => {
   let apiKey: string;
@@ -71,9 +69,21 @@ test.describe.serial('Journey 1: Personal User', () => {
     await signInToGateway(page, apiKey);
     await handleOnboarding(page);
 
-    // Activate personal default integrations (CRM + Records)
+    // This is a PRODUCTION gateway (simulation OR production, never both): the real
+    // connector (Records) runs; the practice CRM, set to simulation by default, is
+    // paused and says so. The practice CRM journeys run on the simulation gateway
+    // (playwright.simulation.config.ts, journey-5).
     await activateIntegration(page, 'Records');
-    await activateIntegration(page, 'CRM');
+    await page.waitForLoadState('networkidle');
+    await page.click('.sidebar-item:has-text("Integrations")');
+    await page.waitForURL('**/integrations');
+    const crmCard = page.locator('.card', { has: page.locator('.card-title', { hasText: cardTitlePattern('CRM') }) }).first();
+    await crmCard.waitFor({ state: 'visible', timeout: 10_000 });
+    // Activating it does not start it: the gateway saves it but does not start it, and says so (a toast).
+    const activate = crmCard.locator('button:has-text("Activate")');
+    if (await activate.count()) await activate.first().click();
+    await expect(page.getByText(/failed to start: crm: blocked: simulated connector/i).first()).toBeVisible({ timeout: 30_000 });
+    await expect(page.locator('.card', { has: page.locator('.card-title', { hasText: cardTitlePattern('CRM') }) }).locator('text=Running')).toHaveCount(0);
   });
 
   test('1.4 Gateway: create authorization with Automatic commit', async ({ page }) => {
@@ -98,22 +108,24 @@ test.describe.serial('Journey 1: Personal User', () => {
   });
 
   test('1.5 Gateway: create authorization with Review Each Action commit', async ({ page }) => {
-    // Same reason as 1.4 — this one grants under the CRM (customers) profile.
-    await ensureProfileEnabledForActiveGroups(apiKey, CUSTOMERS_PROFILE, ALICE.id);
+    // Same reason as 1.4 - this one grants under the Records profile again, in review
+    // mode. (It used the CRM before; on a production gateway the practice CRM is
+    // paused, so it offers no "Give a mandate" - see 1.3.)
+    await ensureProfileEnabledForActiveGroups(apiKey, RECORDS_PROFILE, ALICE.id);
     await signInToGateway(page, apiKey);
     await handleOnboarding(page);
 
     await createAuthorization(page, {
-      profileName: 'CRM',
+      profileName: 'Records',
       bounds: { write_daily_max: '5' },
-      intent: 'Need CRM operations under review. Each action requires manual approval before executing.',
-      title: 'CRM: review mode',
+      intent: 'Need records operations under review. Each action requires manual approval before executing.',
+      title: 'Records: review mode',
       commitMode: 'per-action',
     });
 
-    // createAuthorization lands on the authorizations list; the new CRM
+    // createAuthorization lands on the authorizations list; the new Records
     // (review-mode) authority should now be listed.
-    await expect(page.getByText('CRM').first()).toBeVisible({ timeout: 10_000 });
+    await expect(page.getByText('Records').first()).toBeVisible({ timeout: 10_000 });
   });
 
   test('1.6 Gateway: revoke authorization', async ({ page }) => {

@@ -1,9 +1,10 @@
 /**
  * The real stack for ERP Local in production (hap-erp-mcp
  * docs/local-production-contract.md): Authority Server + the whole gateway
- * (control plane + MCP server) + the erp connector in live mode "local" (real
- * company file, real SQLite, real PDFs, write-once archive) + the email
- * connector (simulated mailbox). Nothing is mocked. The ONLY stand-in is the
+ * (control plane + MCP server, production - not simulation mode) + the erp
+ * connector in live mode "local" (real company file, real SQLite, real PDFs,
+ * write-once archive). No mailbox: the practice mailbox only runs on a
+ * simulation gateway, never together with ERP live. Nothing is mocked. The ONLY stand-in is the
  * EU VIES service (vies-stub.ts), reached through the connector's own
  * `ERP_VIES_URL` setting.
  *
@@ -16,7 +17,6 @@
  */
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { SSEClientTransport } from '@modelcontextprotocol/sdk/client/sse.js';
-import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js';
 import { readFileSync, writeFileSync } from 'node:fs';
 import { randomUUID } from 'node:crypto';
 import { join } from 'node:path';
@@ -62,8 +62,6 @@ export interface ErpLocalStackOptions {
   /** Called with the gateway data dir BEFORE the gateway starts (e.g. to put a fixture DB in place). */
   beforeGateway?: (dataDir: string) => void | Promise<void>;
   label: string;
-  /** Activate the email connector (simulated mailbox) too. */
-  mail?: boolean;
 }
 
 export class ErpLocalStack {
@@ -79,7 +77,6 @@ export class ErpLocalStack {
   userId = '';
   groupId = '';
   agent!: Client;
-  mailbox: Client | null = null;
   companyFile = '';
   private previousDisableAuto: string | undefined;
 
@@ -121,24 +118,13 @@ export class ErpLocalStack {
     if (act.status !== 200) throw new Error(`activate erp: ${act.status} ${await act.text()}`);
     await this.gw.waitForIntegration('erp');
 
-    if (this.opts.mail) {
-      const res = await this.cp.authed(this.apiKey, 'POST', '/mcp/integrations/mail/activate');
-      if (res.status !== 200) throw new Error(`activate mail: ${res.status} ${await res.text()}`);
-      await this.gw.waitForIntegration('mail');
-      const mailBin = join(this.dataDir, 'integrations', 'node_modules', '@humanagencyp', 'email-mcp', 'dist', 'index.js');
-      const env: Record<string, string> = {};
-      for (const [k, v] of Object.entries(process.env)) if (v !== undefined && k !== 'DATABASE_URL') env[k] = v;
-      this.mailbox = new Client({ name: 'operator-mailbox', version: '1.0.0' }, { capabilities: {} });
-      await this.mailbox.connect(new StdioClientTransport({ command: process.execPath, args: [mailBin], env: { ...env, HAP_DATA_DIR: this.dataDir }, stderr: 'ignore' }));
-    }
-
     await new Promise((r) => setTimeout(r, 1_000));
     this.agent = new Client({ name: `erp-local-agent-${this.opts.label}`, version: '1.0.0' }, { capabilities: {} });
     await this.agent.connect(new SSEClientTransport(new URL(`${this.mcpUrl}/sse`)));
   }
 
   async stop(): Promise<void> {
-    for (const c of [this.agent, this.mailbox]) if (c) await c.close().catch(() => {});
+    for (const c of [this.agent]) if (c) await c.close().catch(() => {});
     await this.pm.killAll();
     if (this.previousDisableAuto === undefined) delete process.env.SUVEREN_DISABLE_AUTO_INTEGRATIONS;
     else process.env.SUVEREN_DISABLE_AUTO_INTEGRATIONS = this.previousDisableAuto;
@@ -261,16 +247,6 @@ export class ErpLocalStack {
     const { status, body } = await this.cpGet('/denials?limit=500');
     if (status !== 200) throw new Error(`/denials: ${status} ${JSON.stringify(body)}`);
     return body.records ?? [];
-  }
-
-  // ── the simulated mailbox, the operator's own view ──────────────────────
-
-  async mailboxCall(tool: string, args: Record<string, unknown>): Promise<any> {
-    if (!this.mailbox) throw new Error('mail not started');
-    const r = await this.mailbox.callTool({ name: tool, arguments: args });
-    const text = (r.content as Array<{ text?: string }>)?.map((c) => c.text ?? '').join('\n') ?? '';
-    if (r.isError) throw new Error(`mailbox ${tool}: ${text}`);
-    return JSON.parse(text);
   }
 }
 

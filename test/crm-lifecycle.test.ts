@@ -81,6 +81,7 @@ beforeAll(async () => {
 
   // 4. Start gateway with user's API key
   await pm.startGateway({
+    simulation: true,
     port: GW_PORT,
     spUrl: SP_URL,
     spApiKey: user.apiKey,

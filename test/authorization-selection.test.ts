@@ -125,7 +125,7 @@ async function bootScenario(spPort: number, gwPort: number, grants: Grant[]): Pr
   const did = user.user.did;
   const groupId = await sp.getPersonalGroupId(apiKey);
 
-  await pm.startGateway({ port: gwPort, spUrl, spApiKey: apiKey, profilesDir: PROFILES_DIR });
+  await pm.startGateway({ simulation: true, port: gwPort, spUrl, spApiKey: apiKey, profilesDir: PROFILES_DIR });
   await gw.configure({ sessionCookie: `selection-e2e-${spPort}`, apiKey });
 
   const boundsHash = computeBoundsHash(BOUNDS, BOUNDS_KEY_ORDER);

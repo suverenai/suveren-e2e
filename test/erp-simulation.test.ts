@@ -112,7 +112,7 @@ describe.skipIf(!available)('ERP simulation: request → ticket → effect (real
     apiKey = reg.apiKey;
     const groupId = await sp.getPersonalGroupId(apiKey);
 
-    await pm.startGateway({ port: GW_PORT, spUrl: SP_URL, spApiKey: apiKey, profilesDir: PROFILES_DIR });
+    await pm.startGateway({ simulation: true, port: GW_PORT, spUrl: SP_URL, spApiKey: apiKey, profilesDir: PROFILES_DIR });
     await gw.configure({ sessionCookie: 'erp-sim-e2e', apiKey });
 
     // The shipped manifest registers the published connector as a personal default;

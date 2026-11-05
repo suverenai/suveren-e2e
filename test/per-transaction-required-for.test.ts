@@ -204,7 +204,7 @@ beforeAll(async () => {
     profiles: { [profileId]: 'profile.json' },
   }));
 
-  await pm.startGateway({ port: GW_PORT, spUrl: SP_URL, spApiKey: apiKey, profilesDir });
+  await pm.startGateway({ simulation: true, port: GW_PORT, spUrl: SP_URL, spApiKey: apiKey, profilesDir });
   await gw.configure({ sessionCookie: 'required-for-e2e', apiKey });
 
   // 3. Grant: amount_max = 5,000 (per-transaction cap, required for `write`).

@@ -116,7 +116,7 @@ describe.skipIf(!available)('Commitment execution result retention (review mode,
     userDid = reg.user.did;
     const groupId = await sp.getPersonalGroupId(apiKey);
 
-    await pm.startGateway({ port: GW_PORT, spUrl: SP_URL, spApiKey: apiKey, profilesDir: PROFILES_DIR });
+    await pm.startGateway({ simulation: true, port: GW_PORT, spUrl: SP_URL, spApiKey: apiKey, profilesDir: PROFILES_DIR });
     await gw.configure({ sessionCookie: 'exec-result-e2e', apiKey });
 
     const bounds = {

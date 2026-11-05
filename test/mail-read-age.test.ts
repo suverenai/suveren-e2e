@@ -127,7 +127,7 @@ async function boot(spPort: number, gwPort: number, opts: { readAgeDays?: number
   const prevAuto = process.env.SUVEREN_DISABLE_AUTO_INTEGRATIONS;
   process.env.SUVEREN_DISABLE_AUTO_INTEGRATIONS = '1';
   try {
-    await pm.startGateway({ port: gwPort, spUrl, spApiKey: apiKey, profilesDir: PROFILES_DIR });
+    await pm.startGateway({ simulation: true, port: gwPort, spUrl, spApiKey: apiKey, profilesDir: PROFILES_DIR });
   } finally {
     if (prevAuto === undefined) delete process.env.SUVEREN_DISABLE_AUTO_INTEGRATIONS;
     else process.env.SUVEREN_DISABLE_AUTO_INTEGRATIONS = prevAuto;

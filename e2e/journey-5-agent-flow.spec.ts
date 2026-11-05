@@ -31,8 +31,9 @@ test.describe.serial('Journey 5: Agent Flow', () => {
 
     await signInToGateway(page, apiKey);
     await handleOnboarding(page);
+    // Simulation gateway (playwright.simulation.config.ts): the practice CRM runs,
+    // the real Records connector is paused by design - this journey only needs the CRM.
     await activateIntegration(page, 'CRM');
-    await activateIntegration(page, 'Records');
   });
 
   test('5.2 Create authorization with Automatic via gateway', async ({ page }) => {

@@ -183,7 +183,7 @@ describe.skipIf(!available)('ERP invoicing: its own area, its own limits (real A
     userDid = reg.user.did;
     groupId = await sp.getPersonalGroupId(apiKey);
 
-    await pm.startGateway({ port: GW_PORT, spUrl: SP_URL, spApiKey: apiKey, profilesDir: PROFILES_DIR });
+    await pm.startGateway({ simulation: true, port: GW_PORT, spUrl: SP_URL, spApiKey: apiKey, profilesDir: PROFILES_DIR });
     await gw.configure({ sessionCookie: 'erp-inv-e2e', apiKey });
     await gw.waitForIntegration('erp');
 
@@ -236,12 +236,12 @@ describe.skipIf(!available)('ERP invoicing: its own area, its own limits (real A
   it('2. without an invoicing mandate, create_invoice is refused — the sales mandate does not cover it', async () => {
     const r = await call('erp__create_invoice', { customer_id: 'cust-4', order_id: orderId, net_total: ORDER_NET, currency: 'EUR' });
     expect(r.denied).toBe(true);
-    expect(r.text).toContain('no mandate covers erp__create_invoice (invoicing)');
+    expect(r.text).toContain('no mandate covers erp__create_invoice (Invoicing)');
     expect(r.text).toContain('No ticket was requested');
     // Read access is the invoicing area's too — the sales mandate's read_access does not reach it.
     const read = await call('erp__list_invoices', {});
     expect(read.denied).toBe(true);
-    expect(read.text).toContain('no mandate covers erp__list_invoices (invoicing)');
+    expect(read.text).toContain('no mandate covers erp__list_invoices (Invoicing)');
     const record = JSON.parse(erpCli('export'));
     expect(record.changes.map((c: any) => c.tool)).not.toContain('create_invoice');
   });

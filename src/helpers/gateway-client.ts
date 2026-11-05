@@ -146,11 +146,11 @@ export class GatewayClient {
   }
 
   /** Current status of every registered integration. */
-  async integrations(): Promise<Array<{ id: string; running?: boolean; error?: string; readAgeDays?: number | null }>> {
+  async integrations(): Promise<Array<{ id: string; running?: boolean; error?: string; paused?: string; readAgeDays?: number | null }>> {
     const res = await this.request('GET', '/internal/integrations');
     if (!res.ok) return [];
     const body = (await res.json()) as {
-      integrations?: Array<{ id: string; running?: boolean; error?: string; readAgeDays?: number | null }>;
+      integrations?: Array<{ id: string; running?: boolean; error?: string; paused?: string; readAgeDays?: number | null }>;
     };
     return body.integrations ?? [];
   }

@@ -70,7 +70,7 @@ beforeAll(async () => {
   did = reg.user.did;
   groupId = await sp.getPersonalGroupId(apiKey);
   // signIn: false — sign-in unlocks the vault, and denials.json (read below) would be encrypted.
-  await pm.startGateway({ port: GW_PORT, spUrl: SP_URL, spApiKey: apiKey, profilesDir: PROFILES_DIR, signIn: false });
+  await pm.startGateway({ simulation: true, port: GW_PORT, spUrl: SP_URL, spApiKey: apiKey, profilesDir: PROFILES_DIR, signIn: false });
   await gw.configure({ sessionCookie: 'tools-always-listed-e2e', apiKey });
   await gw.waitForIntegration('crm');
   await sleep(2_000);
@@ -103,8 +103,8 @@ describe('tools always listed — the client lists once, the mandate comes later
     const r = await call('crm__create_contact', { name: 'Maria Huber', type: 'customer' });
     expect(r.error, r.text).toBe(true);
     expect(r.text).toBe(
-      'Refused: no mandate covers crm__create_contact (customers). Nothing was done. ' +
-        'Ask the person to grant a customers mandate in the gateway, then try again. No ticket was requested.',
+      'Refused: no mandate covers crm__create_contact (Customers). Nothing was done. ' +
+        'Ask the person to grant a Customers mandate in the gateway, then try again. No ticket was requested.',
     );
     const denials = readDenials();
     expect(denials.length).toBe(before + 1);

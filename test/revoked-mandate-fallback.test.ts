@@ -117,7 +117,7 @@ describe('Revoked-mandate fallback — the very next call succeeds via the remai
     did = user.user.did;
     groupId = await sp.getPersonalGroupId(apiKey);
 
-    await pm.startGateway({ port: GW_PORT, spUrl: SP_URL, spApiKey: apiKey, profilesDir: PROFILES_DIR });
+    await pm.startGateway({ simulation: true, port: GW_PORT, spUrl: SP_URL, spApiKey: apiKey, profilesDir: PROFILES_DIR });
     await gw.configure({ sessionCookie: 'revoke-fallback-e2e', apiKey });
 
     const boundsHash = computeBoundsHash(BOUNDS, BOUNDS_KEY_ORDER);

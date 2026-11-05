@@ -42,7 +42,8 @@ export function latestProfileId(short: string): string {
 
 // ─── Ports ───────────────────────────────────────────────────────────────────
 
-export const SP_PORT = 19100;
+// Default 19100; HAP_E2E_PW_AS_PORT moves it when a stray process of another run holds it.
+export const SP_PORT = Number(process.env.HAP_E2E_PW_AS_PORT ?? 19100);
 export const GW_CP_PORT = 19402;
 export const GW_MCP_PORT = 19430;
 
@@ -134,6 +135,16 @@ async function waitFor(url: string, ms: number): Promise<void> {
     await new Promise(r => setTimeout(r, 1000));
   }
   throw new Error(`Timeout waiting for ${url}`);
+}
+
+/**
+ * A gateway is EITHER in simulation mode OR in production. The default
+ * Playwright config runs the production gateway; playwright.simulation.config.ts
+ * sets HAP_E2E_PW_SIMULATION=1 for the specs that use the practice CRM / ERP /
+ * mailbox (e2e/simulation-specs.ts).
+ */
+function simulationEnv(): Record<string, string> {
+  return process.env.HAP_E2E_PW_SIMULATION === '1' ? { SUVEREN_SIMULATION: '1' } : {};
 }
 
 export async function startServers(): Promise<void> {
@@ -240,6 +251,7 @@ export async function startServers(): Promise<void> {
       // so encrypt/decrypt and every other MCP→CP call went to the wrong one.
       SUVEREN_CP_PORT: String(GW_CP_PORT),
       SUVEREN_CP_INTERNAL_URL: `http://127.0.0.1:${GW_CP_PORT}`,
+      ...simulationEnv(),
       // erp.json declares `passEnv: ["ERP_COMPANY_FILE"]` — the connector
       // seeds this company into its empty database on first open.
       ERP_COMPANY_FILE,
@@ -262,6 +274,7 @@ export async function startServers(): Promise<void> {
       SUVEREN_DATA_DIR: dataDir,
       SUVEREN_INTERNAL_SECRET: INTERNAL_SECRET,
       HAP_UI_DIST: join(GW_DIR, 'apps/ui/dist'), // still HAP_-prefixed in v0.4
+      ...simulationEnv(),
     },
     stdio: ['pipe', 'pipe', 'pipe'],
   });

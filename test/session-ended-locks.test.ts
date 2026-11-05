@@ -79,6 +79,7 @@ beforeAll(async () => {
   const groupId = await sp.getPersonalGroupId(apiKey);
 
   await pm.startGateway({
+    simulation: true,
     port: GW_PORT,
     spUrl: SP_URL,
     // NO API key: with SUVEREN_AS_API_KEY set, the gateway sends X-API-Key on

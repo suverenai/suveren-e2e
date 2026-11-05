@@ -111,7 +111,7 @@ beforeAll(async () => {
   user = { ...result.user, apiKey: result.apiKey };
   personalGroupId = await sp.getPersonalGroupId(user.apiKey);
 
-  await pm.startGateway({ port: GW_PORT, spUrl: SP_URL, spApiKey: user.apiKey, profilesDir: PROFILES_DIR });
+  await pm.startGateway({ simulation: true, port: GW_PORT, spUrl: SP_URL, spApiKey: user.apiKey, profilesDir: PROFILES_DIR });
   await gw.configure({ sessionCookie: 'export-e2e-test', apiKey: user.apiKey });
 
   // Real crm-mcp, auto-registered as a personal default. Poll for readiness —
