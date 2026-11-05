@@ -249,6 +249,12 @@ jobs:
         # rather than a parallel job.
         run: npx playwright test
 
+      # A gateway is simulation OR production, never both (gateway#181): the
+      # journeys on the practice systems run on their own simulation gateway.
+      - name: Run browser journeys (simulation gateway)
+        working-directory: hap-e2e
+        run: npx playwright test -c playwright.simulation.config.ts
+
       - name: Upload logs
         if: always()
         uses: actions/upload-artifact@v4
