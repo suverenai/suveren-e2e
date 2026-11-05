@@ -79,11 +79,10 @@ test.describe.serial('Journey 1: Personal User', () => {
     await page.waitForURL('**/integrations');
     const crmCard = page.locator('.card', { has: page.locator('.card-title', { hasText: cardTitlePattern('CRM') }) }).first();
     await crmCard.waitFor({ state: 'visible', timeout: 10_000 });
-    // Activating it does not start it: the gateway saves it but does not start it, and says so (a toast).
-    const activate = crmCard.locator('button:has-text("Activate")');
-    if (await activate.count()) await activate.first().click();
-    await expect(page.getByText(/failed to start: crm: blocked: simulated connector/i).first()).toBeVisible({ timeout: 30_000 });
-    await expect(page.locator('.card', { has: page.locator('.card-title', { hasText: cardTitlePattern('CRM') }) }).locator('text=Running')).toHaveCount(0);
+    // The card says it is paused in production, and why; nothing runs.
+    await expect(crmCard).toContainText('Paused in production', { timeout: 30_000 });
+    await expect(crmCard).toContainText('This gateway runs in production, and this connector is set to simulation.');
+    await expect(crmCard.locator('text=Running')).toHaveCount(0);
   });
 
   test('1.4 Gateway: create authorization with Automatic commit', async ({ page }) => {
