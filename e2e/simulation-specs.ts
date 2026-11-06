@@ -12,6 +12,7 @@
  * in this list: in simulation mode those are paused.
  */
 export const SIMULATION_SPECS = [
+  'approval-panel.spec.ts',
   'au10-request-context.spec.ts',
   'au8-preview-reads.spec.ts',
   'blocked-seen.spec.ts',

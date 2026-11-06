@@ -36,16 +36,16 @@ test.describe.serial('Journey 1: Personal User', () => {
 
     // Sidebar items (nav labels from Sidebar.tsx)
     await expect(page.locator('.sidebar')).toBeVisible();
-    await expect(page.locator('.sidebar-item:has-text("Integrations")')).toBeVisible();
+    await expect(page.locator('.sidebar-item:has-text("Connectors")')).toBeVisible();
     await expect(page.locator('.sidebar-item:has-text("Settings")')).toBeVisible();
     await expect(page.locator('.sidebar-item:has-text("Approvals")')).toBeVisible();
     await expect(page.locator('.sidebar-item:has-text("Mandates")')).toBeVisible();
 
-    // Navigate to Integrations via sidebar — assert the route + page title
+    // Navigate to Connectors (route /integrations) via sidebar — assert the route + page title
     // (card content depends on integrations loading, which is flaky).
-    await page.click('.sidebar-item:has-text("Integrations")');
+    await page.click('.sidebar-item:has-text("Connectors")');
     await page.waitForURL('**/integrations');
-    await expect(page.locator('.page-title')).toHaveText('Integrations', { timeout: 10_000 });
+    await expect(page.locator('.page-title')).toHaveText('Connectors', { timeout: 10_000 });
 
     // Navigate to Settings (was "AI Assistant" before suveren-gateway #29)
     await page.click('.sidebar-item:has-text("Settings")');
@@ -75,7 +75,7 @@ test.describe.serial('Journey 1: Personal User', () => {
     // (playwright.simulation.config.ts, journey-5).
     await activateIntegration(page, 'Records');
     await page.waitForLoadState('networkidle');
-    await page.click('.sidebar-item:has-text("Integrations")');
+    await page.click('.sidebar-item:has-text("Connectors")');
     await page.waitForURL('**/integrations');
     const crmCard = page.locator('.card', { has: page.locator('.card-title', { hasText: cardTitlePattern('CRM') }) }).first();
     await crmCard.waitFor({ state: 'visible', timeout: 10_000 });
@@ -173,7 +173,7 @@ test.describe.serial('Journey 1: Personal User', () => {
     await expect(page.locator('.mobile-menu-item:has-text("Approvals")')).toBeVisible();
 
     // Click nav item — navigates and closes
-    await page.click('.mobile-menu-item:has-text("Integrations")');
+    await page.click('.mobile-menu-item:has-text("Connectors")');
     await expect(page.locator('.mobile-menu-panel')).not.toBeVisible();
 
     await page.close();

@@ -21,6 +21,7 @@ import {
   ControlPlaneClient, GW_DIR, RECORDS_DIST, RECORDS_INTEGRATION, RECORDS_PROFILE_ID,
   grantRecordsMandate, newSecret, startControlPlane, startMcpServer, type StackOptions,
 } from '../src/helpers/gateway-stack.js';
+import { openFirstApprovalInPanel } from '../src/helpers/gateway-ui.js';
 
 const AS_PORT = 19840;
 const CP_PORT = 19841;
@@ -87,6 +88,7 @@ describe.skipIf(!available)('a card without a declared preview shows what will b
       await page.waitForURL((u) => !u.toString().includes('/login'), { timeout: 45_000 });
       await page.locator('.sidebar a[href="/approvals"]').click();
       await page.waitForURL('**/approvals');
+    await openFirstApprovalInPanel(page);
       const open = page.locator('[data-testid="bound-values-open"]').first();
       await open.waitFor({ timeout: 20_000 });
       // Visible without any click: the title and the exact content.

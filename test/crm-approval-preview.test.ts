@@ -30,6 +30,7 @@ import { profileHashFor } from '../src/helpers/profiles.js';
 import {
   ControlPlaneClient, MANIFESTS_DIR, PROFILES_DIR, newSecret, startControlPlane, startMcpServer, type StackOptions,
 } from '../src/helpers/gateway-stack.js';
+import { openFirstApprovalInPanel } from '../src/helpers/gateway-ui.js';
 
 const AS_PORT = 19810;
 const CP_PORT = 19811;
@@ -74,6 +75,7 @@ async function approvalPreviewText(): Promise<{ status: string | null; text: str
     // In-app navigation: the API key lives in the page's memory, a full page load drops it.
     await page.locator('.sidebar a[href="/approvals"]').click();
     await page.waitForURL('**/approvals');
+    await openFirstApprovalInPanel(page);
     const box = page.locator('[data-testid="approval-preview"]').first();
     try {
       await box.waitFor({ timeout: 20_000 });

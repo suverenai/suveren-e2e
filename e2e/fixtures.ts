@@ -482,11 +482,11 @@ export async function activateIntegration(page: Page, integrationName: string): 
   // reverts to Dashboard.
   await page.waitForLoadState('networkidle');
   await expect(page.locator('.page-title')).toBeVisible({ timeout: 10_000 });
-  await page.click('.sidebar-item:has-text("Integrations")');
+  await page.click('.sidebar-item:has-text("Connectors")');
   // Wait for the route + page to settle before looking for cards — otherwise we
   // race the SPA navigation and match `.card` on the Dashboard "Get Started" panel.
   await page.waitForURL('**/integrations');
-  await expect(page.locator('.page-title')).toHaveText('Integrations', { timeout: 10_000 });
+  await expect(page.locator('.page-title')).toHaveText('Connectors', { timeout: 10_000 });
 
   // Exact title match: a substring match ("text=ERP") also hits other cards
   // whose text merely mentions the name, and then "already running" is never seen.
@@ -748,34 +748,61 @@ export async function selectQueueView(page: Page, view: 'me' | 'others' | 'all')
 }
 
 /**
- * The approval card on the Approvals page whose content contains `hasText`.
- *
- * Approval card v3 (UI spec §17): more than one approval waiting → the list
- * opens first and a row opens ONE card (the list is gone, or beside it on wide
- * windows); exactly one → its card opens directly. This opens rows one by one —
- * open → check the card's text → back to the list → next row — until the card
- * is found. Older gateways (rows that open in place, or every card open) work
- * through the same global `.card` check.
+ * Per-user gateway setting "open approvals automatically" (control plane
+ * `/api/gateway-settings`). A waiting approval "for me" slides a panel over
+ * whatever page the person is on; a spec that works on other pages while
+ * approvals are pending turns it off first (never suite-wide: the panel opening
+ * by itself is covered by approval-panel.spec.ts).
  */
-export async function openApprovalCard(page: Page, hasText: string | RegExp): Promise<Locator> {
-  const openCard = page.locator('.card', { hasText }).first();
-  const listRows = page.locator('[data-testid="approval-row"]:not(.is-open)');
-  await expect(listRows.first().or(openCard).or(page.getByTestId('approval-card')).first()).toBeVisible({ timeout: 30_000 });
-  if (await openCard.isVisible()) return openCard;
+export async function setOpenApprovalsAutomatically(page: Page, apiKey: string, on: boolean): Promise<void> {
+  const res = await page.request.put(`${GW_URL}/api/gateway-settings`, {
+    headers: { 'x-api-key': apiKey },
+    data: { openApprovalsAutomatically: on },
+  });
+  expect(res.ok(), await res.text()).toBe(true);
+}
+
+/**
+ * Show one approval in the approval PANEL and return its card.
+ *
+ * The panel (UI: approval panel, PR #185) holds the approvals "for me", one card
+ * at a time, with Previous / Next. It opens by itself; after "Later" it is a
+ * strip; the Approvals page is a list only, and a row opens the panel. This goes
+ * through whichever way is available: the card is already shown → done;
+ * panel open → walk Previous/Next from the first; strip → open it; otherwise a
+ * list row opens it.
+ */
+async function showApprovalInPanel(page: Page, hasText: string | RegExp): Promise<Locator> {
+  const panel = page.getByTestId('approval-panel');
+  const card = panel.getByTestId('approval-card').filter({ hasText }).first();
+  const isOpen = async () => (await panel.getAttribute('aria-hidden').catch(() => 'true')) === 'false';
   const deadline = Date.now() + 60_000;
   while (Date.now() < deadline) {
-    // Another card is open: back to the list to reach the rows.
-    if ((await listRows.count()) === 0) { await backToApprovalList(page); await page.waitForTimeout(300); }
-    const n = await listRows.count();
-    for (let i = 0; i < n; i++) {
-      const head = listRows.nth(i).locator('.appr-item-head');
-      if (!(await head.count())) continue;
-      await head.click();
-      const found = await openCard.waitFor({ state: 'visible', timeout: 6_000 }).then(() => true).catch(() => false);
-      if (found) return openCard;
-      await backToApprovalList(page);
-      await expect(listRows.first()).toBeVisible({ timeout: 10_000 }).catch(() => {});
+    if (await card.isVisible().catch(() => false)) return card;
+    if (await isOpen()) {
+      const prev = page.getByTestId('approval-prev');
+      const next = page.getByTestId('approval-next');
+      if (!(await next.count())) { await page.waitForTimeout(500); continue; } // one approval, still loading
+      // Walk from the first to the last.
+      for (let i = 0; i < 50 && (await prev.isEnabled().catch(() => false)); i++) await prev.click();
+      for (let i = 0; i < 50; i++) {
+        if (await card.isVisible().catch(() => false)) return card;
+        if (!(await next.isEnabled().catch(() => false))) break;
+        await next.click();
+        await page.waitForTimeout(300);
+      }
+    } else {
+      const strip = page.getByTestId('approval-strip-open');
+      const row = page.getByTestId('approval-row').first().locator('.appr-item-head');
+      if (await strip.isVisible().catch(() => false)) await strip.click();
+      else if (await row.isVisible().catch(() => false)) await row.click();
     }
+    await page.waitForTimeout(500);
   }
-  throw new Error(`No approval card containing ${String(hasText)}`);
+  throw new Error(`No approval containing ${String(hasText)} in the approval panel`);
+}
+
+/** The approval card (in the panel) whose content contains `hasText`. */
+export async function openApprovalCard(page: Page, hasText: string | RegExp): Promise<Locator> {
+  return showApprovalInPanel(page, hasText);
 }

@@ -175,20 +175,23 @@ test.describe.serial('Core objects — dashboard, tickets, approvals (real stack
     await goDashboard(page);
     await page.getByTestId('col-waiting').getByTestId('dash-approval').first().locator('.appr-item-head').click();
     await page.waitForURL(/\/approvals\?open=/);
-    // Approval card v3 (UI spec §17): ?open=<id> opens that card directly (no list), "1 of 2".
+    // Approval panel: ?open=<id> shows that approval's card in the panel, "1 of 2".
     const openId = new URL(page.url()).searchParams.get('open');
-    const cards = page.getByTestId('approval-card');
+    const panel = page.getByTestId('approval-panel');
+    const cards = panel.getByTestId('approval-card');
     await expect(cards).toHaveCount(1, { timeout: 30_000 });
     await expect(cards.first()).toHaveAttribute('data-proposal-id', openId!);
     await expect(cards.first().getByTestId('approval-summary')).toHaveText(/^Create contact (Dora|Emil) Review$/, { timeout: 30_000 });
-    await expect(page.getByTestId('card-position')).toContainText('of 2');
-    // The list holds both, one sentence each.
-    await page.getByTestId('back-to-list').click();
+    await expect(page.getByTestId('approval-position')).toContainText('of 2');
+    // The Approvals page is a list only: both, one sentence each (behind the panel).
     const rows = page.getByTestId('approval-row');
     await expect(rows).toHaveCount(2, { timeout: 30_000 });
     await expect(page.getByTestId('approval-row-summary').filter({ hasText: /^Create contact (Dora|Emil) Review$/ })).toHaveCount(2, { timeout: 30_000 });
+    // "Later" sends the panel to the strip; a list row brings its approval back.
+    await page.getByTestId('approval-later').click();
+    await expect(panel).toHaveAttribute('aria-hidden', 'true');
     await page.locator(`[data-testid="approval-row"][data-proposal-id="${openId}"] .appr-item-head`).click();
-    await expect(cards.first()).toHaveAttribute('data-proposal-id', openId!);
+    await expect(cards.first()).toHaveAttribute('data-proposal-id', openId!, { timeout: 15_000 });
 
     await cards.first().locator('button:has-text("Approve")').click();
     // The ✓ stamp shows only once the gateway has answered; then the remaining card slides in by itself.
@@ -196,6 +199,9 @@ test.describe.serial('Core objects — dashboard, tickets, approvals (real stack
     await expect(cards.first()).not.toHaveAttribute('data-proposal-id', openId!, { timeout: 15_000 });
     await expect(cards).toHaveCount(1);
     await page.screenshot({ path: join(SCREENSHOT_DIR, 'd-next-opened.png'), fullPage: true });
+    // The last approval waits: send the panel away so it does not cover the pages below.
+    await page.getByTestId('approval-later').click();
+    await expect(panel).toHaveAttribute('aria-hidden', 'true');
 
     await page.click('.sidebar-item:has-text("Tickets")');
     await page.waitForURL('**/tickets');
@@ -232,9 +238,12 @@ test.describe.serial('Core objects — dashboard, tickets, approvals (real stack
     await page.click('.sidebar-item:has-text("Approvals")');
     await page.waitForURL('**/approvals**');
     // One approval left: its card opens directly. Type line names the area; "Covered by" the mandate.
-    const card = page.getByTestId('approval-card');
+    // On the Approvals page (the list) a row brings the panel back; elsewhere it is the strip.
+    await page.getByTestId('approval-row').first().locator('.appr-item-head').click();
+    const card = page.getByTestId('approval-panel').getByTestId('approval-card');
     await expect(card.getByTestId('approval-type')).toContainText(area, { timeout: 30_000 });
     await expect(card.getByTestId('covered-by')).toContainText('Customer review');
+    await page.getByTestId('approval-later').click();
 
     // Tickets: one area only → no area pills (nothing to choose between).
     await page.click('.sidebar-item:has-text("Tickets")');
@@ -269,12 +278,13 @@ test.describe.serial('Core objects — dashboard, tickets, approvals (real stack
     await expect(grp.locator('.mandate-card .ob-title').first()).not.toContainText(area);
     await page.screenshot({ path: join(SCREENSHOT_DIR, 'e-mandates-areas.png'), fullPage: true });
 
-    // Integrations: the CRM under its area.
-    await page.click('.sidebar-item:has-text("Integrations")');
+    // Connectors: one card for the CRM, with the area as a chip.
+    await page.click('.sidebar-item:has-text("Connectors")');
     await page.waitForURL('**/integrations');
-    const ia = page.locator('[data-testid="integration-area"][data-area="customers"]');
-    await expect(ia.locator('.area-group-h')).toContainText(area, { timeout: 30_000 });
-    await expect(ia).toContainText('CRM');
+    const crmCard = page.locator('.card', { has: page.locator('.card-title', { hasText: /^CRM/ }) }).first();
+    const chip = crmCard.locator('[data-testid="integration-areas"] [data-area="customers"]');
+    await expect(chip).toContainText(area, { timeout: 30_000 });
+    await expect(crmCard).toContainText('CRM');
     await page.screenshot({ path: join(SCREENSHOT_DIR, 'e-integrations-areas.png'), fullPage: true });
   });
   test('F: an automatic ticket shows its sentence, what was sent (sealed, checked) and what the CRM answered', async () => {
