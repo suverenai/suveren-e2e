@@ -29,6 +29,7 @@ import { GatewayClient } from '../src/helpers/gateway-client.js';
 import { hashGateContent, hashExecutionContext, computeBoundsHash, computeScopeHash } from '../src/helpers/crypto.js';
 import { ControlPlaneClient, newSecret, startControlPlane, startMcpServer, textOf, PROFILES_DIR, type StackOptions } from '../src/helpers/gateway-stack.js';
 import { profileHashFor } from '../src/helpers/profiles.js';
+import { openFirstApprovalInPanel } from '../src/helpers/gateway-ui.js';
 
 const AS_PORT = 19830;
 const CP_PORT = 19831;
@@ -116,6 +117,7 @@ async function cardText(): Promise<{ status: string | null; text: string; hasEdi
     await page.waitForURL((u) => !u.toString().includes('/login'), { timeout: 45_000 });
     await page.locator('.sidebar a[href="/approvals"]').click();
     await page.waitForURL('**/approvals');
+    await openFirstApprovalInPanel(page);
     const box = page.locator('[data-testid="approval-preview"]').first();
     await box.waitFor({ timeout: 20_000 });
     await page.waitForFunction(() => document.querySelector('[data-testid="approval-preview"]')?.getAttribute('data-preview-status') !== 'loading', null, { timeout: 20_000 });

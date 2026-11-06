@@ -34,7 +34,7 @@ test('CRM: Test data -> On this computer -> Test data, no reload', async ({ page
   await signInToGateway(page, ALICE.apiKey);
   await handleOnboarding(page);
   await page.waitForLoadState('networkidle');
-  await page.click('.sidebar-item:has-text("Integrations")');
+  await page.click('.sidebar-item:has-text("Connectors")');
   await page.waitForURL('**/integrations');
 
   const card = page.locator('.card', { has: page.locator('.card-title', { hasText: cardTitlePattern('CRM') }) }).first();
