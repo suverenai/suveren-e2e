@@ -1,29 +1,32 @@
 /**
- * Email read-age enforcement — Gateway E2E (Finding A, doc §1 F1 — the pentest hole).
+ * Email read-age enforcement — Gateway E2E, on the `mail` connector's practice mailbox
+ * (simulation gateway, the SHIPPED mail.json manifest).
  *
- * Asserts that `read_max_age_days` is ENFORCED on email reads:
- *   - list_messages: an explicitly-old query is neutralized by the injected
- *     `newer_than:{days}d` ceiling → out-of-bounds mail can't come back;
- *   - list_messages: a HOSTILE query fragment cannot escape that ceiling (F8) —
- *     a trailing `OR`/unbalanced paren is refused, an interior `OR` is bracketed;
+ * Asserts that the read-age window (here the signed bound `read_max_age_days`) is ENFORCED
+ * on email reads, list view and single message alike:
+ *   - list_messages: the gateway sets `received_after` (the manifest's ageFloorArg) to now minus
+ *     the window, so a message older than the window is NOT LISTED. An explicit, older value from
+ *     the AI is replaced, junk is replaced, a tighter value is kept (it only ever narrows);
  *   - get_message: a message older than the window is BLOCKED, content withheld.
  *
- * CREDENTIAL-GATED (skipIf !HAS_GMAIL) — needs real Gmail OAuth. The get-block
- * assertion additionally needs a known old message id via GMAIL_OLD_MESSAGE_ID
- * (a message in the test mailbox older than READ_MAX_AGE_DAYS); without it, that
- * one assertion is skipped. This file is NOT run in the credential-less dev/CI
- * environment — it is the on-hardware validation of the generic read-age path
- * whose decision logic is already unit-tested in
- * suveren-gateway/apps/mcp-server/test/read-gate.test.ts.
+ * Before gateway 0.43.0 the same was proven against a real Gmail account (an injected
+ * `newer_than:{days}d` query ceiling, hostile-query cases). The mail connector has no query
+ * argument, so those cases do not exist any more: the floor is an argument the gateway overwrites,
+ * never a fragment it combines with the AI's own text. Gmail as the data source (same connector,
+ * live mode) is proven against a real test account in the Rehearsal (scenarios A3, A14, A16, A17)
+ * and by email-mcp's own tests (received_after for both adapters, test/gmail-live.test.ts).
  *
- * Run (with creds):
- *   GMAIL_CLIENT_ID=… GMAIL_CLIENT_SECRET=… GMAIL_REFRESH_TOKEN=… \
- *   [GMAIL_OLD_MESSAGE_ID=…] npx vitest run test/email-read-age.test.ts
+ * `load_simulation` ignores a package's own `received_at` (every message lands within the hour
+ * before the load), so an old message is made by backdating it in the connector's own SQLite file
+ * (`${dataDir}/email.db`) — the real connector, the real schema.
+ *
+ * Run: npx vitest run test/email-read-age.test.ts
  */
 
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { SSEClientTransport } from '@modelcontextprotocol/sdk/client/sse.js';
+import { execFileSync } from 'node:child_process';
 import { join } from 'node:path';
 
 import { ProcessManager } from '../src/helpers/process-manager.js';
@@ -31,13 +34,7 @@ import { SPClient } from '../src/helpers/sp-client.js';
 import { GatewayClient } from '../src/helpers/gateway-client.js';
 import { hashGateContent, hashExecutionContext, computeBoundsHash, computeScopeHash } from '../src/helpers/crypto.js';
 import { PROFILE_V07, profileHashFor } from '../src/helpers/profiles.js';
-
-const GMAIL_CLIENT_ID = process.env.GMAIL_CLIENT_ID ?? '';
-const GMAIL_CLIENT_SECRET = process.env.GMAIL_CLIENT_SECRET ?? '';
-const GMAIL_REFRESH_TOKEN = process.env.GMAIL_REFRESH_TOKEN ?? '';
-const HAS_GMAIL = !!(GMAIL_CLIENT_ID && GMAIL_CLIENT_SECRET && GMAIL_REFRESH_TOKEN);
-const OLD_MESSAGE_ID = process.env.GMAIL_OLD_MESSAGE_ID ?? '';
-const SPAM_MESSAGE_ID = process.env.GMAIL_SPAM_MESSAGE_ID ?? '';
+import { addMailConnector, callText, practicePackage, startMailGateway } from '../src/helpers/mail-connector.js';
 
 const SP_PORT = 17270;
 const GW_PORT = 17271;
@@ -45,15 +42,13 @@ const SP_URL = `http://localhost:${SP_PORT}`;
 const GW_URL = `http://localhost:${GW_PORT}`;
 
 const PROFILE_ID = PROFILE_V07.email;
-const PROFILE_SHORT = 'email';
 const ROOT = join(import.meta.dirname, '..', '..');
 const PROFILES_DIR = join(ROOT, 'hap-profiles');
 
+const DAY = 86_400_000;
 const READ_MAX_AGE_DAYS = 30;
-// v0.7: read_daily_max is gone (replaced by read_access; never enforced,
-// CONFORMANCE.md); read_access and setup_daily_max are new and required:true.
+// v0.7: read_daily_max is gone (replaced by read_access); read_access and setup_daily_max are required.
 const BOUNDS_KEY_ORDER = ['profile', 'read_access', 'recipient_max', 'send_daily_max', 'read_max_age_days', 'setup_daily_max'];
-const CONTEXT_KEY_ORDER = ['allowed_recipients', 'allowed_domains'];
 const BOUNDS = {
   profile: PROFILE_ID,
   read_access: 'unlimited',
@@ -62,61 +57,26 @@ const BOUNDS = {
   read_max_age_days: READ_MAX_AGE_DAYS,
   setup_daily_max: 0,
 };
-// Unscoped (no recipient scope) so these AGE tests aren't also gated by
-// coverage — an unscoped grant covers every correspondent. Coverage/scope
-// enforcement is unit-tested in read-gate.test.ts and verified live on the dev
-// gateway (a scoped grant + an out-of-scope correspondent → coverage denial).
+// Unscoped (no recipient scope): these tests are about AGE, not coverage.
 const CONTEXT: Record<string, string> = {};
-
-// The read adapters under test (mirror content/integrations/gmail.json).
-const GMAIL_TOOL_GATING = {
-  default: { executionMapping: {}, staticExecution: { recipient_count: 0 } },
-  overrides: {
-    send_message: {
-      executionMapping: {
-        to: [
-          { field: 'recipient_count', transform: 'length' },
-          { field: 'allowed_recipients', transform: 'join' },
-          { field: 'allowed_domains', transform: 'join_domains' },
-        ],
-      },
-      staticExecution: { action_type: 'send' },
-    },
-    list_messages: {
-      category: 'read',
-      read: {
-        ageField: 'read_age_days', queryArg: 'q', ageConstraint: 'newer_than:{days}d',
-        pinnedArgs: { includeSpamTrash: false }, // F7 spam pin
-      },
-    },
-    get_message: {
-      category: 'read',
-      read: {
-        ageField: 'read_age_days', resultDatePath: 'internalDate',
-        blockResultValues: ['SPAM', 'TRASH'], resultValuesPath: 'labelIds', // F7 spam pin
-      },
-    },
-  },
-};
 
 const pm = new ProcessManager();
 const sp = new SPClient(SP_URL);
 const gw = new GatewayClient(GW_URL);
 let mcpClient: Client;
+const ids: Record<string, string> = {};
 
-function sleep(ms: number): Promise<void> {
-  return new Promise((r) => setTimeout(r, ms));
+function setReceivedAt(messageId: string, iso: string): void {
+  execFileSync('sqlite3', [join(pm.getDataDir(), 'email.db'), `UPDATE messages SET received_at = '${iso}' WHERE id = '${messageId}';`]);
 }
 
-async function callText(name: string, args: Record<string, unknown>): Promise<{ text: string; isError: boolean }> {
-  const result = await mcpClient.callTool({ name, arguments: args });
-  const text = (result.content as Array<{ text?: string }>).map((c) => c.text ?? '').join('\n');
-  return { text, isError: result.isError === true };
+async function listIds(args: Record<string, unknown> = {}): Promise<string[]> {
+  const { text, isError } = await callText(mcpClient, 'mail__list_messages', args);
+  expect(isError, text).toBe(false);
+  return (JSON.parse(text) as Array<{ id: string }>).map((m) => m.id);
 }
 
 beforeAll(async () => {
-  if (!HAS_GMAIL) return;
-
   pm.buildGateway();
   await pm.startSP(SP_PORT);
 
@@ -124,13 +84,12 @@ beforeAll(async () => {
   const apiKey = user.apiKey;
   const groupId = await sp.getPersonalGroupId(apiKey);
 
-  await pm.startGateway({ port: GW_PORT, spUrl: SP_URL, spApiKey: apiKey, profilesDir: PROFILES_DIR });
+  await startMailGateway(pm, { port: GW_PORT, spUrl: SP_URL, spApiKey: apiKey, profilesDir: PROFILES_DIR });
   await gw.configure({ sessionCookie: 'email-readage-e2e', apiKey });
 
   const boundsHash = computeBoundsHash(BOUNDS, BOUNDS_KEY_ORDER);
-  const contextHash = computeScopeHash(CONTEXT, CONTEXT_KEY_ORDER);
+  const contextHash = computeScopeHash(CONTEXT, []);
   const gateContent = { intent: 'Read recent mail within a 30-day window for E2E.' };
-
   const att = await sp.submitMandate(apiKey, {
     profile_id: PROFILE_ID,
     profile_hash: profileHashFor(PROFILE_ID, PROFILES_DIR),
@@ -144,109 +103,73 @@ beforeAll(async () => {
     gate_content_hashes: hashGateContent(gateContent),
     execution_context_hash: hashExecutionContext({ recipient_count: 1, ...CONTEXT }),
   });
-  await gw.pushGateContent(
-    { authorizationId: att.authorization_id, boundsHash, contextHash, context: CONTEXT },
-    PROFILE_ID,
-    gateContent,
-  );
+  await gw.pushGateContent({ authorizationId: att.authorization_id, boundsHash, contextHash, context: CONTEXT }, PROFILE_ID, gateContent);
 
-  await gw.pushServiceCredentials('gmail', {
-    clientId: GMAIL_CLIENT_ID,
-    clientSecret: GMAIL_CLIENT_SECRET,
-    refreshToken: GMAIL_REFRESH_TOKEN,
-  });
-  await gw.addIntegration({
-    id: 'gmail',
-    name: 'Gmail',
-    command: 'npx',
-    args: ['-y', '@shinzolabs/gmail-mcp@latest'],
-    envKeys: { CLIENT_ID: 'gmail.clientId', CLIENT_SECRET: 'gmail.clientSecret', REFRESH_TOKEN: 'gmail.refreshToken' },
-    profile: PROFILE_SHORT,
-    enabled: true,
-    toolGating: GMAIL_TOOL_GATING,
-  });
-  await sleep(6_000);
+  // No local window: the signed bound (30 days) is what governs.
+  await addMailConnector(gw);
 
   mcpClient = new Client({ name: 'hap-email-readage-e2e', version: '0.1.0' }, { capabilities: {} });
   await mcpClient.connect(new SSEClientTransport(new URL(`${GW_URL}/sse`)));
-}, 180_000);
+
+  const load = await mcpClient.callTool({
+    name: 'mail__load_simulation',
+    arguments: { package: practicePackage('Read Age Co', [
+      { id: 'recent', subject: 'Recent question' },
+      { id: 'old', subject: 'Old question' },
+    ]) },
+  });
+  expect(load.isError, JSON.stringify(load.content)).not.toBe(true);
+  for (const m of JSON.parse((await callText(mcpClient, 'mail__list_messages', {})).text) as Array<{ id: string; subject: string }>) {
+    ids[m.subject === 'Recent question' ? 'recent' : 'old'] = m.id;
+  }
+  expect(ids.recent && ids.old).toBeTruthy();
+  setReceivedAt(ids.recent, new Date(Date.now() - 2 * DAY).toISOString());
+  setReceivedAt(ids.old, new Date(Date.now() - 40 * DAY).toISOString());
+}, 240_000);
 
 afterAll(async () => {
   if (mcpClient) { try { await mcpClient.close(); } catch { /* ignore */ } }
   await pm.killAll();
 }, 30_000);
 
-describe.skipIf(!HAS_GMAIL)('Email read-age enforcement', () => {
-  it('list_messages: an explicitly-old query is neutralized (injected newer_than wins)', async () => {
-    // Without the gateway, `older_than:365d` would return old mail. The gateway
-    // ANDs in `newer_than:30d`, which contradicts it → no messages come back.
-    const { text, isError } = await callText('gmail__list_messages', { q: 'older_than:365d' });
-    expect(isError).toBe(false);
-    // No message ids in the payload (Gmail returns {"messages":[...]} only when non-empty).
-    expect(/"id"\s*:/.test(text)).toBe(false);
+describe('Email read-age enforcement — list_messages', () => {
+  it('a message older than the window is not listed; one inside it is', async () => {
+    expect(await listIds()).toEqual([ids.recent]);
   });
 
-  it('list_messages: a within-window query is permitted', async () => {
-    const { isError } = await callText('gmail__list_messages', { q: 'newer_than:7d' });
-    expect(isError).toBe(false);
+  it('an explicit received_after far older than the window is replaced — the old message still does not come back', async () => {
+    expect(await listIds({ received_after: '2015-01-01T00:00:00Z' })).toEqual([ids.recent]);
   });
 
-  // ── F8: the agent's own query must not escape the injected ceiling ─────────
-  //
-  // Enforcement here is BY CONSTRUCTION — the gateway ANDs `newer_than:30d`
-  // onto the agent's `q`. Before the fix the two were space-joined, so a
-  // fragment ending in `OR` produced `older_than:365d OR newer_than:30d` — a
-  // union, and year-old mail came back. The gateway now brackets the agent's
-  // fragment and refuses one that can't be safely combined.
-
-  it('list_messages: a trailing OR cannot turn the AND into a union', async () => {
-    const { text, isError } = await callText('gmail__list_messages', { q: 'older_than:365d OR' });
-    // Fail closed: the request is denied rather than silently rewritten.
-    expect(isError).toBe(true);
-    expect(text.toLowerCase()).toContain('dangling operator');
-    // The bypass payload must not come back under any circumstance.
-    expect(/"id"\s*:/.test(text)).toBe(false);
+  it('an unparseable received_after is replaced, not forwarded', async () => {
+    expect(await listIds({ received_after: 'whenever you like' })).toEqual([ids.recent]);
   });
 
-  it('list_messages: an unbalanced parenthesis is refused', async () => {
-    const { text, isError } = await callText('gmail__list_messages', { q: '(older_than:365d' });
-    expect(isError).toBe(true);
-    expect(text.toLowerCase()).toContain('unbalanced parentheses');
+  it('a tighter received_after than the window is kept — it only ever narrows', async () => {
+    // The recent message is 2 days old; asking for the last day leaves nothing.
+    expect(await listIds({ received_after: new Date(Date.now() - DAY).toISOString() })).toEqual([]);
+    expect(await listIds({ received_after: new Date(Date.now() - 3 * DAY).toISOString() })).toEqual([ids.recent]);
   });
 
-  it('list_messages: an interior OR is contained by bracketing, ceiling still applies', async () => {
-    // Legitimate disjunction — allowed, but bracketed so `newer_than:30d` is
-    // ANDed against the WHOLE expression, not made one of its alternatives.
-    const { text, isError } = await callText('gmail__list_messages', {
-      q: 'older_than:365d OR older_than:400d',
-    });
-    expect(isError).toBe(false);
-    expect(/"id"\s*:/.test(text)).toBe(false); // both disjuncts are out of window
+  it('the sent folder is bounded the same way', async () => {
+    // Nothing was sent: an empty list, not an error — the floor is applied to every folder.
+    const { text, isError } = await callText(mcpClient, 'mail__list_messages', { folder: 'sent' });
+    expect(isError, text).toBe(false);
+    expect(JSON.parse(text)).toEqual([]);
+  });
+});
+
+describe('Email read-age enforcement — get_message', () => {
+  it('a message inside the window is readable', async () => {
+    const { text, isError } = await callText(mcpClient, 'mail__get_message', { id: ids.recent });
+    expect(isError, text).toBe(false);
+    expect(JSON.parse(text).id).toBe(ids.recent);
   });
 
-  it.skipIf(!OLD_MESSAGE_ID)('get_message: a message older than the window is blocked, content withheld', async () => {
-    const { text, isError } = await callText('gmail__get_message', { id: OLD_MESSAGE_ID });
+  it('a message older than the window is blocked, content withheld', async () => {
+    const { text, isError } = await callText(mcpClient, 'mail__get_message', { id: ids.old });
     expect(isError).toBe(true);
     expect(text.toLowerCase()).toContain('older than');
-    // The body must NOT leak — no snippet/payload fields in a blocked read.
-    expect(text).not.toMatch(/"snippet"|"payload"/);
-  });
-
-  // ── F7 spam pin ────────────────────────────────────────────────────────────
-  // Set GMAIL_SPAM_MESSAGE_ID to a message currently in Spam/Trash to run these.
-
-  it('list_messages: the agent cannot opt into spam (includeSpamTrash is pinned false)', async () => {
-    // Even asking for spam, the gateway forces includeSpamTrash:false. Without a
-    // known spam id we can't assert exclusion of a specific message, but the call
-    // must still succeed (the pin is applied, not rejected) and stay in-window.
-    const { isError } = await callText('gmail__list_messages', { q: 'newer_than:7d', includeSpamTrash: true });
-    expect(isError).toBe(false);
-  });
-
-  it.skipIf(!SPAM_MESSAGE_ID)('get_message: a spam/trash message is blocked, content withheld', async () => {
-    const { text, isError } = await callText('gmail__get_message', { id: SPAM_MESSAGE_ID });
-    expect(isError).toBe(true);
-    expect(text.toLowerCase()).toContain('spam');
-    expect(text).not.toMatch(/"snippet"|"payload"/);
+    expect(text).not.toMatch(/"body"|"snippet"/);
   });
 });

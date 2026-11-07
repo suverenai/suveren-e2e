@@ -8,7 +8,7 @@
  *   npx playwright test && npx playwright test -c playwright.simulation.config.ts
  *   (or npm run test:browser)
  *
- * A spec that needs a REAL connector (records, calendar, gmail, ...) must not be
+ * A spec that needs a REAL connector (records, calendar, email in Gmail mode, ...) must not be
  * in this list: in simulation mode those are paused.
  */
 export const SIMULATION_SPECS = [

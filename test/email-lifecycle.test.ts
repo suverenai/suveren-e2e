@@ -9,10 +9,9 @@
  *   5. Re-authorize (new attestation)
  *   6. Send email via MCP tool → accepted again
  *
- * Requires Gmail OAuth credentials:
- *   GMAIL_CLIENT_ID, GMAIL_CLIENT_SECRET, GMAIL_REFRESH_TOKEN
- *
- * Set these in hap-e2e/.env or export them before running.
+ * Runs on a simulation gateway with the `mail` connector's practice mailbox (shipped manifest), so it
+ * needs no account and runs in CI. What is under test is the gateway's gate (mandate, scope, revocation),
+ * which is the same wherever the mail goes; Gmail as the data source is proven in the Rehearsal.
  *
  * Run:  npx vitest run test/email-lifecycle.test.ts
  */
@@ -32,13 +31,7 @@ import {
   computeScopeHash,
 } from '../src/helpers/crypto.js';
 import { PROFILE_V07, profileHashFor } from '../src/helpers/profiles.js';
-
-// ── Credentials ─────────────────────────────────────────────────────────────
-
-const GMAIL_CLIENT_ID = process.env.GMAIL_CLIENT_ID ?? '';
-const GMAIL_CLIENT_SECRET = process.env.GMAIL_CLIENT_SECRET ?? '';
-const GMAIL_REFRESH_TOKEN = process.env.GMAIL_REFRESH_TOKEN ?? '';
-const HAS_GMAIL = !!(GMAIL_CLIENT_ID && GMAIL_CLIENT_SECRET && GMAIL_REFRESH_TOKEN);
+import { addMailConnector, startMailGateway } from '../src/helpers/mail-connector.js';
 
 // ── Constants ───────────────────────────────────────────────────────────────
 
@@ -48,7 +41,6 @@ const SP_URL = `http://localhost:${SP_PORT}`;
 const GW_URL = `http://localhost:${GW_PORT}`;
 
 const PROFILE_ID = PROFILE_V07.email;
-const PROFILE_SHORT = 'email';
 const EXEC_PATH = 'email-send';
 
 const ROOT = join(import.meta.dirname, '..', '..');
@@ -59,8 +51,8 @@ const PROFILES_DIR = join(ROOT, 'hap-profiles');
 const BOUNDS_KEY_ORDER = ['profile', 'read_access', 'recipient_max', 'send_daily_max', 'setup_daily_max'];
 const CONTEXT_KEY_ORDER = ['allowed_recipients', 'allowed_domains'];
 
-const TEST_RECIPIENT = 'andreas@sublin.app';
-const TEST_DOMAIN = 'sublin.app';
+const TEST_RECIPIENT = 'customer@example.com';
+const TEST_DOMAIN = 'example.com';
 
 const BOUNDS = {
   profile: PROFILE_ID,
@@ -138,7 +130,7 @@ async function submitEmailAttestation(bounds: Record<string, unknown>): Promise<
 
 async function sendTestEmail(): Promise<{ isError: boolean; text: string }> {
   const result = await mcpClient!.callTool({
-    name: 'gmail__send_message',
+    name: 'mail__send_message',
     arguments: {
       to: [TEST_RECIPIENT],
       subject: `HAP E2E Test — ${new Date().toISOString()}`,
@@ -155,8 +147,6 @@ async function sendTestEmail(): Promise<{ isError: boolean; text: string }> {
 // ═════════════════════════════════════════════════════════════════════════════
 
 beforeAll(async () => {
-  if (!HAS_GMAIL) return;
-
   // 1. Build gateway
   pm.buildGateway();
 
@@ -171,8 +161,8 @@ beforeAll(async () => {
 
   console.error(`[E2E-Email] Registered user: ${user.user.id} (group ${personalGroupId})`);
 
-  // 4. Start gateway with user's API key
-  await pm.startGateway({
+  // 4. Start a simulation gateway with user's API key
+  await startMailGateway(pm, {
     port: GW_PORT,
     spUrl: SP_URL,
     spApiKey: userApiKey,
@@ -185,31 +175,9 @@ beforeAll(async () => {
     apiKey: userApiKey,
   });
 
-  // 6. Push Gmail credentials
-  await gw.pushServiceCredentials('gmail', {
-    clientId: GMAIL_CLIENT_ID,
-    clientSecret: GMAIL_CLIENT_SECRET,
-    refreshToken: GMAIL_REFRESH_TOKEN,
-  });
-
-  // 7. Add Gmail integration
-  const integration = await gw.addIntegration({
-    id: 'gmail',
-    name: 'Gmail',
-    command: 'npx',
-    args: ['-y', '@shinzolabs/gmail-mcp@latest'],
-    envKeys: {
-      CLIENT_ID: 'gmail.clientId',
-      CLIENT_SECRET: 'gmail.clientSecret',
-      REFRESH_TOKEN: 'gmail.refreshToken',
-    },
-    profile: PROFILE_SHORT,
-    enabled: true,
-  });
-
-  console.error(`[E2E-Email] Gmail tools: ${integration.tools.join(', ')}`);
-  await sleep(1_000);
-}, 120_000);
+  // 6. Add the mail connector (shipped manifest, practice mailbox)
+  await addMailConnector(gw);
+}, 240_000);
 
 afterAll(async () => {
   if (mcpClient) {
@@ -222,7 +190,7 @@ afterAll(async () => {
 // Block 1: Setup — Authorization + MCP Connection
 // ═════════════════════════════════════════════════════════════════════════════
 
-describe.skipIf(!HAS_GMAIL)('Email Lifecycle — Setup', () => {
+describe('Email Lifecycle — Setup', () => {
   it('creates authorization for email-send', async () => {
     authorizationId = await submitEmailAttestation(BOUNDS);
     expect(authorizationId).toBeTruthy();
@@ -239,10 +207,10 @@ describe.skipIf(!HAS_GMAIL)('Email Lifecycle — Setup', () => {
     mcpClient = client;
 
     const { tools } = await client.listTools();
-    const gmailTools = tools.filter(t => t.name.startsWith('gmail__'));
-    console.error(`[E2E-Email] Gmail MCP tools: ${gmailTools.map(t => t.name).join(', ')}`);
-    expect(gmailTools.length).toBeGreaterThan(0);
-    expect(gmailTools.some(t => t.name === 'gmail__send_message')).toBe(true);
+    const mailTools = tools.filter(t => t.name.startsWith('mail__'));
+    console.error(`[E2E-Email] Mail MCP tools: ${mailTools.map(t => t.name).join(', ')}`);
+    expect(mailTools.length).toBeGreaterThan(0);
+    expect(mailTools.some(t => t.name === 'mail__send_message')).toBe(true);
   });
 });
 
@@ -250,8 +218,8 @@ describe.skipIf(!HAS_GMAIL)('Email Lifecycle — Setup', () => {
 // Block 2: Send Email — Should Succeed
 // ═════════════════════════════════════════════════════════════════════════════
 
-describe.skipIf(!HAS_GMAIL)('Email Lifecycle — Send (authorized)', () => {
-  it('sends email to andreas@sublin.app → accepted', async () => {
+describe('Email Lifecycle — Send (authorized)', () => {
+  it('sends email to customer@example.com → accepted', async () => {
     const { isError, text } = await sendTestEmail();
 
     if (isError) {
@@ -285,10 +253,10 @@ describe.skipIf(!HAS_GMAIL)('Email Lifecycle — Send (authorized)', () => {
 // Sending to any other address must be blocked locally by the Gatekeeper's
 // subset check — the SP holds only context_hash and cannot enforce this.
 
-describe.skipIf(!HAS_GMAIL)('Email Lifecycle — Out-of-scope recipient', () => {
+describe('Email Lifecycle — Out-of-scope recipient', () => {
   it('send to recipient outside allowed_recipients → blocked by Gatekeeper', async () => {
     const result = await mcpClient!.callTool({
-      name: 'gmail__send_message',
+      name: 'mail__send_message',
       arguments: {
         to: ['stranger@example.com'],
         subject: 'HAP E2E out-of-scope',
@@ -307,7 +275,7 @@ describe.skipIf(!HAS_GMAIL)('Email Lifecycle — Out-of-scope recipient', () => 
 // Block 3: Revoke — Should Block Sending
 // ═════════════════════════════════════════════════════════════════════════════
 
-describe.skipIf(!HAS_GMAIL)('Email Lifecycle — Revoke', () => {
+describe('Email Lifecycle — Revoke', () => {
   it('revokes the authorization', async () => {
     const result = await sp.revokeAuthorization(
       userApiKey,
@@ -330,7 +298,7 @@ describe.skipIf(!HAS_GMAIL)('Email Lifecycle — Revoke', () => {
 // Block 4: Re-authorize — Should Work Again
 // ═════════════════════════════════════════════════════════════════════════════
 
-describe.skipIf(!HAS_GMAIL)('Email Lifecycle — Re-authorize', () => {
+describe('Email Lifecycle — Re-authorize', () => {
   it('creates new authorization with tighter bounds', async () => {
     const tighterBounds = {
       ...BOUNDS,

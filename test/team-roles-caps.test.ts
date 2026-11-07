@@ -225,7 +225,7 @@ describe.skipIf(!hasTeamRolesCaps)('Grantor/approver roles + hard caps (email@0.
       sp.postTicket(grantor.apiKey, {
         authorizationId: authorizationIdA,
         profileId: EMAIL_ID,
-        action: 'gmail__send_message',
+        action: 'mail__send_message',
         actionType: 'send',
         executionContext: { action_type: 'send' },
       });
@@ -251,7 +251,7 @@ describe.skipIf(!hasTeamRolesCaps)('Grantor/approver roles + hard caps (email@0.
       const created = await api('POST', '/api/proposals', grantor.apiKey, {
         authorization_id: authorizationIdA,
         profile_id: EMAIL_ID,
-        tool: 'gmail__send_message',
+        tool: 'mail__send_message',
         tool_args: { to: 'customer@example.com' },
         execution_context: { action_type: 'send' },
         pending_approvers: [approverA.id, approverB.id],
@@ -279,7 +279,7 @@ describe.skipIf(!hasTeamRolesCaps)('Grantor/approver roles + hard caps (email@0.
       const res = await sp.postTicket(grantor.apiKey, {
         authorizationId: authorizationIdA,
         profileId: EMAIL_ID,
-        action: 'gmail__send_message',
+        action: 'mail__send_message',
         actionType: 'send',
         executionContext: { action_type: 'send' },
         proposalId,

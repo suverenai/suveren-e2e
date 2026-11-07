@@ -101,7 +101,7 @@ npx playwright test       # browser journeys, production gateway
 npx playwright test -c playwright.simulation.config.ts   # the specs that use the practice CRM/ERP/mailbox (simulation gateway)
 ```
 
-A gateway is EITHER in simulation mode OR in production, never both: suites that use the practice CRM / ERP / mailbox start their gateway with `simulation: true` (vitest) or are listed in `e2e/simulation-specs.ts` (Playwright); a suite that needs a real connector (records, calendar, gmail, ERP/CRM live) runs on a production gateway. They cannot be mixed in one gateway.
+A gateway is EITHER in simulation mode OR in production, never both: suites that use the practice CRM / ERP / mailbox start their gateway with `simulation: true` (vitest) or are listed in `e2e/simulation-specs.ts` (Playwright); a suite that needs a real connector (records, calendar, ERP/CRM live, email in Gmail mode) runs on a production gateway. They cannot be mixed in one gateway.
 
 All of them spawn their own Authority Server and gateway on dedicated ports and tear
 them down afterwards. **Do not run them concurrently** — they compete for those
@@ -308,9 +308,6 @@ than red-by-default. The cost is that they only run when someone runs them.
 
 | Suite | Needs | Covers |
 |---|---|---|
-| `email-lifecycle` | `GMAIL_CLIENT_ID`, `GMAIL_CLIENT_SECRET`, `GMAIL_REFRESH_TOKEN` | Real send, recipient scope enforcement, revocation mid-flight |
-| `email-read-age` | same | Read-age query injection: a trailing `OR`, an unbalanced paren, spam pinned off |
-| `verification-footer` | same | The footer on a **genuinely delivered** message, verified against the AS |
 | `calendar-read` | `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `GOOGLE_CALENDAR_REFRESH_TOKEN` | Resource scope on reads, pre-fetch container filtering |
 | `e2e` (Stripe half) | `STRIPE_TEST_KEY` | Charge bounds against a real payment API |
 
@@ -351,6 +348,14 @@ been caught by a mocked one. A green CI run does not cover this class of
 defect; say so plainly rather than implying full coverage.
 
 ```bash
-GMAIL_CLIENT_ID=… GMAIL_CLIENT_SECRET=… GMAIL_REFRESH_TOKEN=… \
-  npx vitest run test/email-lifecycle.test.ts
+GOOGLE_CLIENT_ID=… GOOGLE_CLIENT_SECRET=… GOOGLE_CALENDAR_REFRESH_TOKEN=… \
+  npx vitest run test/calendar-read.test.ts
 ```
+
+**Email is not in this table any more.** The third-party Gmail connector is gone: email runs through
+Suveren's own `mail` connector (email-mcp), whose test mailbox needs no account. `email-lifecycle`,
+`email-read-age` and `verification-footer` run on it in CI, on a simulation gateway. Gmail as the mail
+connector's data source (live mode, adapter `gmail`) has no suite here, because the public suite has no
+Google account. It is proven against a real test account by the Rehearsal (scenarios A3, A14, A16 and A17: send,
+attachment, refused arguments, reply in the thread read back raw from Gmail) and by email-mcp's own contract
+test. A mocked Gmail would prove nothing.

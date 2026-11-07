@@ -1,19 +1,17 @@
 /**
- * Verification footer — happy-path E2E (gateway + real Gmail).
+ * Verification footer — happy-path E2E (gateway + the `mail` connector's practice mailbox).
  *
  * Proves the full Level-1 loop end to end:
  *   1. A gated email send through the gateway gets a "Verified by Suveren" footer
  *      injected into its body (Category-A profile).
- *   2. The footer carries a /r/<receiptId> link.
- *   3. That receipt verifies on the AS: GET /api/as/public-receipt/:id →
+ *   2. The footer carries a /t/<ticketId> link.
+ *   3. That ticket verifies on the AS: GET /api/as/public-receipt/:id →
  *      signatureValid:true, redacted.
  *
- * Requires Gmail OAuth creds (GMAIL_CLIENT_ID / _SECRET / _REFRESH_TOKEN) — the
- * suite auto-skips without them, so it's "ready to run once an integration is
- * connected". Mirrors the harness in email-lifecycle.test.ts.
- *
- * NOTE: read-back relies on Gmail search indexing the just-sent message, which
- * is eventually consistent — hence the retry loop in findSentBody().
+ * Runs on a simulation gateway with the connector's test mailbox, so it needs no account and runs in CI:
+ * the footer is added by the gateway and does not depend on where the mail goes. The message is read back
+ * from the connector's Sent folder. The same on a real Gmail account — thread, subject, body and footer as
+ * Gmail stored them — is the Rehearsal's scenario A17.
  */
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
@@ -25,11 +23,7 @@ import { SPClient } from '../src/helpers/sp-client.js';
 import { GatewayClient } from '../src/helpers/gateway-client.js';
 import { hashGateContent, hashExecutionContext, computeBoundsHash, computeScopeHash } from '../src/helpers/crypto.js';
 import { PROFILE_V07, profileHashFor } from '../src/helpers/profiles.js';
-
-const GMAIL_CLIENT_ID = process.env.GMAIL_CLIENT_ID ?? '';
-const GMAIL_CLIENT_SECRET = process.env.GMAIL_CLIENT_SECRET ?? '';
-const GMAIL_REFRESH_TOKEN = process.env.GMAIL_REFRESH_TOKEN ?? '';
-const HAS_GMAIL = !!(GMAIL_CLIENT_ID && GMAIL_CLIENT_SECRET && GMAIL_REFRESH_TOKEN);
+import { addMailConnector, callText, startMailGateway } from '../src/helpers/mail-connector.js';
 
 const SP_PORT = 16110;
 const GW_PORT = 16040;
@@ -37,7 +31,6 @@ const SP_URL = `http://localhost:${SP_PORT}`;
 const GW_URL = `http://localhost:${GW_PORT}`;
 
 const PROFILE_ID = PROFILE_V07.email;
-const PROFILE_SHORT = 'email';
 const EXEC_PATH = 'email-send';
 const ROOT = join(import.meta.dirname, '..', '..');
 const PROFILES_DIR = join(ROOT, 'hap-profiles');
@@ -47,9 +40,11 @@ const PROFILES_DIR = join(ROOT, 'hap-profiles');
 const FOOTER_MARKER = '-- Sent by an AI agent via Suveren. Ticket:';
 const RECEIPT_LINK = /https?:\/\/[^\s"]+\/t\/([0-9a-fA-F-]{36})/;
 
-const TEST_RECIPIENT = 'andreas@sublin.app';
-const TEST_DOMAIN = 'sublin.app';
-const BOUNDS = { profile: PROFILE_ID, read_access: 'unlimited', recipient_max: 5, send_daily_max: 10, setup_daily_max: 0 };
+const TEST_RECIPIENT = 'customer@example.com';
+const TEST_DOMAIN = 'example.com';
+// read_max_age_days: the readback of the sent message needs a read window (fail-closed without one).
+const BOUNDS = { profile: PROFILE_ID, read_access: 'unlimited', recipient_max: 5, send_daily_max: 10, read_max_age_days: 30, setup_daily_max: 0 };
+const BOUNDS_KEY_ORDER = ['profile', 'read_access', 'recipient_max', 'send_daily_max', 'read_max_age_days', 'setup_daily_max'];
 const CONTEXT = { allowed_recipients: TEST_RECIPIENT, allowed_domains: TEST_DOMAIN };
 const GATE_CONTENT = { intent: 'E2E: verification-footer test — bounded automated email sending.' };
 
@@ -64,7 +59,7 @@ let mcpClient: Client | null = null;
 const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
 
 async function submitEmailAttestation(): Promise<string> {
-  const boundsHash = computeBoundsHash(BOUNDS, ['profile', 'read_access', 'recipient_max', 'send_daily_max', 'setup_daily_max']);
+  const boundsHash = computeBoundsHash(BOUNDS, BOUNDS_KEY_ORDER);
   const contextHash = computeScopeHash(CONTEXT, ['allowed_recipients', 'allowed_domains']);
   const result = await sp.submitMandate(userApiKey, {
     profile_id: PROFILE_ID,
@@ -83,37 +78,25 @@ async function submitEmailAttestation(): Promise<string> {
   return result.authorization_id;
 }
 
-/** Find the just-sent message body by subject, retrying for Gmail indexing. */
+/** The body of the just-sent message, read back from the connector's Sent folder by subject. */
 async function findSentBody(subject: string): Promise<string> {
-  for (let attempt = 0; attempt < 6; attempt++) {
-    const list = await mcpClient!.callTool({ name: 'gmail__list_messages', arguments: { maxResults: 1, q: `subject:"${subject}"` } });
-    const listText = (list.content as Array<{ text?: string }>)[0]?.text ?? '{}';
-    const id = (JSON.parse(listText).messages ?? [])[0]?.id;
-    if (id) {
-      const msg = await mcpClient!.callTool({ name: 'gmail__get_message', arguments: { id } });
-      return (msg.content as Array<{ text?: string }>)[0]?.text ?? '';
-    }
-    await sleep(2_000);
-  }
-  return '';
+  const { text: listText } = await callText(mcpClient!, 'mail__list_messages', { folder: 'sent' });
+  const id = (JSON.parse(listText) as Array<{ id: string; subject: string }>).find((m) => m.subject === subject)?.id;
+  if (!id) return '';
+  const { text } = await callText(mcpClient!, 'mail__get_message', { id });
+  return (JSON.parse(text) as { body: string }).body;
 }
 
 beforeAll(async () => {
-  if (!HAS_GMAIL) return;
   pm.buildGateway();
   await pm.startSP(SP_PORT);
   const user = await sp.register('Footer E2E', `footer-e2e-${Date.now()}@test.local`);
   userApiKey = user.apiKey;
   userDid = user.user.did;
   personalGroupId = await sp.getPersonalGroupId(userApiKey);
-  await pm.startGateway({ port: GW_PORT, spUrl: SP_URL, spApiKey: userApiKey, profilesDir: PROFILES_DIR });
+  await startMailGateway(pm, { port: GW_PORT, spUrl: SP_URL, spApiKey: userApiKey, profilesDir: PROFILES_DIR });
   await gw.configure({ sessionCookie: 'footer-e2e-test', apiKey: userApiKey });
-  await gw.pushServiceCredentials('gmail', { clientId: GMAIL_CLIENT_ID, clientSecret: GMAIL_CLIENT_SECRET, refreshToken: GMAIL_REFRESH_TOKEN });
-  await gw.addIntegration({
-    id: 'gmail', name: 'Gmail', command: 'npx', args: ['-y', '@shinzolabs/gmail-mcp@latest'],
-    envKeys: { CLIENT_ID: 'gmail.clientId', CLIENT_SECRET: 'gmail.clientSecret', REFRESH_TOKEN: 'gmail.refreshToken' },
-    profile: PROFILE_SHORT, enabled: true,
-  });
+  await addMailConnector(gw);
   await submitEmailAttestation();
   const transport = new SSEClientTransport(new URL(`${GW_URL}/sse`));
   mcpClient = new Client({ name: 'hap-footer-e2e', version: '0.1.0' }, { capabilities: {} });
@@ -126,17 +109,18 @@ afterAll(async () => {
   await pm.killAll();
 }, 30_000);
 
-describe.skipIf(!HAS_GMAIL)('verification footer — happy path', () => {
+describe('verification footer — happy path', () => {
   it('injects a verify link into the sent body, and that receipt verifies on the AS', async () => {
     const subject = `HAP Footer E2E — ${Date.now()}`;
     const send = await mcpClient!.callTool({
-      name: 'gmail__send_message',
+      name: 'mail__send_message',
       arguments: { to: [TEST_RECIPIENT], subject, body: 'Automated footer e2e — ignore.' },
     });
     expect(send.isError).toBeFalsy();
 
     const body = await findSentBody(subject);
     expect(body).toContain(FOOTER_MARKER);
+    expect(body.startsWith('Automated footer e2e — ignore.')).toBe(true); // the AI's text first, the footer after it
 
     const m = body.match(RECEIPT_LINK);
     expect(m).not.toBeNull();
