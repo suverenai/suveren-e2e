@@ -774,7 +774,9 @@ export async function setOpenApprovalsAutomatically(page: Page, apiKey: string, 
  */
 async function showApprovalInPanel(page: Page, hasText: string | RegExp): Promise<Locator> {
   const panel = page.getByTestId('approval-panel');
-  const card = panel.getByTestId('approval-card').filter({ hasText }).first();
+  // Only an OPEN panel counts: a panel sent away (e.g. by going to another page) keeps its card in the DOM
+  // while it slides out — a card found there passes a few checks and then detaches (CI 2026-11-07, AU10 A).
+  const card = page.locator('[data-testid="approval-panel"][aria-hidden="false"]').getByTestId('approval-card').filter({ hasText }).first();
   const isOpen = async () => (await panel.getAttribute('aria-hidden').catch(() => 'true')) === 'false';
   const deadline = Date.now() + 60_000;
   while (Date.now() < deadline) {

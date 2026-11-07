@@ -14,7 +14,7 @@
  *
  * Real stack throughout: a real Authority Server, a real gateway built from
  * source, a real CRM MCP connector (local SQLite, no credentials), and (TR7
- * only, credential-gated) a real Gmail connector. No mocks.
+ * only) the real email connector's practice mailbox. No mocks.
  *
  * ── Feature gate ───────────────────────────────────────────────────────────
  * Skips loudly (not silently) when this gateway checkout predates #119 — two
@@ -446,27 +446,21 @@ test.describe('Team roles, caps and read limits — gateway (#119)', () => {
     });
   });
 
-  // ── Team read ceiling (TR7) — credential-gated (real Gmail connector) ─────
+  // ── Team read ceiling (TR7) — the mail connector's practice mailbox ─────
   //
-  // No non-credentialed connector in this workspace declares an age
+  // No other non-credentialed connector in this workspace declares an age
   // dimension: customers@* has only a binary read_access switch (exercised
   // above as the hard-cap case); CRM's and Records' manifests never declare
-  // `readPolicy`/`read.ageField`. Only gmail.json wires `read_max_age_days`
-  // (ageField: "read_age_days", resultDatePath: "internalDate") to a real
-  // age check on `get_message` — and Gmail needs a real account. Self-skips
-  // without credentials, same convention as email-lifecycle.test.ts /
-  // email-read-age.test.ts (README "Credential-gated suites") — loud, not
-  // silent, and reported as not-run rather than claimed covered.
-  //
-  // The refusal/success contrast additionally needs a KNOWN message id in
-  // the test mailbox older than the 30-day signed ceiling — same
-  // GMAIL_OLD_MESSAGE_ID convention email-read-age.test.ts already uses,
-  // because no fixture here can seed real Gmail content. Without it, the
-  // mandate/mode setup still runs (proving the plumbing works) but the one
-  // assertion that needs mailbox content skips individually, loudly.
+  // `readPolicy`/`read.ageField`. mail.json wires `read_max_age_days`
+  // (ageField: "read_age_days") to a real per-item age check on
+  // `get_message` (resultDatePath: "received_at") and to the list floor
+  // (ageFloorArg: "received_after"), and its test mailbox
+  // runs in CI. The old message is made by backdating one practice message in
+  // the connector's own database (the simulation ignores package dates).
   test.describe.serial('TR7 — team read ceiling: min(local, signed) in team mode, local wins in personal mode', () => {
-    // Our own email connector (simulation), not Gmail: it runs in CI. Its
-    // get_message is age-checked per item (received_at) since gateway #116.
+    // Our own email connector (test mailbox): it runs in CI. Its get_message is
+    // age-checked per item (received_at) since gateway #116, its list view by the
+    // received_after floor since 0.43.0.
     const EMAIL_ID = latestProfileId('email');
     const EMAIL_KEY_ORDER = ['profile', 'read_access', 'recipient_max', 'send_daily_max', 'read_max_age_days', 'setup_daily_max'];
     const gw = new GatewayClient(GW_MCP_URL, INTERNAL_SECRET);

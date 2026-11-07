@@ -6,10 +6,11 @@
  * (`resultDatePath: "received_at"`, a flat field in the real connector's
  * response) and `readPolicy.defaultAgeDays: 30` backfills existing/new
  * installs so they don't immediately fail closed on an unset window (F11).
- * list_messages only declares `ageField` (no resultDatePath) — the connector
- * has no query arg to inject an age ceiling into, so it is window-gated
- * (fails closed if no window is set at all) but NOT item-verified; only
- * get_message checks an individual message's age.
+ * list_messages declares `ageFloorArg: "received_after"`: the gateway sets that
+ * argument to now minus the window (omitted, older or junk values are replaced),
+ * so the connector never returns an older message — proven in
+ * email-read-age.test.ts. It is also window-gated (fails closed if no window is
+ * set at all). get_message additionally checks the individual message's age.
  *
  * `load_simulation` deliberately IGNORES a package's own `received_at` (see
  * hap-email-mcp/src/tools/simulation.ts: "a package's own `received_at` is

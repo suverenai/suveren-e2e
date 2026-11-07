@@ -55,7 +55,7 @@ async function propose(name: string): Promise<void> {
   try {
     const res = await client.callTool({
       name: 'crm__create_contact',
-      arguments: { name, email: `${name.toLowerCase().replace(/\W+/g, '.')}@panel.example`, type: 'customer', contact_type: 'customer' },
+      arguments: { name, email: `${name.toLowerCase().replace(/\W+/g, '.')}@panel.example`, type: 'customer' },
     });
     const body = ((res.content as Array<{ text?: string }>) ?? [])[0]?.text ?? '';
     expect(res.isError, body).toBeFalsy();
