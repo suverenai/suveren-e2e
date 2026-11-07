@@ -19,4 +19,5 @@ export const SIMULATION_SPECS = [
   'core-objects.spec.ts',
   'journey-5-agent-flow.spec.ts',
   'team-roles-caps.spec.ts',
+  'ticket-card-email-body.spec.ts',
 ];
