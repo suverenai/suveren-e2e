@@ -233,7 +233,7 @@ test.describe.serial('AU10: request and customer history on the approval card (r
       expect(msg.hans).toBeTruthy();
 
       const contact = async (name: string, email: string) =>
-        (JSON.parse(await call(c, 'crm__create_contact', { name, email, type: 'customer', contact_type: 'customer' })) as { id: string }).id;
+        (JSON.parse(await call(c, 'crm__create_contact', { name, email, type: 'customer' })) as { id: string }).id;
       // An entry a PERSON typed into the CRM — written straight into the
       // connector's database, not through the gateway, so it has no ticket.
       const crmDb = new DatabaseSync(join(gatewayDataDir(), 'crm.db'));
@@ -271,7 +271,7 @@ test.describe.serial('AU10: request and customer history on the approval card (r
       // Case D (contract test 6): an automatic call with _source executes,
       // and the record that reaches the CRM carries no _source.
       const stored = JSON.parse(await call(c, 'crm__create_contact', {
-        name: 'Stripped Source', email: 'stripped@other-firma.de', type: 'customer', contact_type: 'customer',
+        name: 'Stripped Source', email: 'stripped@other-firma.de', type: 'customer',
         _source: { connector: 'mail', kind: 'message', id: msg.kraus },
       })) as Record<string, unknown>;
       expect(stored.name).toBe('Stripped Source');
@@ -300,7 +300,7 @@ test.describe.serial('AU10: request and customer history on the approval card (r
 
     await withAgent(async (c) => {
       const propose = async (args: Record<string, unknown>) => {
-        const res = await c.callTool({ name: 'crm__create_contact', arguments: { type: 'customer', contact_type: 'customer', ...args } });
+        const res = await c.callTool({ name: 'crm__create_contact', arguments: { type: 'customer', ...args } });
         expect(res.isError, text(res)).toBeFalsy();
       };
       await propose({ name: 'J. Kraus', email: 'j.kraus@bavaria-umform.de', _source: { connector: 'mail', kind: 'message', id: msg.kraus } });

@@ -130,7 +130,10 @@ describe('Setup', () => {
         overrides: {
           // Gateway 0.36.0: the footer goes only to a tool that declares
           // \`message\` — which field holds the text, and the verb.
-          create_record: { executionMapping: {}, staticExecution: { allowed_platforms: 'linkedin', content_type: 'text', audience: 'public', action_type: 'post' }, message: { text: 'content', verb: 'Published' } },
+          // Gateway 0.43.0 (sealed-args rule): every argument of a content-sealed tool must be bound,
+          // a shown reference, or declared non-content. Here only `content` is bound (text binding);
+          // the record's `type` and `title` are this harness sink's own bookkeeping, not what is posted.
+          create_record: { executionMapping: {}, staticExecution: { allowed_platforms: 'linkedin', content_type: 'text', audience: 'public', action_type: 'post' }, message: { text: 'content', verb: 'Published' }, nonContentArgs: ['type', 'title'] },
           // Read tools must declare governance (F9) or they are denied. The
           // publish profile has no read model — the records store is only a
           // sink here, read back to prove the footer survived storage — so an

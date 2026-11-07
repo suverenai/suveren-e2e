@@ -52,7 +52,7 @@ async function blockOnce(label: string): Promise<void> {
     // A lead, under a mandate scoped to customers → refused before anything ran.
     const res = await client.callTool({
       name: 'crm__create_contact',
-      arguments: { name: label, email: `${label.toLowerCase().replace(/\W+/g, '.')}@example.com`, type: 'lead', contact_type: 'lead' },
+      arguments: { name: label, email: `${label.toLowerCase().replace(/\W+/g, '.')}@example.com`, type: 'lead' },
     });
     expect(res.isError, 'the call is refused').toBeTruthy();
   } finally {

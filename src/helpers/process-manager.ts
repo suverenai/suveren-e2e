@@ -272,7 +272,7 @@ export class ProcessManager {
     /**
      * Run the gateway in simulation mode (SUVEREN_SIMULATION=1). A gateway is
      * EITHER in simulation OR in production, never both: in simulation every
-     * connector whose current mode is not simulated (records, gmail, calendar,
+     * connector whose current mode is not simulated (records, calendar, email in Gmail mode,
      * mollie, or crm/erp set to live) is paused; in production a connector in
      * simulated mode (crm/erp/mail at their default) does not start. A suite
      * that uses the practice CRM/ERP/mailbox as its downstream therefore

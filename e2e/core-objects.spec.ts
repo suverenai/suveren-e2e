@@ -87,7 +87,7 @@ async function createContacts(names: string[]): Promise<void> {
     for (const name of names) {
       const res = await client.callTool({
         name: 'crm__create_contact',
-        arguments: { name, email: `${name.toLowerCase().replace(/\W+/g, '.')}@core-objects.de`, type: 'customer', contact_type: 'customer' },
+        arguments: { name, email: `${name.toLowerCase().replace(/\W+/g, '.')}@core-objects.de`, type: 'customer' },
       });
       const body = ((res.content as Array<{ text?: string }>) ?? [])[0]?.text ?? '';
       expect(res.isError, body).toBeFalsy();
