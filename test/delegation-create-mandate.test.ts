@@ -283,14 +283,14 @@ describe.skipIf(!available)('delegation: the AI proposes a mandate, a person app
     afterAll(async () => { await stopGateway(gw); }, 30_000);
 
     it('a team where the person is not an approver: refused at the call — no proposal', async () => {
-      const r = await call(gw, { team: 'Sales Vienna', profile: 'customers', limits: { read_access: 'unlimited', export_access: 'none', write_daily_max: 5, delete_daily_max: 0, setup_daily_max: 0 }, scope: { contact_type: 'customer' }, intent: 'Why — test.', mode: 'automatic' });
+      const r = await call(gw, { profile: 'customers', limits: { read_access: 'unlimited', export_access: 'none', write_daily_max: 5, delete_daily_max: 0, setup_daily_max: 0 }, scope: { contact_type: 'customer' }, intent: 'Why — test.', mode: 'automatic' });
       expect(r.denied).toBe(true);
       expect(r.text).toMatch(/approvers in "Sales Vienna"/);
       expect(await pending(gw)).toHaveLength(0);
     });
 
     it('team: after approval the intent is encrypted for every approver of the profile', async () => {
-      const r = await call(gw, { team: 'Sales Vienna', profile: 'sales', limits: SALES_LIMITS, scope: { currency: 'EUR' }, intent: 'Why — team quotes.', mode: 'review', duration_hours: 24, title: 'Team quotes (AI)' });
+      const r = await call(gw, { profile: 'sales', limits: SALES_LIMITS, scope: { currency: 'EUR' }, intent: 'Why — team quotes.', mode: 'review', duration_hours: 24, title: 'Team quotes (AI)' });
       expect(r.denied, r.text).toBe(false);
       const p = (await pending(gw)).find((x) => x.status === 'pending')!;
       expect(p, 'no pending proposal').toBeTruthy();
