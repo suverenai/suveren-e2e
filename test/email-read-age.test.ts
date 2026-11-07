@@ -55,7 +55,7 @@ const BOUNDS = {
   recipient_max: 5,
   send_daily_max: 10,
   read_max_age_days: READ_MAX_AGE_DAYS,
-  setup_daily_max: 0,
+  setup_daily_max: 5, // load_simulation is a setup action: it needs a setup allowance
 };
 // Unscoped (no recipient scope): these tests are about AGE, not coverage.
 const CONTEXT: Record<string, string> = {};
