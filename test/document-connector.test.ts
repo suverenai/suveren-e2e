@@ -97,6 +97,7 @@ let agent: Client;
 let mailbox: Client;
 let connector: Client;
 let previousDisableAuto: string | undefined;
+let automaticDocsMandate = '';
 
 // ── helpers ──────────────────────────────────────────────────────────────────
 
@@ -450,28 +451,10 @@ describe.skipIf(!available)('Document connector (real AS + gateway + documents-m
       await expectSaveRefused('limit-3.txt');
       await sp.revokeAuthorization(apiKey, mandate);
     }, 60_000);
-
-    it('under a review mandate nothing is stored until a person approves', async () => {
-      const mandate = await grantDocuments('review', 10);
-      const bytes = drop('reviewed.txt', Buffer.from('needs a decision'));
-      const before = storeFiles().length;
-      const r = await call('documents__save_document', { file: 'reviewed.txt' });
-      expect(r.denied, r.text).toBe(false);
-      expect(r.text).toMatch(/Awaiting commitment/);
-      const proposal = proposalIdOf(r.text);
-      expect(storeFiles().length, 'stored before approval').toBe(before);
-
-      await commit(proposal);
-      const done = await awaitExecution(proposal);
-      expect(done.denied, done.text).toBe(false);
-      expect(resultJson(done.text).sha256).toBe(sha256(bytes));
-      expect(storeFiles().length).toBe(before + 1);
-      await sp.revokeAuthorization(apiKey, mandate);
-    }, 60_000);
   });
 
   describe('save_document under an automatic mandate', () => {
-    beforeAll(async () => { await grantDocuments('automatic', 500); }, 60_000);
+    beforeAll(async () => { automaticDocsMandate = await grantDocuments('automatic', 500); }, 60_000);
 
     it('the AI sees save_document and list_documents; get_document is never listed', async () => {
       const names = (await agent.listTools()).tools.map((t) => t.name);
@@ -1007,5 +990,29 @@ describe.skipIf(!available)('Document connector (real AS + gateway + documents-m
       await expectDelivered({ messageId: resultJson(done.text).id, to: review.to, subject: 'Gross', body: BODY, mandateId: review.id, files: [original] });
       expect(statSync(storeFileWith(expectedSha)).size).toBe(MAX_BYTES);
     }, 360_000);
+  });
+
+  // Last, on purpose: the gateway keeps offering a revoked REVIEW mandate (a proposal
+  // needs no Authority Server call, so nothing tells it), so nothing may run after this
+  // that expects an automatic save. Revoking the automatic mandate first is safe: its
+  // next ticket request is refused and the gateway falls back.
+  describe('saving under a review mandate', () => {
+    it('nothing is stored until a person approves', async () => {
+      await sp.revokeAuthorization(apiKey, automaticDocsMandate);
+      await grantDocuments('review', 10);
+      const bytes = drop('reviewed.txt', Buffer.from('needs a decision'));
+      const before = storeFiles().length;
+      const r = await call('documents__save_document', { file: 'reviewed.txt' });
+      expect(r.denied, r.text).toBe(false);
+      expect(r.text).toMatch(/Awaiting commitment/);
+      const proposal = proposalIdOf(r.text);
+      expect(storeFiles().length, 'stored before approval').toBe(before);
+
+      await commit(proposal);
+      const done = await awaitExecution(proposal);
+      expect(done.denied, done.text).toBe(false);
+      expect(resultJson(done.text).sha256).toBe(sha256(bytes));
+      expect(storeFiles().length).toBe(before + 1);
+    }, 60_000);
   });
 });

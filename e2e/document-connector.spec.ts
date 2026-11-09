@@ -73,16 +73,15 @@ test.describe.serial('Document connector: selector and approval card', () => {
     // GUESSED: the profile card is found by its title text, as Records is in createAuthorization.
     await page.locator('.card', { has: page.getByText('Email', { exact: true }) }).first().locator('button:has-text("Give a mandate")').click();
     await page.waitForURL((url) => url.toString().includes('/mandates/new/intent'), { timeout: 10_000 });
-    // The contract fixes the heading; a <section>/.card around it is GUESSED from the mockup.
     const heading = page.getByRole('heading', { name: 'What the AI may attach' });
     await expect(heading).toBeVisible({ timeout: 15_000 });
-    return page.locator('section, .card', { has: heading }).last();
+    return page.locator('.attach-src', { has: heading });
   }
 
   /** Finish the wizard: GUESSED order (recipient field, limits, intent, review) from the mockup and createAuthorization. */
   async function finishEmailMandate(recipient: string, title: string) {
-    await page.getByLabel('Allowed recipients').fill(recipient); // GUESSED: label from the mockup
-    for (const plus of await page.locator('.stepper-btn:has-text("+")').all()) { // GUESSED: every limit at least 1
+    await page.getByLabel('Allowed recipients').fill(recipient);
+    for (const plus of await page.locator('.stepper-increment').all()) {
       await plus.click();
     }
     await page.locator('button:has-text("Next")').click();
@@ -162,7 +161,6 @@ test.describe.serial('Document connector: selector and approval card', () => {
     await expect(section).toContainText('Tick what may leave with these emails. Nothing ticked means text only.');
     const boxes = section.locator('input[type="checkbox"]');
     expect(await boxes.count()).toBeGreaterThanOrEqual(2);
-    // GUESSED: the label text derives from the manifest's label "saved document {id}".
     const documents = section.getByLabel(/saved document/i);
     await expect(documents).toHaveCount(1);
     await expect(section).not.toContainText('{id}');
@@ -198,11 +196,9 @@ test.describe.serial('Document connector: selector and approval card', () => {
     await expect(card).not.toContainText(INJECTED);
 
     await expect(card).toContainText(MD_SENTENCE, { timeout: 30_000 });
-    // GUESSED: the preview is an <img> directly in the card (no click to expand).
     const img = card.locator('img').first();
     await expect(img).toBeVisible({ timeout: 30_000 });
     await expect.poll(() => img.evaluate((el: HTMLImageElement) => el.naturalWidth)).toBeGreaterThan(0);
-    // GUESSED: the card offers a <video> element with controls.
     await expect(card.locator('video').first()).toBeVisible({ timeout: 30_000 });
 
     await card.locator('button:has-text("Approve")').click();
