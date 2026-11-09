@@ -965,6 +965,18 @@ describe.skipIf(!available)('Document connector (real AS + gateway + documents-m
       }, 60_000);
     });
 
+    // Above the size at which the mail connector used to drop the connection (7 MiB).
+    // Separate from the largest case, so the two limits fail apart.
+    it('a 10 MiB attachment round trips byte for byte in automatic mode', async () => {
+      const original = pdfOfSize(10 * 1024 * 1024, 'ten');
+      const doc = await save('ten.pdf', original, 'application/pdf');
+      const sentBefore = await sentCount();
+      const r = await call('mail__send_message', { to: [automatic.to], subject: 'Zehn', body: BODY, attachments: [ref(doc.id)] });
+      expect(r.denied, r.text.slice(0, 500)).toBe(false);
+      expect(await sentCount()).toBe(sentBefore + 1);
+      await expectDelivered({ messageId: r.json.id, to: automatic.to, subject: 'Zehn', body: BODY, mandateId: automatic.id, files: [original] });
+    }, 120_000);
+
     // Last: the slowest case. The whole path at the limit: save, card preview, ticket, mailbox.
     it('the largest case: a 25 MiB attachment round trips byte for byte in review mode', async () => {
       const original = pdfOfSize(MAX_BYTES);
@@ -999,7 +1011,7 @@ describe.skipIf(!available)('Document connector (real AS + gateway + documents-m
   describe('saving under a review mandate', () => {
     it('nothing is stored until a person approves', async () => {
       await sp.revokeAuthorization(apiKey, automaticDocsMandate);
-      await grantDocuments('review', 10);
+      await grantDocuments('review', 1000); // The daily count is per profile: it includes every earlier save.
       const bytes = drop('reviewed.txt', Buffer.from('needs a decision'));
       const before = storeFiles().length;
       const r = await call('documents__save_document', { file: 'reviewed.txt' });
