@@ -259,6 +259,13 @@ describe('the limit is used up, then a review call', () => {
     expect(await w.proposals()).toHaveLength(before);
   });
 
+  it('the mandate summary carries the team-wide count the ticket check uses (cumulative_usage)', async () => {
+    const res = await fetch(`${SP_URL}/api/authorizations/${reviewId}`, { headers: { 'X-API-Key': w.apiKey } });
+    expect(res.ok).toBe(true);
+    const usage = ((await res.json()) as { cumulative_usage: Array<Record<string, unknown>> }).cumulative_usage;
+    expect(usage).toContainEqual({ field: 'write_daily_max', action_type: 'write', kind: 'cumulative_count', window: 'daily', used: 2, limit: 2 });
+  });
+
   it('the Authority Server refuses with the ticket\'s own code, message and numbers', async () => {
     const res = await fetch(`${SP_URL}/api/proposals`, {
       method: 'POST',
@@ -345,6 +352,8 @@ describe('the limit fills up AFTER the proposal exists', () => {
     expect(proposal!.refusal.code).toBe('CUMULATIVE_LIMIT_EXCEEDED');
     expect(proposal!.refusal.message).toBe('Cumulative daily count (3) exceeds write_daily_max=2');
     expect(typeof proposal!.refusal.at).toBe('number');
+    // The structured facts, so a card can say "3 of 2" without parsing the message.
+    expect(proposal!.refusal).toMatchObject({ field: 'write_daily_max', expected: 2, actual: 3 });
 
     // The same record is what the lists the gateway UI shows carry.
     const listed = (await w.proposals()).find((p) => p.id === proposalId);
