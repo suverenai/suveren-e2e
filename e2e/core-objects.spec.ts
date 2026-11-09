@@ -308,4 +308,59 @@ test.describe.serial('Core objects — dashboard, tickets, approvals (real stack
     await expect(anna.getByTestId('ticket-result')).toContainText('what CRM answered');
     await page.screenshot({ path: join(SCREENSHOT_DIR, 'f-ticket-content.png'), fullPage: true });
   });
+
+  test('G: tickets by day, new ones marked; the closed menu counts readably and pushes the page without reflowing it', async () => {
+    test.setTimeout(90_000);
+    // Tickets cannot be back-dated on the wire, so the display of earlier days gets older timestamps here. Display only.
+    await page.route('**/api/tickets/mine*', async (route) => {
+      const res = await route.fetch();
+      const body = await res.json();
+      const list: Array<{ timestamp: number }> = Array.isArray(body) ? body : (Object.values(body).find(Array.isArray) as Array<{ timestamp: number }>);
+      list.forEach((t, i) => { if (i >= 2) t.timestamp -= i >= 4 ? 3 * 86_400 : 86_400; });
+      await route.fulfill({ response: res, json: body });
+    });
+    await page.setViewportSize({ width: 900, height: 800 });
+    await goDashboard(page);
+    await page.click('.sidebar-item[href="/tickets"]');
+    await page.waitForURL('**/tickets**');
+
+    const days = page.getByTestId('ticket-day');
+    await expect(days.first()).toContainText('Today', { timeout: 30_000 });
+    await expect(days.nth(1)).toContainText('Yesterday');
+    await expect(days.first().locator('.ticket-obj-card.is-quiet')).toHaveCount(0);
+    await expect(days.nth(1).locator('.ticket-obj-card.is-quiet').first()).toBeVisible();
+    await page.mouse.move(800, 700);
+    await expect.poll(async () => (await page.locator('.sidebar').boundingBox())!.width).toBeCloseTo(56, 0);
+    await page.screenshot({ path: join(SCREENSHOT_DIR, 'g-days.png'), fullPage: true });
+    // A quiet line opens into the full ticket.
+    const quiet = days.nth(1).locator('.ticket-obj-card').first();
+    await quiet.locator('.ticket-obj-head').click();
+    await expect(quiet).toHaveClass(/is-open/);
+    await expect(quiet).not.toHaveClass(/is-quiet/);
+
+    // The counter on the closed menu is big enough to read.
+    await page.mouse.move(800, 700);
+    await expect.poll(async () => (await page.locator('.sidebar').boundingBox())!.width).toBeCloseTo(56, 0);
+    const counter = page.locator('.sidebar .nav-count:visible').first();
+    await expect(counter).toBeVisible();
+    expect((await counter.boundingBox())!.height).toBeGreaterThanOrEqual(20);
+    expect(parseFloat(await counter.evaluate(e => getComputedStyle(e).fontSize))).toBeGreaterThanOrEqual(12);
+    await page.screenshot({ path: join(SCREENSHOT_DIR, 'g-rail-closed.png') });
+
+    // Opening the menu moves the page right; it keeps its width; no sideways scrolling.
+    const main = page.locator('.main-content');
+    await page.mouse.move(800, 700);
+    await expect.poll(async () => (await main.boundingBox())!.x).toBeCloseTo(56, 0); // settled: the 3.5rem rail
+    const before = (await main.boundingBox())!;
+    await page.hover('.sidebar');
+    await expect.poll(async () => (await main.boundingBox())!.x).toBeCloseTo(240, 0); // the 15rem menu
+    const after = (await main.boundingBox())!;
+    expect(after.width).toBe(before.width);
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+    await page.screenshot({ path: join(SCREENSHOT_DIR, 'g-rail-open.png') });
+
+    await page.mouse.move(800, 700);
+    await page.unroute('**/api/tickets/mine*');
+    await page.setViewportSize({ width: 1280, height: 720 });
+  });
 });
