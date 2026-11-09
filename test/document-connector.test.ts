@@ -141,7 +141,9 @@ function cleanEnv(extra: Record<string, string>): Record<string, string> {
 
 function parseResult(r: Awaited<ReturnType<Client['callTool']>>) {
   const text = (r.content as Array<{ text?: string }>)?.map((c) => c.text ?? '').join('\n') ?? '';
-  return { denied: r.isError === true, text, json: (() => { try { return JSON.parse(text); } catch { return null; } })() as any };
+  // The gateway appends "[Suveren gateway] Since your last call: ..." notices after a tool's result.
+  const body = text.replace(/(\n\[Suveren gateway\][^\n]*)+$/, '');
+  return { denied: r.isError === true, text, json: (() => { try { return JSON.parse(body); } catch { return null; } })() as any };
 }
 
 /** As the AI: through the gateway. */
