@@ -194,6 +194,7 @@ export async function startServers(): Promise<void> {
     },
     stdio: ['pipe', 'pipe', 'pipe'],
   });
+  process.env.HAP_E2E_PW_AS_PID = String(sp.pid); // as-frozen-retry.spec freezes this process
   processes.push(sp);
   pipe(sp, 'AS');
   await waitFor(`${SP_URL}/api/as/pubkey`, 60_000);

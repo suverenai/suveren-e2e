@@ -130,6 +130,8 @@ test.describe.serial('Core objects — dashboard, tickets, approvals (real stack
     await goDashboard(page);
     const waiting = page.getByTestId('col-waiting');
     await expect(waiting.getByTestId('dash-approval')).toHaveCount(2, { timeout: 30_000 });
+    // The menu counts the tickets the person has not seen yet.
+    await expect(page.getByTestId('nav-count-tickets')).toHaveText('3', { timeout: 30_000 });
     // §18.5: the Approvals page's own row — type line with the age ("4 min"), no "waiting" word.
     await expect(waiting.getByTestId('dash-approval').first().getByTestId('approval-row')).toBeVisible();
     // UI3: the sentence comes from the manifest's summary template + the
@@ -158,6 +160,7 @@ test.describe.serial('Core objects — dashboard, tickets, approvals (real stack
     await expect(rows.filter({ hasText: 'automatic' })).toHaveCount(3);
     await expect(page.locator('.ticket-obj-card[data-new="true"]')).toHaveCount(3);
     await expect(page.getByTestId('tickets-new-count')).toContainText('3 new');
+    await expect(page.getByTestId('nav-count-tickets')).toHaveCount(0, { timeout: 15_000 });
     await expect(page.getByTestId('tickets-filter-approved')).toContainText('0');
     await page.screenshot({ path: join(SCREENSHOT_DIR, 'b-tickets-automatic.png'), fullPage: true });
   });
@@ -202,6 +205,8 @@ test.describe.serial('Core objects — dashboard, tickets, approvals (real stack
     // The last approval waits: send the panel away so it does not cover the pages below.
     await page.getByTestId('approval-later').click();
     await expect(panel).toHaveAttribute('aria-hidden', 'true');
+    // Approving issued a ticket: the menu says so, without a reload.
+    await expect(page.getByTestId('nav-count-tickets')).toHaveText('1', { timeout: 30_000 });
 
     await page.click('.sidebar-item:has-text("Tickets")');
     await page.waitForURL('**/tickets');
@@ -307,5 +312,60 @@ test.describe.serial('Core objects — dashboard, tickets, approvals (real stack
     await expect(anna.getByTestId('ticket-result')).toHaveAttribute('data-ok', 'true');
     await expect(anna.getByTestId('ticket-result')).toContainText('what CRM answered');
     await page.screenshot({ path: join(SCREENSHOT_DIR, 'f-ticket-content.png'), fullPage: true });
+  });
+
+  test('G: tickets by day, new ones marked; the closed menu counts readably and pushes the page without reflowing it', async () => {
+    test.setTimeout(90_000);
+    // Tickets cannot be back-dated on the wire, so the display of earlier days gets older timestamps here. Display only.
+    await page.route('**/api/tickets/mine*', async (route) => {
+      const res = await route.fetch();
+      const body = await res.json();
+      const list: Array<{ timestamp: number }> = Array.isArray(body) ? body : (Object.values(body).find(Array.isArray) as Array<{ timestamp: number }>);
+      list.forEach((t, i) => { if (i >= 2) t.timestamp -= i >= 4 ? 3 * 86_400 : 86_400; });
+      await route.fulfill({ response: res, json: body });
+    });
+    await page.setViewportSize({ width: 900, height: 800 });
+    await goDashboard(page);
+    await page.click('.sidebar-item[href="/tickets"]');
+    await page.waitForURL('**/tickets**');
+
+    const days = page.getByTestId('ticket-day');
+    await expect(days.first()).toContainText('Today', { timeout: 30_000 });
+    await expect(days.nth(1)).toContainText('Yesterday');
+    await expect(days.first().locator('.ticket-obj-card.is-quiet')).toHaveCount(0);
+    await expect(days.nth(1).locator('.ticket-obj-card.is-quiet').first()).toBeVisible();
+    await page.mouse.move(800, 700);
+    await expect.poll(async () => (await page.locator('.sidebar').boundingBox())!.width).toBeCloseTo(56, 0);
+    await page.screenshot({ path: join(SCREENSHOT_DIR, 'g-days.png'), fullPage: true });
+    // A quiet line opens into the full ticket.
+    const quiet = days.nth(1).locator('.ticket-obj-card').first();
+    await quiet.locator('.ticket-obj-head').click();
+    await expect(quiet).toHaveClass(/is-open/);
+    await expect(quiet).not.toHaveClass(/is-quiet/);
+
+    // The counter on the closed menu is big enough to read.
+    await page.mouse.move(800, 700);
+    await expect.poll(async () => (await page.locator('.sidebar').boundingBox())!.width).toBeCloseTo(56, 0);
+    const counter = page.locator('.sidebar .nav-count:visible').first();
+    await expect(counter).toBeVisible();
+    expect((await counter.boundingBox())!.height).toBeGreaterThanOrEqual(20);
+    expect(parseFloat(await counter.evaluate(e => getComputedStyle(e).fontSize))).toBeGreaterThanOrEqual(12);
+    await page.screenshot({ path: join(SCREENSHOT_DIR, 'g-rail-closed.png') });
+
+    // Opening the menu moves the page right; it keeps its width; no sideways scrolling.
+    const main = page.locator('.main-content');
+    await page.mouse.move(800, 700);
+    await expect.poll(async () => (await main.boundingBox())!.x).toBeCloseTo(56, 0); // settled: the 3.5rem rail
+    const before = (await main.boundingBox())!;
+    await page.hover('.sidebar');
+    await expect.poll(async () => (await main.boundingBox())!.x).toBeCloseTo(240, 0); // the 15rem menu
+    const after = (await main.boundingBox())!;
+    expect(after.width).toBe(before.width);
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+    await page.screenshot({ path: join(SCREENSHOT_DIR, 'g-rail-open.png') });
+
+    await page.mouse.move(800, 700);
+    await page.unroute('**/api/tickets/mine*');
+    await page.setViewportSize({ width: 1280, height: 720 });
   });
 });
