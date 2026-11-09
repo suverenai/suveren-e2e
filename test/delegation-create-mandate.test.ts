@@ -275,6 +275,10 @@ describe.skipIf(!available)('delegation: the AI proposes a mandate, a person app
       await sp.setProfileConfig(tom.apiKey, teamId, DELEGATION, { approvers: [bernd.user.id] });
       await sp.setProfileConfig(tom.apiKey, teamId, `${P}/sales@0.4`, { approvers: [tom.user.id, bernd.user.id] });
       await sp.setProfileConfig(tom.apiKey, teamId, `${P}/customers@0.9`, { approvers: [tom.user.id] });
+      await sp.setProfileConfig(tom.apiKey, teamId, `${P}/email@0.9`, {
+        approvers: [bernd.user.id],
+        caps: { read_max_age_days: { value: 30, kind: 'hard' }, send_daily_max: { value: 3, kind: 'hard' } },
+      });
 
       // Team mandate: group_id = the team, domain = the member's user id.
       await startGatewayWithDelegation(gw, bernd, teamId, bernd.user.id);
@@ -304,5 +308,39 @@ describe.skipIf(!available)('delegation: the AI proposes a mandate, a person app
         expect(intent.body.encryptedKey).toMatchObject({ ct: expect.any(String), enc: expect.any(String) });
       }
     }, 60_000);
+
+    describe('a team that caps limits (found 2026-11-09: a refusal showed only "status 422")', () => {
+      const LIMITS = { read_access: 'none', recipient_max: 1, setup_daily_max: 0 };
+      const args = (limits: Record<string, unknown>) => ({
+        profile: 'email', limits: { ...LIMITS, ...limits }, scope: { allowed_recipients: 'kunde@firma.example' },
+        intent: 'Why — mails to one customer.', mode: 'review', duration_hours: 24, title: 'Capped email',
+      });
+      const open = async () => (await pending(gw)).filter((x) => x.status === 'pending');
+
+      it('a limit the team requires but the AI left out: refused at the call, naming it — no proposal', async () => {
+        const before = (await open()).length;
+        const r = await call(gw, args({ send_daily_max: 3 }));
+        expect(r.denied).toBe(true);
+        expect(r.text).toMatch(/requires limit "read_max_age_days".*at most 30/);
+        expect(await open()).toHaveLength(before);
+      });
+
+      it('the Authority Server refuses after approval: the person and the AI get its real reason', async () => {
+        const r = await call(gw, args({ read_max_age_days: 30, send_daily_max: 5 }));
+        expect(r.denied, r.text).toBe(false);
+        const p = (await open()).find((x) => x.status === 'pending')!;
+        expect(await approveAndWait(gw, p.id, 'commit')).toBeNull();
+        const status = await gw.agent!.callTool({ name: 'check-pending-commitments', arguments: { proposal_id: p.id } });
+        expect(textOf(status)).toMatch(/send_daily_max.*exceeds the group's hard cap 3/);
+        expect(textOf(status)).not.toMatch(/status 422/);
+      }, 60_000);
+
+      it('with the required limit set, inside the caps: the mandate is created', async () => {
+        const r = await call(gw, args({ read_max_age_days: 30, send_daily_max: 3 }));
+        expect(r.denied, r.text).toBe(false);
+        const p = (await open()).find((x) => x.status === 'pending')!;
+        expect(await approveAndWait(gw, p.id, 'commit')).toBeTruthy();
+      }, 60_000);
+    });
   });
 });
