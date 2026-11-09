@@ -130,6 +130,8 @@ test.describe.serial('Core objects — dashboard, tickets, approvals (real stack
     await goDashboard(page);
     const waiting = page.getByTestId('col-waiting');
     await expect(waiting.getByTestId('dash-approval')).toHaveCount(2, { timeout: 30_000 });
+    // The menu counts the tickets the person has not seen yet.
+    await expect(page.getByTestId('nav-count-tickets')).toHaveText('3', { timeout: 30_000 });
     // §18.5: the Approvals page's own row — type line with the age ("4 min"), no "waiting" word.
     await expect(waiting.getByTestId('dash-approval').first().getByTestId('approval-row')).toBeVisible();
     // UI3: the sentence comes from the manifest's summary template + the
@@ -158,6 +160,7 @@ test.describe.serial('Core objects — dashboard, tickets, approvals (real stack
     await expect(rows.filter({ hasText: 'automatic' })).toHaveCount(3);
     await expect(page.locator('.ticket-obj-card[data-new="true"]')).toHaveCount(3);
     await expect(page.getByTestId('tickets-new-count')).toContainText('3 new');
+    await expect(page.getByTestId('nav-count-tickets')).toHaveCount(0, { timeout: 15_000 });
     await expect(page.getByTestId('tickets-filter-approved')).toContainText('0');
     await page.screenshot({ path: join(SCREENSHOT_DIR, 'b-tickets-automatic.png'), fullPage: true });
   });
@@ -202,6 +205,8 @@ test.describe.serial('Core objects — dashboard, tickets, approvals (real stack
     // The last approval waits: send the panel away so it does not cover the pages below.
     await page.getByTestId('approval-later').click();
     await expect(panel).toHaveAttribute('aria-hidden', 'true');
+    // Approving issued a ticket: the menu says so, without a reload.
+    await expect(page.getByTestId('nav-count-tickets')).toHaveText('1', { timeout: 30_000 });
 
     await page.click('.sidebar-item:has-text("Tickets")');
     await page.waitForURL('**/tickets');
