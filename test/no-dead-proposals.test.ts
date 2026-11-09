@@ -415,3 +415,71 @@ describe('a revoked mandate leaves no way to act', () => {
     expect(found).not.toContain('Second Try');
   });
 });
+
+// ─────────────────────────────────────────────────────────────────────────────
+// The same rule on the TICKET path (automatic mode): a mandate whose limit has
+// no room is skipped for the call, selection runs over the rest.
+
+describe('automatic mode: two mandates fit and one has no room', () => {
+  const w = new World('auto', 17946, 17956);
+  let narrowId: string;
+  let broadId: string;
+  let burnerId: string;
+  const ticketsOf = async () => (await sp.getMyTicketsPage(w.apiKey, { limit: 100 })).tickets;
+
+  beforeAll(async () => {
+    await w.start();
+    narrowId = await w.grant({ contactType: 'customer', mode: 'automatic', writeDailyMax: 1, intent: 'NARROW: customers, one a day.' });
+    broadId = await w.grant({ contactType: 'customer,lead', mode: 'automatic', writeDailyMax: 10, intent: 'BROAD: customers and leads, ten a day.' });
+    burnerId = await w.grant({ contactType: 'partner', mode: 'automatic', writeDailyMax: 50, intent: 'BURNER: partner contacts.' });
+    await w.connect();
+  }, 240_000);
+  afterAll(() => w.stop(), 30_000);
+
+  it('the call runs once, on the mandate with room, and is counted once', async () => {
+    await w.useUpWrites(burnerId, 1); // the shared count is 1: NARROW (limit 1) is full
+    const before = new Set((await ticketsOf()).map((t) => String(t.id)));
+
+    const text = await w.createContact('Fallback Auto');
+    expect(text).not.toMatch(/Blocked|Refused/);
+    expect(text).toContain('Fallback Auto');
+
+    const fresh = (await ticketsOf()).filter((t) => !before.has(String(t.id)));
+    expect(fresh).toHaveLength(1); // not one per candidate tried
+    expect(fresh[0].authorizationId).toBe(broadId);
+    expect(fresh[0].authorizationId).not.toBe(narrowId);
+
+    // Counted once: the burner's 1 + this call's 1 = 2 write tickets in the group, so the
+    // next write (3rd) is refused by a limit of 2 and allowed by one of 3 — probe the server directly.
+    const probe = await sp.postTicket(w.apiKey, {
+      authorizationId: narrowId, profileId: PROFILE_ID, action: 'crm__create_contact', actionType: 'write',
+      executionContext: { contact_type: 'customer' },
+    });
+    expect(probe.status).toBe(403);
+    expect((probe.body.errors as Array<Record<string, unknown>>)[0]).toMatchObject({ code: 'CUMULATIVE_LIMIT_EXCEEDED', expected: 1, actual: 3 });
+  });
+});
+
+describe('automatic mode: no mandate has room', () => {
+  const w = new World('autofull', 17947, 17957);
+  let burnerId: string;
+
+  beforeAll(async () => {
+    await w.start();
+    await w.grant({ contactType: 'customer', mode: 'automatic', writeDailyMax: 1, intent: 'ONLY: customers, one a day.' });
+    burnerId = await w.grant({ contactType: 'partner', mode: 'automatic', writeDailyMax: 50, intent: 'BURNER: partner contacts.' });
+    await w.connect();
+  }, 240_000);
+  afterAll(() => w.stop(), 30_000);
+
+  it('one refusal with the server\'s reason, no ticket, nothing created', async () => {
+    await w.useUpWrites(burnerId, 1);
+    const before = (await sp.getMyTicketsPage(w.apiKey, { limit: 100 })).tickets.length;
+
+    const text = await w.createContact('Nope Auto');
+    expect(text).toMatch(/Cumulative daily count \(2\) exceeds write_daily_max=1/);
+    expect(isProposal(text)).toBe(false);
+
+    expect((await sp.getMyTicketsPage(w.apiKey, { limit: 100 })).tickets).toHaveLength(before);
+  });
+});

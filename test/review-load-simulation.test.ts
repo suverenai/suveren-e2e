@@ -333,16 +333,14 @@ describe.skipIf(!refusedAvailable)('review-mode load_simulation: the Authority S
     return { denied: r.isError === true, text };
   }
 
-  /** Call a gated tool, expect a proposal, approve it at the AS. Returns the proposal id. */
-  async function proposeAndApprove(tool: string, args: Record<string, unknown>): Promise<string> {
+  /** Call a gated tool and expect a proposal. Returns the proposal id. */
+  async function propose(tool: string, args: Record<string, unknown>): Promise<string> {
     const r = await call2(tool, args);
     expect(r.denied, r.text).toBe(false);
     expect(r.text).toMatch(/Awaiting commitment/);
     const match = r.text.match(/Proposal ID: ([a-f0-9-]+)/);
     expect(match, r.text).toBeTruthy();
-    const proposalId = match![1];
-    await resolveProposal2(proposalId);
-    return proposalId;
+    return match![1];
   }
 
   beforeAll(async () => {
@@ -368,22 +366,31 @@ describe.skipIf(!refusedAvailable)('review-mode load_simulation: the Authority S
   it('setup_daily_max=2: approved clear (1), approved load (2=cap), approved load again (3) — the Authority Server refuses THIS ticket; the proposal is REFUSED, never EXECUTED, and nothing extra loaded', async () => {
     const pkg = JSON.parse(readFileSync(join(import.meta.dirname, 'fixtures', 'simulation-package.example.json'), 'utf8'));
 
+    // The Authority Server refuses a proposal that could not be ticketed TODAY
+    // (no dead proposals), so all three are created while the day still has
+    // room (count 0 of 2) and approved afterwards, one by one. The third
+    // approval is the case that remains: the limit filled up AFTER its
+    // proposal existed, so only the ticket can refuse it.
+    const clearId = await propose('crm__clear_simulation', {});
+    const loadId1 = await propose('crm__load_simulation', { package: pkg });
+    const loadId2 = await propose('crm__load_simulation', { package: pkg });
+
     // (1) clear on an already-empty simulator — succeeds trivially, uses 1 of 2.
     // check-pending-commitments itself runs a still-'committed' proposal (no
     // nudge/poll has reached it yet), so this returns executeCommitted's own
     // first-time success text ("committed and executed."), not the later
     // ALL-CAPS "EXECUTED" status report a SUBSEQUENT check would show.
-    const clearId = await proposeAndApprove('crm__clear_simulation', {});
+    await resolveProposal2(clearId);
     expect((await checkPending2(clearId)).text).toMatch(/executed/i);
 
     // (2) load — succeeds, the cap is now fully spent (2 of 2).
-    const loadId1 = await proposeAndApprove('crm__load_simulation', { package: pkg });
+    await resolveProposal2(loadId1);
     expect((await checkPending2(loadId1)).text).toMatch(/executed/i);
 
     // (3) a THIRD setup-type ticket request — the AS computes the would-be
     // cumulative count (3) against setup_daily_max=2 and refuses the TICKET
     // ITSELF, before the gateway ever calls the connector.
-    const loadId2 = await proposeAndApprove('crm__load_simulation', { package: pkg });
+    await resolveProposal2(loadId2);
     await fetch(`${GW_URL_2}/internal/run-committed`, { method: 'POST', headers: internalSecretHeaders(GW_URL_2) });
     await new Promise((r) => setTimeout(r, 3_000));
 
