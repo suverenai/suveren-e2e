@@ -4,9 +4,7 @@
  * signing in again. And the gateway itself must give up on the hung call instead of waiting forever.
  */
 import { execSync } from 'node:child_process';
-import { test, expect, SP_URL, registerOnSP, signInToGateway, handleOnboarding } from './fixtures';
-
-const asPid = () => execSync(`lsof -nP -tiTCP:${new URL(SP_URL).port} -sTCP:LISTEN`).toString().trim().split('\n')[0];
+import { test, expect, registerOnSP, signInToGateway, handleOnboarding } from './fixtures';
 
 test('a frozen Authority Server: told what is going on, recovers without a reload or a new sign-in', async ({ page }) => {
   test.setTimeout(180_000);
@@ -19,7 +17,8 @@ test('a frozen Authority Server: told what is going on, recovers without a reloa
   // Not reloaded = this marker survives to the end.
   await page.evaluate(() => { (window as unknown as { __noReload: boolean }).__noReload = true; });
 
-  const pid = asPid();
+  const pid = process.env.HAP_E2E_PW_AS_PID;
+  expect(pid, 'the shared stack records the Authority Server process').toBeTruthy();
   execSync(`kill -STOP ${pid}`);
   try {
     await page.click('.sidebar-item:has-text("Mandates")');
