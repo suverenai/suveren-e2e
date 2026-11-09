@@ -1,5 +1,5 @@
 /**
- * File fixtures for the document connector suites: real bytes, built here so the
+ * File fixtures for the files connector suites: real bytes, built here so the
  * tests compute every expectation (type, size, SHA-256) themselves and share
  * nothing with the connector under test.
  *
@@ -10,8 +10,8 @@ import { createHash } from 'node:crypto';
 import { deflateSync } from 'node:zlib';
 
 export const MIB = 1024 * 1024;
-/** Contract: at most 25 MiB, per file and per email. */
-export const MAX_BYTES = 26_214_400;
+/** Andreas's decision (2026-11-09): at most 18,000,000 bytes (18 MB), at save, per file and per email. */
+export const MAX_BYTES = 18_000_000;
 
 export const sha256 = (buf: Buffer): string => createHash('sha256').update(buf).digest('hex');
 

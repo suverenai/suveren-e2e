@@ -1,6 +1,6 @@
 /**
- * The document connector, on the real stack: Authority Server + the whole gateway
- * (control plane + MCP server) in SIMULATION mode + the real documents connector
+ * The files connector, on the real stack: Authority Server + the whole gateway
+ * (control plane + MCP server) in SIMULATION mode + the real files connector
  * from its shipped manifest + the real email-mcp practice mailbox. Nothing is
  * mocked; the only stand-in is the practice mailbox, which is the connector's own
  * test mode.
@@ -12,7 +12,7 @@
  * itself wrote.
  *
  * The oracles are outside the gateway:
- *  - the store on disk (<dataDir>/documents-store/): "nothing stored" means no new file;
+ *  - the store on disk (<dataDir>/files-store/): "nothing stored" means no new file;
  *  - the connector's own view, over stdio on the gateway's data dir;
  *  - the practice mailbox's own view, over stdio;
  *  - the Authority Server's ticket list: "no ticket" means no new ticket.
@@ -32,6 +32,8 @@ import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { SSEClientTransport } from '@modelcontextprotocol/sdk/client/sse.js';
 import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js';
 import { execFileSync, spawn } from 'node:child_process';
+import { createRequire } from 'node:module';
+import { randomUUID } from 'node:crypto';
 import {
   chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, renameSync,
   rmSync, statSync, symlinkSync, unlinkSync, writeFileSync,
@@ -50,7 +52,7 @@ import {
   MAX_BYTES, buildPdf, docx, gif, jpeg, mp4, ole2, pdfAnnotated, pdfEmbeddedFile, pdfForm, pdfIncrementalUpdate,
   pdfJavaScriptNameTree, pdfObfuscatedOpenAction, pdfOfSize, pdfOpenActionScript, pdfScriptInObjectStream, png,
   sha256, wav, webm, webp, xlsx, zip,
-} from '../src/helpers/document-files.js';
+} from '../src/helpers/file-fixtures.js';
 
 // 19970–19979 belong to this file.
 const AS_PORT = 19970;
@@ -64,18 +66,18 @@ function readJson(path: string): any {
   try { return JSON.parse(readFileSync(path, 'utf8')); } catch { return null; }
 }
 const P = 'github.com/humanagencyprotocol/hap-profiles';
-const DOCUMENTS = `${P}/documents@0.1`;
+const FILES = `${P}/files@0.1`;
 const EMAIL_09 = `${P}/email@0.9`;
 const EMAIL_KEYS = ['profile', 'read_access', 'recipient_max', 'send_daily_max', 'read_max_age_days', 'setup_daily_max'];
 const EMAIL_SCOPE_KEYS = ['allowed_recipients', 'allowed_domains', 'allowed_attachment_sources'];
-const docManifest = readJson(join(GW_DIR, 'content', 'integrations', 'documents.json'));
+const docManifest = readJson(join(GW_DIR, 'content', 'integrations', 'files.json'));
 
 const gaps: string[] = [];
-if (!docManifest) gaps.push('a gateway with content/integrations/documents.json');
-if (!existsSync(join(PROFILES_DIR, 'documents', '0.1.profile.json'))) gaps.push('hap-profiles documents@0.1');
+if (!docManifest) gaps.push('a gateway with content/integrations/files.json');
+if (!existsSync(join(PROFILES_DIR, 'files', '0.1.profile.json'))) gaps.push('hap-profiles files@0.1');
 if (!existsSync(join(PROFILES_DIR, 'email', '0.9.profile.json'))) gaps.push('hap-profiles email@0.9');
 const available = gaps.length === 0;
-if (!available) console.warn(`[DOCUMENT CONNECTOR E2E] SKIPPED: needs ${gaps.join('; ')}.`);
+if (!available) console.warn(`[FILES CONNECTOR E2E] SKIPPED: needs ${gaps.join('; ')}.`);
 
 const pm = new ProcessManager();
 const sp = new SPClient(AS_URL);
@@ -101,7 +103,7 @@ let automaticDocsMandate = '';
 
 // ── helpers ──────────────────────────────────────────────────────────────────
 
-const storeDir = () => join(pm.getDataDir(), 'documents-store');
+const storeDir = () => join(pm.getDataDir(), 'files-store');
 
 function walkFiles(dir: string): string[] {
   if (!existsSync(dir)) return [];
@@ -159,7 +161,7 @@ async function direct(client: Client, tool: string, args: Record<string, unknown
 async function reconnectAgent() {
   await new Promise((r) => setTimeout(r, 1_000));
   if (agent) await agent.close().catch(() => {});
-  agent = new Client({ name: 'documents-agent', version: '1.0.0' }, { capabilities: {} });
+  agent = new Client({ name: 'files-agent', version: '1.0.0' }, { capabilities: {} });
   await agent.connect(new SSEClientTransport(new URL(`${MCP_URL}/sse`)));
 }
 
@@ -239,13 +241,13 @@ async function grant(profileId: string, keys: string[], bounds: Record<string, u
   return att.authorization_id;
 }
 
-/** A documents mandate. Its bound keys come from the SHIPPED profile, never a copy here. */
-async function grantDocuments(mode: 'review' | 'automatic', saveDailyMax: number): Promise<string> {
-  const profile = loadProfile(DOCUMENTS, PROFILES_DIR) as any;
+/** A files mandate. Its bound keys come from the SHIPPED profile, never a copy here. */
+async function grantFiles(mode: 'review' | 'automatic', saveDailyMax: number): Promise<string> {
+  const profile = loadProfile(FILES, PROFILES_DIR) as any;
   const keys: string[] = profile.boundsSchema.keyOrder;
   const bounds: Record<string, unknown> = {};
   for (const key of keys) {
-    if (key === 'profile') bounds[key] = DOCUMENTS;
+    if (key === 'profile') bounds[key] = FILES;
     else if (key === 'save_daily_max') bounds[key] = saveDailyMax;
     else {
       const kind = profile.boundsSchema.fields[key]?.boundType;
@@ -253,7 +255,7 @@ async function grantDocuments(mode: 'review' | 'automatic', saveDailyMax: number
       else bounds[key] = 1000;
     }
   }
-  const id = await grant(DOCUMENTS, keys, bounds, {}, [], `E2E: save documents (${mode}, ${saveDailyMax}/day).`, mode);
+  const id = await grant(FILES, keys, bounds, {}, [], `E2E: save files (${mode}, ${saveDailyMax}/day).`, mode);
   await reconnectAgent();
   return id;
 }
@@ -277,7 +279,7 @@ function drop(name: string, bytes: Buffer): Buffer {
 /** A save that must succeed: the connector's fingerprint must equal the test's own. */
 async function save(name: string, bytes: Buffer, expectedType?: string): Promise<any> {
   drop(name, bytes);
-  const r = await call('documents__save_document', { file: name });
+  const r = await call('files__save_file', { file: name });
   expect(r.denied, r.text).toBe(false);
   expect(r.json, r.text).toBeTruthy();
   expect(r.json.sha256).toBe(sha256(bytes));
@@ -296,17 +298,17 @@ function expectPlainRefusal(text: string) {
 
 async function expectSaveRefused(file: string, extraArgs: Record<string, unknown> = {}) {
   const filesBefore = storeFiles().length;
-  const listBefore = (await direct(connector, 'list_documents', {})).json;
-  const r = await call('documents__save_document', { file, ...extraArgs });
+  const listBefore = (await direct(connector, 'list_files', {})).json;
+  const r = await call('files__save_file', { file, ...extraArgs });
   expect(r.denied, `not refused: ${r.text}`).toBe(true);
   expectPlainRefusal(r.text);
   expect(storeFiles().length, 'a file was stored').toBe(filesBefore);
-  const listAfter = (await direct(connector, 'list_documents', {})).json;
+  const listAfter = (await direct(connector, 'list_files', {})).json;
   expect(rows(listAfter).length, 'the index gained a row').toBe(rows(listBefore).length);
   return r;
 }
 
-const rows = (list: any): any[] => (Array.isArray(list) ? list : list?.documents ?? []);
+const rows = (list: any): any[] => (Array.isArray(list) ? list : list?.files ?? []);
 
 async function mailboxJson(tool: string, args: Record<string, unknown>): Promise<any> {
   const r = await direct(mailbox, tool, args);
@@ -319,15 +321,33 @@ async function sentCount(): Promise<number> {
   return (Array.isArray(list) ? list : list.messages ?? []).length;
 }
 
-async function sendTicketCount(): Promise<number> {
-  let n = 0;
+async function sendTickets(): Promise<Array<Record<string, any>>> {
+  const all: Array<Record<string, any>> = [];
   let before: string | undefined;
   for (;;) {
     const page = await sp.getMyTicketsPage(apiKey, { limit: 100, before });
-    n += page.tickets.filter((t) => String(t.action).includes('send_message')).length;
-    if (!page.nextBefore) return n;
+    all.push(...page.tickets.filter((t) => String(t.action).includes('send_message')));
+    if (!page.nextBefore) return all;
     before = page.nextBefore;
   }
+}
+
+const sendTicketCount = async (): Promise<number> => (await sendTickets()).length;
+
+/** The highest daily count any send ticket records: the AS's own running total for this budget. */
+const sendDailyCount = async (): Promise<number> =>
+  Math.max(0, ...(await sendTickets()).map((t) => Number(t.cumulativeState?.daily?.count ?? 0)));
+
+/** The protocol's answer for a send refused after approval (Execution Context Schema, rule 6): a ticket proves
+ *  authorization, not completion, and it consumes the daily count. The outcome is recorded by the gateway. */
+async function expectFailedOutcomeOnTicket(proposal: string, reason: RegExp, ticketsBefore: number, dailyBefore: number) {
+  const outcome = await cpGet(`/proposal-status/${proposal}/outcome`);
+  expect(outcome.status, JSON.stringify(outcome.body)).toBe(200);
+  expect(outcome.body.state, JSON.stringify(outcome.body)).toBe('failed');
+  expect(outcome.body.outcome, JSON.stringify(outcome.body)).toBe('changed');
+  expect(String(outcome.body.detail), JSON.stringify(outcome.body)).toMatch(reason);
+  expect(await sendTicketCount(), 'the approved send has no ticket').toBe(ticketsBefore + 1);
+  expect(await sendDailyCount(), 'the send did not consume the daily count').toBe(dailyBefore + 1);
 }
 
 async function expectSendRefused(args: Record<string, unknown>) {
@@ -378,7 +398,7 @@ async function expectDelivered(opts: { messageId: string; to: string; subject: s
 
 // ── suite ────────────────────────────────────────────────────────────────────
 
-describe.skipIf(!available)('Document connector (real AS + gateway + documents-mcp + practice mailbox)', () => {
+describe.skipIf(!available)('Files connector (real AS + gateway + files-mcp + practice mailbox)', () => {
   beforeAll(async () => {
     previousDisableAuto = process.env.SUVEREN_DISABLE_AUTO_INTEGRATIONS;
     process.env.SUVEREN_DISABLE_AUTO_INTEGRATIONS = '1';
@@ -388,18 +408,18 @@ describe.skipIf(!available)('Document connector (real AS + gateway + documents-m
 
     pm.buildGateway();
     await pm.startSP(AS_PORT);
-    const reg = await sp.register('Documents E2E', `docs-${Date.now()}@test.local`);
+    const reg = await sp.register('Files E2E', `files-${Date.now()}@test.local`);
     apiKey = reg.apiKey;
     did = reg.user.did;
     groupId = await sp.getPersonalGroupId(apiKey);
 
     await pm.startGateway({ simulation: true, port: MCP_PORT, cpPort: CP_PORT, spUrl: AS_URL, spApiKey: apiKey, profilesDir: PROFILES_DIR });
-    await gw.configure({ sessionCookie: 'documents-e2e', apiKey });
+    await gw.configure({ sessionCookie: 'files-e2e', apiKey });
 
     // A person sets the folder on the connector, the way the UI saves it.
-    const put = await cp.authed(apiKey, 'PUT', '/vault/credentials/documents', { sharedFolder: FOLDER });
+    const put = await cp.authed(apiKey, 'PUT', '/vault/credentials/files', { sharedFolder: FOLDER });
     expect(put.status, await put.text()).toBe(200);
-    for (const id of ['documents', 'mail']) {
+    for (const id of ['files', 'mail']) {
       const res = await cp.authed(apiKey, 'POST', `/mcp/integrations/${id}/activate`);
       expect(res.status, await res.text()).toBe(200);
       await gw.waitForIntegration(id);
@@ -412,10 +432,10 @@ describe.skipIf(!available)('Document connector (real AS + gateway + documents-m
       command: process.execPath, args: [connectorEntry('@humanagencyp/email-mcp', 'email-mcp')],
       env: cleanEnv({ HAP_DATA_DIR: pm.getDataDir() }),
     }));
-    connector = new Client({ name: 'operator-documents', version: '1.0.0' }, { capabilities: {} });
+    connector = new Client({ name: 'operator-files', version: '1.0.0' }, { capabilities: {} });
     await connector.connect(new StdioClientTransport({
-      command: process.execPath, args: [connectorEntry('@humanagencyp/documents-mcp', 'documents-mcp')],
-      env: cleanEnv({ HAP_DATA_DIR: pm.getDataDir(), DOCUMENTS_FOLDER: FOLDER }),
+      command: process.execPath, args: [connectorEntry('@humanagencyp/files-mcp', 'files-mcp')],
+      env: cleanEnv({ HAP_DATA_DIR: pm.getDataDir(), FILES_FOLDER: FOLDER }),
     }));
     await reconnectAgent();
   }, 300_000);
@@ -429,24 +449,24 @@ describe.skipIf(!available)('Document connector (real AS + gateway + documents-m
   }, 30_000);
 
   describe('the shipped manifest', () => {
-    it('declares the fixed contract: id, name, profile, and the attachment source documents:file', () => {
-      expect(docManifest.id).toBe('documents');
-      expect(docManifest.name).toBe('Documents');
-      expect(docManifest.profile).toBe('documents');
+    it('declares the fixed contract: id, name, profile, and the attachment source files:file', () => {
+      expect(docManifest.id).toBe('files');
+      expect(docManifest.name).toBe('Files');
+      expect(docManifest.profile).toBe('files');
       expect(docManifest.documents?.file).toMatchObject({
-        tool: 'get_document', args: { kind: 'file', id: '$id' }, label: 'saved document {id}', aiSupplied: true,
+        tool: 'get_file', args: { kind: 'file', id: '$id' }, label: 'saved file {id}', aiSupplied: true,
       });
     });
   });
 
   describe('saving needs a mandate', () => {
-    it('without a documents mandate save_document is refused and nothing is stored', async () => {
+    it('without a files mandate save_file is refused and nothing is stored', async () => {
       drop('no-mandate.txt', Buffer.from('saved without a mandate?'));
       await expectSaveRefused('no-mandate.txt');
     });
 
     it('save_daily_max is enforced: the call over the limit is refused and stores nothing', async () => {
-      const mandate = await grantDocuments('automatic', 2);
+      const mandate = await grantFiles('automatic', 2);
       await save('limit-1.txt', Buffer.from('first'));
       await save('limit-2.txt', Buffer.from('second'));
       drop('limit-3.txt', Buffer.from('third'));
@@ -455,30 +475,30 @@ describe.skipIf(!available)('Document connector (real AS + gateway + documents-m
     }, 60_000);
   });
 
-  describe('save_document under an automatic mandate', () => {
-    beforeAll(async () => { automaticDocsMandate = await grantDocuments('automatic', 500); }, 60_000);
+  describe('save_file under an automatic mandate', () => {
+    beforeAll(async () => { automaticDocsMandate = await grantFiles('automatic', 500); }, 60_000);
 
-    it('the AI sees save_document and list_documents; get_document is never listed', async () => {
+    it('the AI sees save_file and list_files; get_file is never listed', async () => {
       const names = (await agent.listTools()).tools.map((t) => t.name);
-      expect(names).toContain('documents__save_document');
-      expect(names).toContain('documents__list_documents');
-      expect(names).not.toContain('documents__get_document');
-      expect(names.filter((n) => n.includes('get_document'))).toEqual([]);
+      expect(names).toContain('files__save_file');
+      expect(names).toContain('files__list_files');
+      expect(names).not.toContain('files__get_file');
+      expect(names.filter((n) => n.includes('get_file'))).toEqual([]);
     });
 
-    it('get_document cannot be called by the AI: refused, no bytes, no proposal', async () => {
+    it('get_file cannot be called by the AI: refused, no bytes, no proposal', async () => {
       const doc = await save('private.txt', Buffer.from('private body text'));
       const pendingBefore = (await pendingProposals()).length;
-      const r = await call('documents__get_document', { kind: 'file', id: doc.id });
+      const r = await call('files__get_file', { kind: 'file', id: doc.id });
       expect(r.denied, r.text).toBe(true);
       expect(r.text).not.toContain('contentBase64');
       expect(r.text).not.toContain(Buffer.from('private body text').toString('base64'));
       expect((await pendingProposals()).length).toBe(pendingBefore);
     });
 
-    it('list_documents gives metadata only', async () => {
+    it('list_files gives metadata only', async () => {
       const doc = await save('listed.md', Buffer.from('# Listed\n'));
-      const r = await call('documents__list_documents', {});
+      const r = await call('files__list_files', {});
       expect(r.denied, r.text).toBe(false);
       const row = rows(r.json).find((d) => d.id === doc.id);
       expect(row).toMatchObject({ id: doc.id, filename: 'listed.md', contentType: 'text/markdown', bytes: doc.bytes, sha256: doc.sha256 });
@@ -513,7 +533,7 @@ describe.skipIf(!available)('Document connector (real AS + gateway + documents-m
       expect(doc.filename).toBe(name);
     });
 
-    it('a saved document is immutable: the same bytes saved twice get two ids', async () => {
+    it('a saved file is immutable: the same bytes saved twice get two ids', async () => {
       const bytes = Buffer.from('twice\n');
       const a = await save('twice.txt', bytes);
       const b = await save('twice.txt', bytes);
@@ -533,23 +553,23 @@ describe.skipIf(!available)('Document connector (real AS + gateway + documents-m
       expect(Array.from(doc.filename as string).length).toBeLessThanOrEqual(200);
     });
 
-    it('the original changed or deleted in the folder does not change the saved document', async () => {
+    it('the original changed or deleted in the folder does not change the saved file', async () => {
       const original = Buffer.from('the original content\n');
       const doc = await save('changes.txt', original);
       writeFileSync(join(FOLDER, 'changes.txt'), 'CHANGED AFTER SAVE\n');
-      const got = await direct(connector, 'get_document', { kind: 'file', id: doc.id });
+      const got = await direct(connector, 'get_file', { kind: 'file', id: doc.id });
       expect(got.denied, got.text).toBe(false);
       expect(Buffer.from(got.json.contentBase64, 'base64').equals(original)).toBe(true);
       expect(got.json.sha256).toBe(sha256(original));
       unlinkSync(join(FOLDER, 'changes.txt'));
-      const again = await direct(connector, 'get_document', { kind: 'file', id: doc.id });
+      const again = await direct(connector, 'get_file', { kind: 'file', id: doc.id });
       expect(Buffer.from(again.json.contentBase64, 'base64').equals(original)).toBe(true);
       const stored = readFileSync(storeFileWith(sha256(original)));
       expect(stored.equals(original)).toBe(true);
     });
   });
 
-  describe('save_document refusals: a plain refusal, nothing stored', () => {
+  describe('save_file refusals: a plain refusal, nothing stored', () => {
     beforeAll(() => {
       mkdirSync(join(FOLDER, 'sub'), { recursive: true });
       writeFileSync(join(FOLDER, 'sub', 'inner.txt'), 'inner\n');
@@ -572,7 +592,7 @@ describe.skipIf(!available)('Document connector (real AS + gateway + documents-m
 
       it('the AI cannot choose the folder: a folder argument changes nothing', async () => {
         writeFileSync(join(OUTSIDE, 'only-there.txt'), 'only outside\n');
-        await expectSaveRefused('only-there.txt', { folder: OUTSIDE, DOCUMENTS_FOLDER: OUTSIDE, path: OUTSIDE });
+        await expectSaveRefused('only-there.txt', { folder: OUTSIDE, FILES_FOLDER: OUTSIDE, path: OUTSIDE });
       });
     });
 
@@ -629,7 +649,7 @@ describe.skipIf(!available)('Document connector (real AS + gateway + documents-m
         let refused = 0;
         try {
           for (let i = 0; i < 25; i++) {
-            const r = await call('documents__save_document', { file: 'race.txt' });
+            const r = await call('files__save_file', { file: 'race.txt' });
             if (r.denied) {
               refused++;
               expectPlainRefusal(r.text);
@@ -641,16 +661,17 @@ describe.skipIf(!available)('Document connector (real AS + gateway + documents-m
         } finally {
           swapper.kill('SIGKILL');
         }
-        console.error(`[DOCUMENT CONNECTOR E2E] symlink race: ${saved} saved, ${refused} refused`);
+        console.error(`[FILES CONNECTOR E2E] symlink race: ${saved} saved, ${refused} refused`);
         expect(storeFiles().some((p) => sha256(readFileSync(p)) === sha256(SECRET)), 'the secret reached the store').toBe(false);
         expect(saved + refused).toBe(25);
       }, 60_000);
     });
 
-    it('rule 3: one byte over 25 MiB', async () => {
+    it('rule 3: one byte over 18,000,000 bytes', async () => {
       const name = 'too-big.txt';
       writeFileSync(join(FOLDER, name), Buffer.alloc(MAX_BYTES + 1, 0x61));
-      await expectSaveRefused(name);
+      const r = await expectSaveRefused(name);
+      expect(r.text).toMatch(/18 MB/);
       rmSync(join(FOLDER, name));
     }, 60_000);
 
@@ -727,25 +748,25 @@ describe.skipIf(!available)('Document connector (real AS + gateway + documents-m
     it('the AI cannot supply a warning: an extra argument is refused or dropped', async () => {
       const marker = 'AI-WRITTEN-WARNING';
       drop('extra-arg.txt', Buffer.from('extra argument\n'));
-      const r = await call('documents__save_document', { file: 'extra-arg.txt', warnings: [marker] });
+      const r = await call('files__save_file', { file: 'extra-arg.txt', warnings: [marker] });
       expect(r.text).not.toContain(marker);
     });
   });
 
   describe('the connector without a shared folder', () => {
-    it('save_document refuses in plain words; the other tools still work', async () => {
+    it('save_file refuses in plain words; the other tools still work', async () => {
       const dataDir = realpathSync(mkdtempSync(join(tmpdir(), 'hap-e2e-docs-nofolder-')));
       const env = cleanEnv({ HAP_DATA_DIR: dataDir });
-      delete env.DOCUMENTS_FOLDER;
+      delete env.FILES_FOLDER;
       const c = new Client({ name: 'operator-nofolder', version: '1.0.0' }, { capabilities: {} });
       await c.connect(new StdioClientTransport({
-        command: process.execPath, args: [connectorEntry('@humanagencyp/documents-mcp', 'documents-mcp')], env,
+        command: process.execPath, args: [connectorEntry('@humanagencyp/files-mcp', 'files-mcp')], env,
       }));
       try {
-        const saved = await direct(c, 'save_document', { file: 'x.txt' });
+        const saved = await direct(c, 'save_file', { file: 'x.txt' });
         expect(saved.denied, saved.text).toBe(true);
         expectPlainRefusal(saved.text);
-        const list = await direct(c, 'list_documents', {});
+        const list = await direct(c, 'list_files', {});
         expect(list.denied, list.text).toBe(false);
         expect(rows(list.json)).toEqual([]);
       } finally {
@@ -755,7 +776,7 @@ describe.skipIf(!available)('Document connector (real AS + gateway + documents-m
     });
   });
 
-  describe('sending a saved document', () => {
+  describe('sending a saved file', () => {
     let review: { id: string; to: string };
     let automatic: { id: string; to: string };
     let multi: { id: string; to: string };
@@ -764,16 +785,16 @@ describe.skipIf(!available)('Document connector (real AS + gateway + documents-m
     let erpOnly: { id: string; to: string };
 
     beforeAll(async () => {
-      review = await grantEmail('rev.example', 'documents:file', 'review');
-      automatic = await grantEmail('auto.example', 'documents:file', 'automatic');
-      multi = await grantEmail('multi.example', 'erp:invoice-pdf,documents:file', 'automatic');
+      review = await grantEmail('rev.example', 'files:file', 'review');
+      automatic = await grantEmail('auto.example', 'files:file', 'automatic');
+      multi = await grantEmail('multi.example', 'erp:invoice-pdf,files:file', 'automatic');
       noSource = await grantEmail('no-source.example', undefined, 'automatic');
       emptySource = await grantEmail('empty-source.example', '', 'automatic');
       erpOnly = await grantEmail('erp-only.example', 'erp:invoice-pdf', 'automatic');
       await reconnectAgent();
     }, 60_000);
 
-    const ref = (id: string) => ({ connector: 'documents', kind: 'file', id });
+    const ref = (id: string) => ({ connector: 'files', kind: 'file', id });
     const BODY = 'Guten Tag,\n\nim Anhang die Unterlagen.\n\nDie KI von Muster';
 
     it('review mode: card, approval, ticket; the sent email carries the exact bytes', async () => {
@@ -792,7 +813,7 @@ describe.skipIf(!available)('Document connector (real AS + gateway + documents-m
       expect(JSON.stringify(args)).not.toContain('contentBase64');
       const sealed = args._attachmentsSealed?.attachments;
       expect(sealed, JSON.stringify(args).slice(0, 500)).toHaveLength(1);
-      expect(sealed[0]).toMatchObject({ connector: 'documents', kind: 'file', id: doc.id, contentType: 'application/pdf', filename: 'review.pdf', sha256: expectedSha, bytes: original.length });
+      expect(sealed[0]).toMatchObject({ connector: 'files', kind: 'file', id: doc.id, contentType: 'application/pdf', filename: 'review.pdf', sha256: expectedSha, bytes: original.length });
 
       const preview = await cpGet(`/proposal-status/${proposal}/attachment-preview/${expectedSha}`);
       expect(preview.status, JSON.stringify(preview.body).slice(0, 300)).toBe(200);
@@ -825,7 +846,7 @@ describe.skipIf(!available)('Document connector (real AS + gateway + documents-m
       await expectDelivered({ messageId: r.json.id, to: automatic.to, subject: 'Text', body: BODY, mandateId: automatic.id, files: [original] });
     }, 60_000);
 
-    it('a mandate listing several sources as a comma-separated string allows documents:file', async () => {
+    it('a mandate listing several sources as a comma-separated string allows files:file', async () => {
       const original = Buffer.from('several sources\n');
       const doc = await save('multi.md', original, 'text/markdown');
       const r = await call('mail__send_message', { to: [multi.to], subject: 'Multi', body: BODY, attachments: [ref(doc.id)] });
@@ -847,31 +868,56 @@ describe.skipIf(!available)('Document connector (real AS + gateway + documents-m
         await expectSendRefused({ to: [erpOnly.to], subject: 'x', body: 'x', attachments: [ref(docId)] });
       });
       it('an id that does not exist, in review and automatic', async () => {
-        await expectSendRefused({ to: [automatic.to], subject: 'x', body: 'x', attachments: [ref('no-such-document')] });
-        await expectSendRefused({ to: [review.to], subject: 'x', body: 'x', attachments: [ref('no-such-document')] });
+        await expectSendRefused({ to: [automatic.to], subject: 'x', body: 'x', attachments: [ref('no-such-file')] });
+        await expectSendRefused({ to: [review.to], subject: 'x', body: 'x', attachments: [ref('no-such-file')] });
       });
       it('a path as the id', async () => {
         await expectSendRefused({ to: [automatic.to], subject: 'x', body: 'x', attachments: [ref(`../../outside/${SECRET_NAME}`)] });
       });
       it('a kind the connector does not declare', async () => {
-        await expectSendRefused({ to: [automatic.to], subject: 'x', body: 'x', attachments: [{ connector: 'documents', kind: 'drive-file', id: docId }] });
+        await expectSendRefused({ to: [automatic.to], subject: 'x', body: 'x', attachments: [{ connector: 'files', kind: 'drive-file', id: docId }] });
       });
       it('bytes supplied by the AI on the reference', async () => {
         await expectSendRefused({ to: [automatic.to], subject: 'x', body: 'x', attachments: [{ ...ref(docId), contentBase64: Buffer.from('forged').toString('base64') }] });
       });
 
-      it('over 25 MiB in one email (one byte over), automatic and review: refused before any ticket', async () => {
-        const half = 13_107_200;
-        const a = await save('half-a.txt', Buffer.alloc(half, 0x61));
-        const b = await save('half-b.txt', Buffer.alloc(half + 1, 0x62));
+      it('18,000,001 bytes in one email (two files, one byte over): refused before any proposal or ticket, automatic and review', async () => {
+        const a = await save('half-a.txt', Buffer.alloc(9_000_000, 0x61));
+        const b = await save('half-b.txt', Buffer.alloc(9_000_001, 0x62));
         expect(a.bytes + b.bytes).toBe(MAX_BYTES + 1);
-        await expectSendRefused({ to: [automatic.to], subject: 'big', body: 'x', attachments: [ref(a.id), ref(b.id)] });
-        await expectSendRefused({ to: [review.to], subject: 'big', body: 'x', attachments: [ref(a.id), ref(b.id)] });
+        const auto = await expectSendRefused({ to: [automatic.to], subject: 'big', body: 'x', attachments: [ref(a.id), ref(b.id)] });
+        expect(auto.text).toMatch(/18 MB/);
+        const reviewed = await expectSendRefused({ to: [review.to], subject: 'big', body: 'x', attachments: [ref(a.id), ref(b.id)] });
+        expect(reviewed.text).toMatch(/18 MB/);
+      }, 120_000);
+
+      // save_file refuses anything over the limit, so the gateway's own per-file check can only be reached by a
+      // file already in the store. Planted directly, like the tampering below: the connector's real read and the
+      // gateway's real check still run, nothing is mocked. If this passed through, a person would be asked to
+      // approve something that cannot be sent.
+      it('a file over the declared limit never reaches a card: no proposal, no ticket, automatic and review', async () => {
+        const original = Buffer.alloc(MAX_BYTES + 1, 0x7a);
+        const sha = sha256(original);
+        const id = randomUUID();
+        writeFileSync(join(storeDir(), id), original, { mode: 0o444 });
+        const nodeRequire = createRequire(join(pm.getDataDir(), 'integrations', 'node_modules', '@humanagencyp', 'files-mcp', 'package.json'));
+        const Database = nodeRequire('better-sqlite3');
+        const db = new Database(join(pm.getDataDir(), 'files.db'));
+        db.prepare('INSERT INTO files (id, filename, content_type, bytes, sha256, created_at, ticket_id, warnings) VALUES (?, ?, ?, ?, ?, ?, NULL, ?)')
+          .run(id, 'oversized.txt', 'text/plain', original.length, sha, new Date().toISOString(), '[]');
+        db.close();
+        const listed = await direct(connector, 'get_file', { kind: 'file', id });
+        expect(listed.denied, 'the planted file should read back from the connector').toBe(false);
+
+        const auto = await expectSendRefused({ to: [automatic.to], subject: 'over', body: 'x', attachments: [ref(id)] });
+        expect(auto.text).toMatch(/18 MB/);
+        const reviewed = await expectSendRefused({ to: [review.to], subject: 'over', body: 'x', attachments: [ref(id)] });
+        expect(reviewed.text).toMatch(/18 MB/);
       }, 120_000);
     });
 
     describe('the store changed after saving', () => {
-      it('review: changed after the card sealed it and before approval: nothing sent, no ticket', async () => {
+      it('review: changed after the card sealed it and before approval: nothing sent, ticket exists, outcome failed, daily count consumed', async () => {
         const original = Buffer.from('the file the person will see\n');
         const doc = await save('tamper.txt', original);
         const r = await call('mail__send_message', { to: [review.to], subject: 'Tamper', body: BODY, attachments: [ref(doc.id)] });
@@ -882,16 +928,17 @@ describe.skipIf(!available)('Document connector (real AS + gateway + documents-m
 
         const sentBefore = await sentCount();
         const ticketsBefore = await sendTicketCount();
+        const dailyBefore = await sendDailyCount();
         overwriteStoreFile(storeFileWith(sha256(original)), Buffer.from('TAMPERED AFTER THE CARD SEALED IT\n'));
 
         await commit(proposal);
         const done = await awaitExecution(proposal);
         expect(done.text, 'the gateway did not report the refused send').toMatch(/refused|failed|changed|nothing was done/i);
-        expect(await sentCount(), 'a tampered document was sent').toBe(sentBefore);
-        expect(await sendTicketCount(), 'a ticket was issued for a tampered document').toBe(ticketsBefore);
+        expect(await sentCount(), 'a tampered file was sent').toBe(sentBefore);
+        await expectFailedOutcomeOnTicket(proposal, /could not re-resolve|changed since this was approved/, ticketsBefore, dailyBefore);
       }, 90_000);
 
-      it('review: the file deleted before approval: nothing sent, no ticket', async () => {
+      it('review: the file deleted before approval: nothing sent, ticket exists, outcome failed, daily count consumed', async () => {
         const original = Buffer.from('gone before approval\n');
         const doc = await save('deleted.txt', original);
         const r = await call('mail__send_message', { to: [review.to], subject: 'Deleted', body: BODY, attachments: [ref(doc.id)] });
@@ -899,15 +946,16 @@ describe.skipIf(!available)('Document connector (real AS + gateway + documents-m
         const proposal = proposalIdOf(r.text);
         const sentBefore = await sentCount();
         const ticketsBefore = await sendTicketCount();
+        const dailyBefore = await sendDailyCount();
         rmSync(storeFileWith(sha256(original)));
         await commit(proposal);
         const done = await awaitExecution(proposal);
         expect(done.text).toMatch(/refused|failed|changed|nothing was done/i);
         expect(await sentCount()).toBe(sentBefore);
-        expect(await sendTicketCount()).toBe(ticketsBefore);
+        await expectFailedOutcomeOnTicket(proposal, /could not re-resolve/, ticketsBefore, dailyBefore);
       }, 90_000);
 
-      // Contract: "a saved document is immutable". The bytes on disk no longer match
+      // Contract: "a saved file is immutable". The bytes on disk no longer match
       // the fingerprint taken at save time, so they must not go out in automatic mode,
       // where no person would see them.
       it('automatic: a tampered file is never sent', async () => {
@@ -979,8 +1027,19 @@ describe.skipIf(!available)('Document connector (real AS + gateway + documents-m
       await expectDelivered({ messageId: r.json.id, to: automatic.to, subject: 'Zehn', body: BODY, mandateId: automatic.id, files: [original] });
     }, 120_000);
 
+    // Above the email connector's old 10 MiB per-file cap, below the new limit: fails if the connector cap is still old.
+    it('a 15,000,000-byte attachment, above the old connector cap, round trips byte for byte in automatic mode', async () => {
+      const original = pdfOfSize(15_000_000, 'fifteen');
+      const doc = await save('fifteen.pdf', original, 'application/pdf');
+      const sentBefore = await sentCount();
+      const r = await call('mail__send_message', { to: [automatic.to], subject: 'Fuenfzehn', body: BODY, attachments: [ref(doc.id)] });
+      expect(r.denied, r.text.slice(0, 500)).toBe(false);
+      expect(await sentCount()).toBe(sentBefore + 1);
+      await expectDelivered({ messageId: r.json.id, to: automatic.to, subject: 'Fuenfzehn', body: BODY, mandateId: automatic.id, files: [original] });
+    }, 120_000);
+
     // Last: the slowest case. The whole path at the limit: save, card preview, ticket, mailbox.
-    it('the largest case: a 25 MiB attachment round trips byte for byte in review mode', async () => {
+    it('the largest case: an 18,000,000-byte attachment round trips byte for byte in review mode', async () => {
       const original = pdfOfSize(MAX_BYTES);
       expect(original.length).toBe(MAX_BYTES);
       const expectedSha = sha256(original);
@@ -1013,10 +1072,10 @@ describe.skipIf(!available)('Document connector (real AS + gateway + documents-m
   describe('saving under a review mandate', () => {
     it('nothing is stored until a person approves', async () => {
       await sp.revokeAuthorization(apiKey, automaticDocsMandate);
-      await grantDocuments('review', 1000); // The daily count is per profile: it includes every earlier save.
+      await grantFiles('review', 1000); // The daily count is per profile: it includes every earlier save.
       const bytes = drop('reviewed.txt', Buffer.from('needs a decision'));
       const before = storeFiles().length;
-      const r = await call('documents__save_document', { file: 'reviewed.txt' });
+      const r = await call('files__save_file', { file: 'reviewed.txt' });
       expect(r.denied, r.text).toBe(false);
       expect(r.text).toMatch(/Awaiting commitment/);
       const proposal = proposalIdOf(r.text);

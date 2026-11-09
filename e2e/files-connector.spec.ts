@@ -1,5 +1,5 @@
 /**
- * The document connector in a browser: the mandate form's attachment selector and
+ * The files connector in a browser: the mandate form's attachment selector and
  * the approval card. Real stack, simulation gateway (the practice mailbox), no mocks.
  *
  * Written from the contract before the UI was read. Selectors marked GUESSED were
@@ -23,15 +23,15 @@ import {
   openApprovalCard,
 } from './fixtures';
 import { hashGateContent, computeBoundsHash, computeScopeHash } from '../src/helpers/crypto.js';
-import { mp4, pdfAnnotated, png, sha256 } from '../src/helpers/document-files.js';
+import { mp4, pdfAnnotated, png, sha256 } from '../src/helpers/file-fixtures.js';
 
 const ROOT = join(import.meta.dirname, '..', '..');
 const PROFILES_DIR = join(ROOT, 'hap-profiles');
-const GW_MANIFEST = join(ROOT, 'suveren-gateway', 'content', 'integrations', 'documents.json');
+const GW_MANIFEST = join(ROOT, 'suveren-gateway', 'content', 'integrations', 'files.json');
 // Importing must not throw on a checkout without the connector: an import error would fail the whole Playwright run.
-const available = existsSync(GW_MANIFEST) && existsSync(join(PROFILES_DIR, 'documents', '0.1.profile.json'));
-if (!available) console.warn('[DOCUMENT CONNECTOR E2E] SKIPPED: needs documents.json in the gateway and hap-profiles documents@0.1.');
-const DOCUMENTS_PROFILE = available ? latestProfileId('documents') : '';
+const available = existsSync(GW_MANIFEST) && existsSync(join(PROFILES_DIR, 'files', '0.1.profile.json'));
+if (!available) console.warn('[FILES CONNECTOR E2E] SKIPPED: needs files.json in the gateway and hap-profiles files@0.1.');
+const FILES_PROFILE = available ? latestProfileId('files') : '';
 const FOLDER = realpathSync(mkdtempSync(join(tmpdir(), 'hap-e2e-docs-pw-')));
 
 const ALLOWED_TO = 'kunde@doc-allowed.example';
@@ -40,8 +40,8 @@ const SUBJECT = 'Unterlagen mit Anhang';
 const INJECTED = 'PDF-INSIDE-INJECTION-MARKER';
 const MD_SENTENCE = 'Markdown-Satz fuer die Karte';
 
-test.describe.serial('Document connector: selector and approval card', () => {
-  test.skip(!available, 'needs the document connector and documents@0.1');
+test.describe.serial('Files connector: selector and approval card', () => {
+  test.skip(!available, 'needs the files connector and files@0.1');
   let page: Page;
   let apiKey: string;
   let did: string;
@@ -60,7 +60,7 @@ test.describe.serial('Document connector: selector and approval card', () => {
 
   async function reconnect() {
     if (agent) await agent.close().catch(() => {});
-    agent = new Client({ name: 'documents-pw-agent', version: '1.0.0' }, { capabilities: {} });
+    agent = new Client({ name: 'files-pw-agent', version: '1.0.0' }, { capabilities: {} });
     await agent.connect(new SSEClientTransport(new URL(`${GW_MCP_URL}/sse`)));
   }
 
@@ -88,7 +88,7 @@ test.describe.serial('Document connector: selector and approval card', () => {
     }
     await page.locator('button:has-text("Next")').click();
     await page.waitForSelector('.intent-textarea', { timeout: 10_000 });
-    await page.fill('.intent-textarea', `Document connector e2e: ${title}`);
+    await page.fill('.intent-textarea', `Files connector e2e: ${title}`);
     await page.locator('button:has-text("Continue to Review")').click();
     await page.waitForURL((url) => url.toString().includes('/mandates/new/sign'), { timeout: 10_000 });
     await page.locator('button', { hasText: 'Review Each Action' }).click();
@@ -103,9 +103,9 @@ test.describe.serial('Document connector: selector and approval card', () => {
     await page?.close();
   });
 
-  test('setup: Email and Documents running, a documents mandate, the AI saves files', async ({ request }) => {
+  test('setup: Email and Files running, a files mandate, the AI saves files', async ({ request }) => {
     test.setTimeout(180_000);
-    apiKey = await registerOnSP(page, 'Document Card');
+    apiKey = await registerOnSP(page, 'Files Card');
     const sess = await request.post(`${SP_URL}/api/auth/session`, { headers: { 'x-api-key': apiKey } });
     expect(sess.ok()).toBe(true);
     did = (await sess.json()).user.did as string;
@@ -113,16 +113,16 @@ test.describe.serial('Document connector: selector and approval card', () => {
     await handleOnboarding(page);
     await activateIntegration(page, 'Email (simulation)');
 
-    const put = await request.put(`${GW_URL}/vault/credentials/documents`, { headers: { 'x-api-key': apiKey }, data: { sharedFolder: FOLDER } });
+    const put = await request.put(`${GW_URL}/vault/credentials/files`, { headers: { 'x-api-key': apiKey }, data: { sharedFolder: FOLDER } });
     expect(put.ok(), await put.text()).toBe(true);
-    const act = await request.post(`${GW_URL}/mcp/integrations/documents/activate`, { headers: { 'x-api-key': apiKey } });
+    const act = await request.post(`${GW_URL}/mcp/integrations/files/activate`, { headers: { 'x-api-key': apiKey } });
     expect(act.ok(), await act.text()).toBe(true);
 
-    const profile = JSON.parse(readFileSync(join(PROFILES_DIR, 'documents', `${DOCUMENTS_PROFILE.split('@')[1]}.profile.json`), 'utf8'));
+    const profile = JSON.parse(readFileSync(join(PROFILES_DIR, 'files', `${FILES_PROFILE.split('@')[1]}.profile.json`), 'utf8'));
     const keys: string[] = profile.boundsSchema.keyOrder;
     const bounds: Record<string, unknown> = {};
     for (const key of keys) {
-      if (key === 'profile') bounds[key] = DOCUMENTS_PROFILE;
+      if (key === 'profile') bounds[key] = FILES_PROFILE;
       else if (key === 'save_daily_max') bounds[key] = 50;
       else {
         const kind = profile.boundsSchema.fields[key]?.boundType;
@@ -131,14 +131,14 @@ test.describe.serial('Document connector: selector and approval card', () => {
     }
     const boundsHash = computeBoundsHash(bounds, keys);
     const scopeHash = computeScopeHash({}, []);
-    const intent = 'Document connector e2e: save files.';
+    const intent = 'Files connector e2e: save files.';
     const att = await spApiAttest(request, apiKey, {
-      profile_id: DOCUMENTS_PROFILE, domain: 'owner', did, bounds, bounds_hash: boundsHash, scope_hash: scopeHash,
+      profile_id: FILES_PROFILE, domain: 'owner', did, bounds, bounds_hash: boundsHash, scope_hash: scopeHash,
       gate_content_hashes: hashGateContent({ intent }), execution_context_hash: 'sha256:' + 'd'.repeat(64), commitment_mode: 'automatic',
     });
     const pushed = await fetch(`${GW_MCP_URL}/internal/gate-content`, {
       method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Internal-Secret': INTERNAL_SECRET },
-      body: JSON.stringify({ authorizationId: att.authorization_id, boundsHash, contextHash: scopeHash, context: {}, path: DOCUMENTS_PROFILE, gateContent: { intent } }),
+      body: JSON.stringify({ authorizationId: att.authorization_id, boundsHash, contextHash: scopeHash, context: {}, path: FILES_PROFILE, gateContent: { intent } }),
     });
     expect(pushed.ok).toBe(true);
 
@@ -149,7 +149,7 @@ test.describe.serial('Document connector: selector and approval card', () => {
     writeFileSync(join(FOLDER, 'clip.mp4'), originalMp4);
     writeFileSync(join(FOLDER, 'angebot.pdf'), originalPdf);
     for (const name of ['notes.md', 'picture.png', 'clip.mp4', 'angebot.pdf']) {
-      const r = await mcp('documents__save_document', { file: name });
+      const r = await mcp('files__save_file', { file: name });
       expect(r.denied, r.text).toBe(false);
       docIds[name] = r.json.id;
       if (name === 'angebot.pdf') warnings = r.json.warnings;
@@ -163,12 +163,12 @@ test.describe.serial('Document connector: selector and approval card', () => {
     await expect(section).toContainText('Tick what may leave with these emails. Nothing ticked means text only.');
     const boxes = section.locator('input[type="checkbox"]');
     expect(await boxes.count()).toBeGreaterThanOrEqual(2);
-    const documents = section.getByLabel(/saved document/i);
-    await expect(documents).toHaveCount(1);
+    const files = section.getByLabel(/saved file/i);
+    await expect(files).toHaveCount(1);
     await expect(section).not.toContainText('{id}');
     await expect(section.locator('input[type="text"]')).toHaveCount(0);
-    await documents.check();
-    await finishEmailMandate(ALLOWED_TO, 'Email with saved documents');
+    await files.check();
+    await finishEmailMandate(ALLOWED_TO, 'Email with saved files');
   });
 
   test('nothing ticked: the AI may send text but not attach', async () => {
@@ -179,14 +179,14 @@ test.describe.serial('Document connector: selector and approval card', () => {
     await reconnect();
     const r = await mcp('mail__send_message', {
       to: [NOTHING_TICKED_TO], subject: 'Text only', body: 'x',
-      attachments: [{ connector: 'documents', kind: 'file', id: docIds['notes.md'] }],
+      attachments: [{ connector: 'files', kind: 'file', id: docIds['notes.md'] }],
     });
     expect(r.denied, r.text).toBe(true);
   });
 
   test('the approval card: AI-given file name labelled, warnings shown, images and video, text as text, nothing from inside the file', async () => {
     test.setTimeout(120_000);
-    const attachments = ['angebot.pdf', 'picture.png', 'clip.mp4', 'notes.md'].map((n) => ({ connector: 'documents', kind: 'file', id: docIds[n] }));
+    const attachments = ['angebot.pdf', 'picture.png', 'clip.mp4', 'notes.md'].map((n) => ({ connector: 'files', kind: 'file', id: docIds[n] }));
     const r = await mcp('mail__send_message', { to: [ALLOWED_TO], subject: SUBJECT, body: 'Im Anhang die Unterlagen.', attachments });
     expect(r.denied, r.text).toBe(false);
     expect(r.text).toMatch(/Awaiting commitment/);
