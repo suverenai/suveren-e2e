@@ -80,7 +80,9 @@ test.describe.serial('Document connector: selector and approval card', () => {
 
   /** Finish the wizard: GUESSED order (recipient field, limits, intent, review) from the mockup and createAuthorization. */
   async function finishEmailMandate(recipient: string, title: string) {
-    await page.getByLabel('Allowed recipients').fill(recipient);
+    const recipients = page.locator('#context-field-allowed_recipients');
+    await recipients.fill(recipient);
+    await recipients.press('Enter');
     for (const plus of await page.locator('.stepper-increment').all()) {
       await plus.click();
     }
