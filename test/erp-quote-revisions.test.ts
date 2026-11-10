@@ -129,7 +129,7 @@ describe.skipIf(!available)('ERP quote revisions: an approval binds one exact ve
     userDid = reg.user.did;
     groupId = await sp.getPersonalGroupId(apiKey);
 
-    await pm.startGateway({ port: GW_PORT, spUrl: SP_URL, spApiKey: apiKey, profilesDir: PROFILES_DIR });
+    await pm.startGateway({ simulation: true, port: GW_PORT, spUrl: SP_URL, spApiKey: apiKey, profilesDir: PROFILES_DIR });
     await gw.configure({ sessionCookie: 'erp-rev-e2e', apiKey });
     await gw.waitForIntegration('erp');
 
