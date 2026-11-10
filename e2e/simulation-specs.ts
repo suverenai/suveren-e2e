@@ -22,4 +22,5 @@ export const SIMULATION_SPECS = [
   'journey-5-agent-flow.spec.ts',
   'team-roles-caps.spec.ts',
   'ticket-card-email-body.spec.ts',
+  'mandate-change-card.spec.ts',
 ];
