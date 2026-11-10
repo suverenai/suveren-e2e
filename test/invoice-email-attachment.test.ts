@@ -489,14 +489,14 @@ describe.skipIf(!available)('Issue an invoice, then email it as an attachment (s
     it('(a) an email 0.8 mandate: the attachment is refused — nothing proposed, nothing sent', async () => {
       await expectRefusedNothingProposedOrSent(
         { to: [NEG.a08.to], subject: 'Rechnung', body: 'Anbei die Rechnung.', attachments: [ATTACHMENT_REF] },
-        /not allowed[\s\S]*does not yet declare "allowed_attachment_sources"/,
+        /^Refused: no Email mandate lets mail__send_message attach Issued invoice \(erp:invoice-pdf\)\. Nothing was sent and no ticket was requested\. Tell the person: the Email mandate is from a version that cannot carry attachments\. They give a new Email mandate \(\*\*Mandates → \+ New mandate → Email\*\*\) and tick Issued invoice \(erp:invoice-pdf\) under \*\*What the AI may attach\*\*\. Do not send without the attachment they asked for: stop and ask\.$/,
       );
     });
 
     it('(a) an email 0.9 mandate without allowed sources: the attachment is refused — nothing proposed, nothing sent', async () => {
       await expectRefusedNothingProposedOrSent(
         { to: [NEG.a09.to], subject: 'Rechnung', body: 'Anbei die Rechnung.', attachments: [ATTACHMENT_REF] },
-        /"erp:invoice-pdf" is not in this mandate's "allowed_attachment_sources" \(\(none\)\)/,
+        /^Refused: no Email mandate lets mail__send_message attach Issued invoice \(erp:invoice-pdf\)\. Nothing was sent and no ticket was requested\. Tell the person: open \*\*Mandates\*\*, open the Email mandate, press \*\*Edit\*\*, tick Issued invoice \(erp:invoice-pdf\) under \*\*What the AI may attach\*\*, and sign it again\. Do not send without the attachment they asked for: stop and ask\.$/,
       );
     });
 

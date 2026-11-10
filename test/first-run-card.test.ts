@@ -7,8 +7,8 @@
  *   1. connect your AI — open until an MCP client completes a handshake; then
  *      "<client name> connected"; the address to give the AI is the MCP server's
  *      own port (reported by the gateway, never guessed from the UI's port);
- *   2. give the Delegation mandate — the button opens that mandate directly;
- *   3. ask your AI — done once a proposal from the Delegation mandate arrives,
+ *   2. give your AI its first mandate — the button opens the Delegation mandate directly;
+ *   3. tell your AI what you want done — done once a proposal from the Delegation mandate arrives,
  *      and then the card gives way to the normal dashboard.
  */
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
@@ -131,7 +131,7 @@ describe.skipIf(!available)('first-run card (real AS + gateway UI + simulation m
   it('1. nothing done: step 1 open, with the MCP server\'s real address in the sentence to copy', async () => {
     await dashboard();
     await page.getByText('Get started', { exact: true }).waitFor({ timeout: 10_000 });
-    await page.locator('text=Ask your AI to connect to Suveren').waitFor();
+    await page.locator('text=Copy this into your AI:').waitFor();
     const body = await page.locator('body').innerText();
     expect(body).toContain(`Please connect to the Suveren gateway: MCP server at http://localhost:${MCP_PORT}/mcp`);
     expect(body).not.toMatch(/localhost:7430|localhost:3430/);
@@ -147,9 +147,9 @@ describe.skipIf(!available)('first-run card (real AS + gateway UI + simulation m
     await page.setViewportSize({ width: 1280, height: 900 });
 
     // Steps 1 and 2 are independent: the muted step-2 line opens it before an AI is connected.
-    await page.locator('button:has-text("Give the Delegation mandate")').click();
-    await page.locator('a:has-text("Give the Delegation mandate")').waitFor({ timeout: 5_000 });
-    expect(await page.locator('text=Ask your AI to connect to Suveren').count()).toBe(0);
+    await page.locator('button:has-text("Give your AI its first mandate")').click();
+    await page.locator('a:has-text("Give the first mandate")').waitFor({ timeout: 5_000 });
+    expect(await page.locator('text=Copy this into your AI:').count()).toBe(0);
     await shot('1b-step2-picked');
   });
 
@@ -158,7 +158,7 @@ describe.skipIf(!available)('first-run card (real AS + gateway UI + simulation m
     await agent.close();
     await dashboard();
     await page.locator('text=E2E Agent connected').waitFor({ timeout: 15_000 });
-    const button = page.locator('a:has-text("Give the Delegation mandate")');
+    const button = page.locator('a:has-text("Give the first mandate")');
     await button.waitFor();
     expect(await button.getAttribute('href')).toMatch(/\/mandates\?new=1&profile=/);
     await shot('2-ai-connected');
@@ -200,8 +200,8 @@ describe.skipIf(!available)('first-run card (real AS + gateway UI + simulation m
     });
     await mcpInternal.pushGateContent({ authorizationId: att.authorization_id, boundsHash, contextHash, context: {} }, DELEGATION, gate);
     await dashboard();
-    await page.locator('text=Delegation mandate given').waitFor({ timeout: 15_000 });
-    await page.locator('text=How do I start with Suveren?').first().waitFor();
+    await page.locator('text=First mandate given').waitFor({ timeout: 15_000 });
+    await page.locator('text=Go back to your chat and say what you want done.').first().waitFor();
     await shot('3-delegation-given');
   });
 

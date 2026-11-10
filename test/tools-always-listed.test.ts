@@ -104,7 +104,9 @@ describe('tools always listed — the client lists once, the mandate comes later
     expect(r.error, r.text).toBe(true);
     expect(r.text).toBe(
       'Refused: no mandate covers crm__create_contact (Customers). Nothing was done. ' +
-        'Ask the person to grant a Customers mandate in the gateway, then try again. No ticket was requested.',
+        'Tell the person to grant a Customers mandate in the gateway: **Mandates → + New mandate →** card **CRM** → **Give a mandate**. ' +
+        'list-authorizations(domain: "customers") gives the exact steps and says whether you can propose it for them. ' +
+        'Then try again. No ticket was requested.',
     );
     const denials = readDenials();
     expect(denials.length).toBe(before + 1);
