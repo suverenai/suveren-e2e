@@ -113,11 +113,14 @@ describe.skipIf(!available)('the change note and the Setup refusal (real AS + ga
     expect(textOf(b)).not.toContain('[Suveren gateway]');
   });
 
-  it('the brief is edited mid-session: the next answer carries the current brief, once', async () => {
+  it('the brief is edited mid-session: the next answer points to the current brief, once', async () => {
     const res = await put('Brief two: send only with an approval.');
     expect(res.status).toBeLessThan(300);
     const noted = await listAuth(session);
-    expect(textOf(noted)).toContain('The agent brief changed since this chat started. This is the current one:\n\nBrief two: send only with an approval.');
+    expect(textOf(noted)).toContain('The agent brief changed since this chat started. Call list-authorizations() with no area to read the current one.');
+    expect(textOf(noted).split('[Suveren gateway]')[1]).not.toContain('Brief two');
+    // The AI follows the note to the gateway's own tool, and the current brief is there.
+    expect(textOf(noted).split('[Suveren gateway]')[0]).toContain('Brief two: send only with an approval.');
     results.push(textOf(noted));
     const again = await listAuth(session);
     expect(textOf(again)).not.toContain('[Suveren gateway]');
