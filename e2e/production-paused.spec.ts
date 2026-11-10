@@ -28,7 +28,7 @@ test('paused in production: the dashboard line, and the AI\'s steps work on the 
   // The AI's words, from the gateway itself, name the path this card offers.
   const client = new Client({ name: 'paused-agent', version: '1.0.0' }, { capabilities: {} });
   await client.connect(new SSEClientTransport(new URL(`${GW_MCP_URL}/sse`)));
-  const guide = ((await client.callTool({ name: 'list-authorizations', arguments: {} })).content as Array<{ text?: string }>)[0]?.text ?? '';
+  const guide = ((await client.callTool({ name: 'list-authorizations', arguments: { domain: 'customers' } })).content as Array<{ text?: string }>)[0]?.text ?? '';
   await client.close();
   expect(guide).toContain(EDIT_PATH);
   expect(guide).not.toContain('**Activate CRM**');

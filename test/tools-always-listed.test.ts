@@ -112,7 +112,7 @@ describe('tools always listed — the client lists once, the mandate comes later
   });
 
   it('list-authorizations says the CRM tools are listed but not usable yet', async () => {
-    const r = await call('list-authorizations', {});
+    const r = await call('list-authorizations', { domain: 'customers' });
     expect(r.text).toContain('no tool is usable yet');
     expect(r.text).toContain('Listed but not usable yet');
     expect(r.text).toMatch(/customers: .*crm__create_contact/);
