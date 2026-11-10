@@ -240,7 +240,7 @@ async function call(tool: string, args: Record<string, unknown>) {
     const r = await agent.callTool({ name: tool, arguments: args });
     const text = textOf(r);
     if (tool.startsWith('report__')) reportToolOutputs.push({ tool, text });
-    return { denied: r.isError === true, text, json: (() => { try { return JSON.parse(text); } catch { return null; } })() as any };
+    return { denied: r.isError === true, text, json: (() => { try { return JSON.parse(((r.content as Array<{ text?: string }>)?.[0]?.text ?? '')); } catch { return null; } })() as any };
   } catch (err) {
     return { denied: true, text: String(err), json: null as any };
   }

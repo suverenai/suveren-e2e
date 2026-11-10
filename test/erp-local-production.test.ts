@@ -759,7 +759,7 @@ describe.skipIf(!available || !preinstalledHasTools)('optional: the real EU VIES
     }));
     try {
       const r = await client.callTool({ name: 'check_vat_id', arguments: PUBLIC_VALID_VAT });
-      const text = (r.content as Array<{ text?: string }>).map((c) => c.text ?? '').join('');
+      const text = ((r.content as Array<{ text?: string }>)?.[0]?.text ?? '');
       const out = JSON.parse(text);
       expect(out.format).toBe('ok');
       // The company's own (invented) VAT ID is refused as requester → checked without a consultation number.

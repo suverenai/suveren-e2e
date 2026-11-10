@@ -134,8 +134,8 @@ const sha256 = (buf: Buffer) => createHash('sha256').update(buf).digest('hex');
 
 async function call(tool: string, args: Record<string, unknown>) {
   const r = await agent.callTool({ name: tool, arguments: args });
-  const text = (r.content as Array<{ text?: string }>)?.map((c) => c.text ?? '').join('\n') ?? '';
-  return { denied: r.isError === true, text, json: (() => { try { return JSON.parse(text); } catch { return null; } })() };
+  const text = (r.content as Array<{ text?: string }>)?.[0]?.text ?? '';
+  return { denied: r.isError === true, text, json: (() => { try { return JSON.parse(((r.content as Array<{ text?: string }>)?.[0]?.text ?? '')); } catch { return null; } })() };
 }
 
 function proposalIdOf(text: string): string {
@@ -232,7 +232,7 @@ async function mailboxCall(tool: string, args: Record<string, unknown>): Promise
   const r = await mailbox.callTool({ name: tool, arguments: args });
   const text = (r.content as Array<{ text?: string }>)?.map((c) => c.text ?? '').join('\n') ?? '';
   expect(r.isError, text).not.toBe(true);
-  return JSON.parse(text);
+  return JSON.parse(((r.content as Array<{ text?: string }>)?.[0]?.text ?? ''));
 }
 
 async function sentCount(): Promise<number> {

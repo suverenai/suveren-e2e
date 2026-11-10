@@ -112,7 +112,7 @@ async function call(tool: string, args: Record<string, unknown>) {
   const r = await mcpClient.callTool({ name: tool, arguments: args });
   const text = (r.content as Array<{ text?: string }>)?.map((c) => c.text ?? '').join('\n') ?? '';
   if (r.isError) console.error(`[SIM RERUN E2E] ${tool} denied:`, text.slice(0, 300));
-  return { denied: r.isError === true, text, json: (() => { try { return JSON.parse(text); } catch { return null; } })() };
+  return { denied: r.isError === true, text, json: (() => { try { return JSON.parse(((r.content as Array<{ text?: string }>)?.[0]?.text ?? '')); } catch { return null; } })() };
 }
 
 /** The connector's own operator command, from the package the gateway installed, on the gateway's data dir. */
