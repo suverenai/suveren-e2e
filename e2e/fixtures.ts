@@ -632,6 +632,9 @@ export async function createAuthorization(
   // Fill title
   await page.locator('input[placeholder*="e.g."]').fill(opts.title);
 
+  // The form makes the person choose how long; these tests take the shortest common choice.
+  if (await page.getByTestId('duration-needed').isVisible().catch(() => false)) await page.locator('button', { hasText: /^24 hours$/ }).click();
+
   // Click the sign button ("Sign mandate" / "Sign mandate (asks first)")
   const authorizeBtns = page.locator('button', { hasText: /^Sign mandate/ });
   await authorizeBtns.last().click();

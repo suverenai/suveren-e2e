@@ -3,11 +3,12 @@
  * what a person's AI sees when it connects and the person asks "how do I start with Suveren?".
  *
  * - no Delegation mandate yet: the session instructions name the one step a person takes —
- *   create a "Delegation" mandate in the gateway, at the gateway's own address — and no
+ *   sign the first mandate on the gateway page, which they open themselves — and no
  *   tool is listed that no mandate governs (the old ungated `debug_test_tool`);
  * - with one: the instructions point at `setup__get_guide`, the tool's description says
  *   "start here", and every guide tells the AI where the person approves its proposals;
- * - the getting-started lines never say "simulation" or "test": the working AI reads them too.
+ * - the first-step and getting-started lines never say "simulation" or "test": the working AI reads them too;
+ * - no text for the AI carries the gateway page's address: the person opens that page themselves.
  */
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
@@ -49,6 +50,20 @@ function gettingStarted(): string {
   const i = agent.getInstructions() ?? '';
   const at = i.indexOf('=== GETTING STARTED ===');
   return at < 0 ? '' : i.slice(at, i.indexOf('When you receive a task', at));
+}
+
+/** What the AI is told when no mandate exists yet: the block between its heading and the rules. */
+function firstStep(): string {
+  const i = agent.getInstructions() ?? '';
+  const at = i.indexOf('=== FIRST STEP ===');
+  return at < 0 ? '' : i.slice(at, i.indexOf('=== RULES ===', at));
+}
+
+/** The AI is never given the gateway page's address: not as localhost:<port>, not as an http URL. */
+function expectNoPageAddress(text: string) {
+  expect(text).not.toMatch(/localhost:\d+/);
+  expect(text).not.toMatch(/127\.0\.0\.1/);
+  expect(text).not.toMatch(/https?:\/\//);
 }
 
 describe.skipIf(!available)('first contact (real AS + gateway in simulation mode)', () => {
@@ -95,15 +110,19 @@ describe.skipIf(!available)('first contact (real AS + gateway in simulation mode
   }, 30_000);
 
   it('no Delegation mandate: the instructions name the one step a person takes; no ungated tool', async () => {
-    const section = gettingStarted();
-    expect(section).toMatch(/create a "Delegation" mandate in the Suveren Gateway at http:\/\/localhost:\d+/);
+    const section = firstStep();
+    expect(section).toContain('An AI can never create the first one: a person signs it.');
+    expect(section).toContain('1. They open the Suveren Gateway page themselves, in their own browser, outside this chat. In the left menu they choose **Mandates**, then **+ New mandate** (top right).');
+    expect(section).toContain('2. Pick the card **Setup** and press **Give a mandate**.');
     // Always told, in every session: never the gateway page, the key or an approval; only the Suveren tools.
     const instructions = agent.getInstructions() ?? '';
     expect(instructions).toContain('=== RULES ===');
     expect(instructions).toMatch(/Never open or operate the Suveren Gateway's web page/);
+    expect(instructions).toMatch(/Never write its web address in any form/);
     expect(instructions).toMatch(/Never approve a proposal/);
     expect(instructions).toMatch(/No terminal, HTTP or browser calls to the gateway's ports/);
     expect(section).not.toMatch(/simulat|\btest/i);
+    expectNoPageAddress(instructions);
     const names = (await agent.listTools()).tools.map((t) => t.name);
     expect(names).not.toContain('debug_test_tool');
     expect(names).not.toContain('setup__get_guide');
@@ -124,7 +143,9 @@ describe.skipIf(!available)('first contact (real AS + gateway in simulation mode
     const r = await agent.callTool({ name: 'setup__get_guide', arguments: {} });
     const text = (r.content as Array<{ text?: string }>).map((c) => c.text ?? '').join('\n');
     expect(r.isError).not.toBe(true);
-    expect(text).toMatch(/\*\*Approvals:\*\* every mandate and brief you propose waits until the person approves it in the Suveren Gateway at http:\/\/localhost:\d+\/approvals/);
+    expect(text).toContain('**Approvals:** every mandate and brief you propose waits until the person approves it under **Approvals** on the Suveren Gateway page, which they open themselves in their own browser. Tell them each time you propose one.');
+    expectNoPageAddress(agent.getInstructions() ?? '');
+    expectNoPageAddress(text);
     // The email simulator is installed but not activated here: named, with where to activate it.
     // gateway >= 0.35.1 calls the simulated mail "Email" (label "Test mailbox")
     expect(text).toMatch(/\*\*Available but not activated:\*\* [^\n]*\*\*Email( \(simulation\))?\*\*/);

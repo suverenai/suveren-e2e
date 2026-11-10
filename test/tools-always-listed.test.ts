@@ -104,7 +104,9 @@ describe('tools always listed — the client lists once, the mandate comes later
     expect(r.error, r.text).toBe(true);
     expect(r.text).toBe(
       'Refused: no mandate covers crm__create_contact (Customers). Nothing was done. ' +
-        'Ask the person to grant a Customers mandate in the gateway, then try again. No ticket was requested.',
+        'Tell the person to grant a Customers mandate in the gateway: **Mandates → + New mandate →** card **CRM** → **Give a mandate**. ' +
+        'list-authorizations(domain: "customers") gives the exact steps and says whether you can propose it for them. ' +
+        'Then try again. No ticket was requested.',
     );
     const denials = readDenials();
     expect(denials.length).toBe(before + 1);
@@ -112,7 +114,7 @@ describe('tools always listed — the client lists once, the mandate comes later
   });
 
   it('list-authorizations says the CRM tools are listed but not usable yet', async () => {
-    const r = await call('list-authorizations', {});
+    const r = await call('list-authorizations', { domain: 'customers' });
     expect(r.text).toContain('no tool is usable yet');
     expect(r.text).toContain('Listed but not usable yet');
     expect(r.text).toMatch(/customers: .*crm__create_contact/);

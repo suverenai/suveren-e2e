@@ -93,6 +93,7 @@ test.describe.serial('Files connector: selector and approval card', () => {
     await page.waitForURL((url) => url.toString().includes('/mandates/new/sign'), { timeout: 10_000 });
     await page.locator('button', { hasText: 'Review Each Action' }).click();
     await page.locator('input[placeholder*="e.g."]').fill(title);
+    if (await page.getByTestId('duration-needed').isVisible().catch(() => false)) await page.locator('button', { hasText: /^24 hours$/ }).click();
     await page.locator('button', { hasText: /^Sign mandate/ }).last().click();
     await page.waitForURL((url) => url.toString().includes('/mandates') && !url.toString().includes('/new/'), { timeout: 15_000 });
   }

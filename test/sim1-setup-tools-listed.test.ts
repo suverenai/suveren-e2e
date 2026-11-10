@@ -165,7 +165,9 @@ describe.skipIf(!available)('SIM1 — simulation setup tools always listed (real
     expect(r.denied).toBe(true);
     expect(r.text).toBe(
       'Refused: no mandate covers erp__load_simulation (setup). Nothing was done. ' +
-        'Ask the person to grant a setup mandate in the gateway, then try again. No ticket was requested.',
+        'Tell the person to grant a setup mandate in the gateway: **Mandates → + New mandate**. ' +
+        'list-authorizations(domain: "sales") gives the exact steps and says whether you can propose it for them. ' +
+        'Then try again. No ticket was requested.',
     );
   });
 
