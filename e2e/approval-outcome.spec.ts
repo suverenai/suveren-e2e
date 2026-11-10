@@ -196,6 +196,7 @@ test.describe.serial('The outcome of an approval, and a dead mandate (real stack
     await expect(page.getByTestId('decision-unknown')).toBeVisible({ timeout: 45_000 });
     await expect(page.getByTestId('decision-unknown')).toContainText('not known whether this ran');
     await shots(page, 'outcome-unknown');
-    await page.unroute(new RegExp(`/api/proposals/${id}$`));
+    // The card keeps polling: a read may still be in flight through this route when the test ends.
+    await page.unrouteAll({ behavior: 'ignoreErrors' });
   });
 });

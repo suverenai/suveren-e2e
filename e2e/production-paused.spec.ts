@@ -67,4 +67,15 @@ test('paused in production: the dashboard line, and the AI\'s steps work on the 
   await page.click('.sidebar-item:has-text("Dashboard")');
   // Only ERP is left, in the singular.
   await expect(page.getByTestId('paused-summary-production')).toContainText('1 connector is paused in production — ERP.', { timeout: 30_000 });
+
+  // These browser specs share one gateway: put CRM back as it was found, for the specs that follow.
+  await page.click('.sidebar-item:has-text("Connectors")');
+  await page.waitForURL('**/integrations');
+  const edit = after.getByRole('button', { name: 'Edit settings' });
+  await after.waitFor({ state: 'visible', timeout: 15_000 });
+  if (!(await edit.isVisible().catch(() => false))) await after.locator('.card-title').click();
+  await edit.click();
+  await after.getByRole('radio', { name: 'Test data' }).check();
+  await after.getByRole('button', { name: /^Save/ }).click();
+  await expect(after.locator('.card-title')).toHaveText(/^CRM · Test data$/, { timeout: 60_000 });
 });
