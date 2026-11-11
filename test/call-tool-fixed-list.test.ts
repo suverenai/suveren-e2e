@@ -212,11 +212,13 @@ describe.skipIf(!available)('an app that never re-lists tools reaches every tool
     expect(sig, r.all).toBeTruthy();
     const args = sig!.split(', ').filter(Boolean);
     const required = args.filter((a) => !a.endsWith('?'));
-    expect(required).toEqual(['to', 'subject', 'body']);
-    // No types or descriptions in it.
+    // A list argument is marked `[]`: the one type real AIs got wrong without it.
+    expect(required).toEqual(['to[]', 'subject', 'body']);
+    // No other types and no descriptions in it.
     expect(sig).not.toMatch(/[:{]/);
-    const values: Record<string, unknown> = { to: [RECIPIENT], subject: 'Your question', body: 'Thank you, we will answer tomorrow. (Sent by an AI.)' };
-    SEND = Object.fromEntries(required.map((a) => [a, values[a]]));
+    // Plain values by name, as a person would say them; the app makes a list only where the note says `[]`.
+    const values: Record<string, string> = { to: RECIPIENT, subject: 'Your question', body: 'Thank you, we will answer tomorrow. (Sent by an AI.)' };
+    SEND = Object.fromEntries(required.map((a) => (a.endsWith('[]') ? [a.slice(0, -2), [values[a.slice(0, -2)]]] : [a, values[a]])));
     // The area's answer names the exact tool name and how to reach it.
     expect(r.text).toContain('If a tool named here is not in your tool list, call it through call-tool(tool: "<exact name>", arguments: {...}).');
     expect(app.names.some((n) => n.startsWith('mail__'))).toBe(false);
@@ -261,7 +263,7 @@ describe.skipIf(!available)('an app that never re-lists tools reaches every tool
     expect(r.text).toMatch(/^Refused: the arguments do not fit "mail__send_message": /);
     expect(r.text).toContain('no ticket was requested');
     // The refusal names the tool's arguments, as the note did.
-    expect(r.text).toMatch(/Call it again with the arguments that tool takes: mail__send_message\(to, subject, body[^)]*\)\.$/);
+    expect(r.text).toMatch(/Call it again with the arguments that tool takes: mail__send_message\(to\[\], subject, body[^)]*\)\.$/);
     expect((await as('GET', '/api/proposals?domain=owner')).body.proposals?.length ?? 0).toBe(before);
   });
 
