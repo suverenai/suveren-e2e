@@ -1123,10 +1123,18 @@ describe.skipIf(!available)('Files connector (real AS + gateway + files-mcp + pr
       try {
         const reason = `The Files connector cannot use ${blocked}: this computer does not allow it to read or write there (Permission denied).`;
         const activated = await setFolder(blocked);
-        // What the card's Save says today (recorded, not asserted: the gateway has no way to show a connector's own problem here).
         console.error(`[FILES E2E] activate answer for a blocked folder: ${JSON.stringify(activated)}`);
-        const status = (await gw.integrations()).find((x) => x.id === 'files');
+        // The card: what the UI reads (control plane /mcp/health). The connector runs, and its own status
+        // check (manifest status.tool = get_status) gives the plain reason, as the connector's words.
+        const health = await cpGet('/mcp/health');
+        expect(health.status, JSON.stringify(health.body)).toBe(200);
+        const status = (health.body.integrations as Array<any>).find((x) => x.id === 'files');
         console.error(`[FILES E2E] card status for a blocked folder: ${JSON.stringify(status)}`);
+        expect(status?.running, JSON.stringify(status)).toBe(true);
+        expect(status?.problem, JSON.stringify(status)).toContain(reason);
+        expect(status?.error, JSON.stringify(status)).toBeUndefined();
+        // The status check is the gateway's: the AI never sees it.
+        expect((await agent.listTools()).tools.map((t) => t.name)).not.toContain('files__get_status');
 
         // The AI: the tool description carries the reason and the next step.
         const d = await saveDescription();
@@ -1175,6 +1183,11 @@ describe.skipIf(!available)('Files connector (real AS + gateway + files-mcp + pr
     it('back to a usable folder: the description names it again and a save works', async () => {
       await setFolder(FOLDER);
       expect(await saveDescription()).toContain(`The shared folder is: ${FOLDER}`);
+      // The card no longer shows a problem.
+      const health = await cpGet('/mcp/health');
+      const status = (health.body.integrations as Array<any>).find((x) => x.id === 'files');
+      expect(status?.running, JSON.stringify(status)).toBe(true);
+      expect(status?.problem, JSON.stringify(status)).toBeUndefined();
       const bytes = drop('after-fix.txt', Buffer.from('folder works again'));
       const r = await call('files__save_file', { file: 'after-fix.txt' });
       expect(r.denied, r.text).toBe(false);

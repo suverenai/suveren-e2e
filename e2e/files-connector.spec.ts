@@ -9,7 +9,7 @@
  * NOT proven here: that a video actually plays. The fixture is a header-only MP4;
  * the check is that the card offers a <video> element for it.
  */
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, writeFileSync } from 'node:fs';
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { SSEClientTransport } from '@modelcontextprotocol/sdk/client/sse.js';
@@ -248,5 +248,69 @@ test.describe.serial('Files connector: selector and approval card', () => {
     await expect(card).toContainText('angebot.pdf');
     await expect(card.locator('img').first()).toBeVisible({ timeout: 30_000 }); // GUESSED
     await expect(card.locator('video').first()).toBeVisible({ timeout: 30_000 }); // GUESSED
+  });
+  // The Files drawing (suveren-gateway apps/ui/src/components/AreaIcon.tsx `files`): its first path. The
+  // icon comes from the Files manifest's `icon` (file-text); without it the area showed the unknown icon.
+  const FILES_ICON_PATH = 'M9 7h7l3 3v11H9z';
+  const UNKNOWN_ICON_CIRCLE = 'circle[r="9.2"]';
+
+  test('Files shows its own icon on Tickets and on Mandates', async () => {
+    test.setTimeout(60_000);
+    await page.click('.sidebar-item:has-text("Tickets")');
+    await page.waitForURL('**/tickets**');
+    const pill = page.getByTestId('area-filter-files');
+    await expect(pill).toBeVisible({ timeout: 30_000 });
+    await expect(pill.locator(`svg path[d="${FILES_ICON_PATH}"]`)).toHaveCount(1, { timeout: 15_000 });
+    await expect(pill.locator(`svg ${UNKNOWN_ICON_CIRCLE}`)).toHaveCount(0);
+
+    await page.click('.sidebar-item:has-text("Mandates")');
+    await page.waitForURL('**/mandates**');
+    const group = page.locator('[data-testid="mandate-area"][data-area="files"]');
+    await expect(group).toBeVisible({ timeout: 30_000 });
+    const head = group.locator('.area-group-h');
+    await expect(head.locator(`svg path[d="${FILES_ICON_PATH}"]`)).toHaveCount(1, { timeout: 15_000 });
+    await expect(head.locator(`svg ${UNKNOWN_ICON_CIRCLE}`)).toHaveCount(0);
+  });
+
+  test('a shared folder the computer does not allow: the Files card and the dashboard say why, in Files\' words', async ({ request }) => {
+    test.skip(typeof process.getuid === 'function' && process.getuid() === 0, 'root ignores permission bits');
+    test.setTimeout(120_000);
+    const blocked = realpathSync(mkdtempSync(join(WORK_ROOT, 'hap-e2e-blocked-pw-')));
+    chmodSync(blocked, 0o000);
+    const reason = `The Files connector cannot use ${blocked}: this computer does not allow it to read or write there (Permission denied).`;
+    const setFolder = async (folder: string) => {
+      const put = await request.put(`${GW_URL}/vault/credentials/files`, { headers: { 'x-api-key': apiKey }, data: { sharedFolder: folder } });
+      expect(put.ok(), await put.text()).toBe(true);
+      const act = await request.post(`${GW_URL}/mcp/integrations/files/activate`, { headers: { 'x-api-key': apiKey } });
+      expect(act.ok(), await act.text()).toBe(true);
+    };
+    try {
+      await setFolder(blocked);
+      await page.click('.sidebar-item:has-text("Connectors")');
+      await page.waitForURL('**/integrations**');
+      const card = page.locator('details.su-cn', { has: page.locator('h3.card-title', { hasText: /^Files/ }) });
+      await expect(card).toHaveCount(1, { timeout: 30_000 });
+      // It opens by itself and reads "Needs attention", not "Running".
+      await expect(card).toHaveAttribute('open', '', { timeout: 30_000 });
+      await expect(card.locator(':scope > summary')).toContainText('Needs attention');
+      const said = card.getByTestId('connector-problem');
+      await expect(said).toContainText(reason, { timeout: 30_000 });
+      await expect(card.locator('dt', { hasText: 'Files says' })).toBeVisible();
+
+      await page.click('.sidebar-item:has-text("Dashboard")');
+      const row = page.locator('.dash-att-row', { hasText: 'Files needs attention' });
+      await expect(row).toBeVisible({ timeout: 30_000 });
+      await expect(row).toContainText(reason);
+    } finally {
+      chmodSync(blocked, 0o700);
+      await setFolder(FOLDER);
+    }
+
+    // Back on a usable folder: the card is plain "Running" again.
+    await page.click('.sidebar-item:has-text("Connectors")');
+    await page.waitForURL('**/integrations**');
+    const card = page.locator('details.su-cn', { has: page.locator('h3.card-title', { hasText: /^Files/ }) });
+    await expect(card.locator(':scope > summary')).toContainText('Running', { timeout: 30_000 });
+    await expect(card.getByTestId('connector-problem')).toHaveCount(0);
   });
 });
