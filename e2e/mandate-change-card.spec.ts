@@ -12,7 +12,7 @@ import { mkdirSync } from 'node:fs';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { SSEClientTransport } from '@modelcontextprotocol/sdk/client/sse.js';
 import type { Page } from '@playwright/test';
-import { test, expect, SP_URL, GW_MCP_URL, INTERNAL_SECRET, registerOnSP, signInToGateway, handleOnboarding, activateIntegration, spApiAttest, latestProfileId, openApprovalCard } from './fixtures';
+import { test, expect, SP_URL, GW_URL, GW_MCP_URL, INTERNAL_SECRET, registerOnSP, signInToGateway, handleOnboarding, activateIntegration, spApiAttest, latestProfileId, openApprovalCard } from './fixtures';
 import { hashGateContent, computeBoundsHash, computeScopeHash } from '../src/helpers/crypto.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -24,6 +24,8 @@ const SETUP = latestProfileId('delegation');
 const CUSTOMERS_KEYS = ['profile', 'read_access', 'export_access', 'write_daily_max', 'delete_daily_max', 'setup_daily_max'];
 const SETUP_KEYS = ['profile', 'read_access', 'brief_daily_max', 'mandate_daily_max'];
 const SETUP_SCOPE_KEYS = ['allowed_profiles', 'allowed_modes'];
+const EMAIL = latestProfileId('email');
+const EMAIL_KEYS = ['profile', 'read_access', 'recipient_max', 'send_daily_max', 'read_max_age_days', 'setup_daily_max'];
 
 const pushed = async (id: string, boundsHash: string, contextHash: string, context: Record<string, string>, profile: string, intent: string) => {
   const res = await fetch(`${GW_MCP_URL}/internal/gate-content`, {
@@ -161,5 +163,48 @@ test.describe.serial('The mandate change card (real stack)', () => {
     await expect(diff).not.toContainText('words proposed by the AI');
     await expect(diff.getByTestId('change-intent')).toContainText('My own words');
     await page.screenshot({ path: join(SHOTS, 'change-it-myself.png'), fullPage: true });
+  });
+
+  test('an AI asks to let emails carry saved files: the card names it, says what it allows, and why', async ({ request }) => {
+    test.setTimeout(180_000);
+    // The practice mailbox, switched on the way the Connectors page does it.
+    const on = await request.post(`${GW_URL}/mcp/integrations/mail/activate`, { headers: { 'x-api-key': apiKey } });
+    expect(on.ok(), await on.text()).toBe(true);
+    await expect.poll(async () => {
+      const r = await request.get(`${GW_MCP_URL}/internal/integrations`, { headers: { 'X-Internal-Secret': INTERNAL_SECRET } });
+      return ((await r.json()).integrations as Array<{ id: string; running?: boolean }>).some(i => i.id === 'mail' && i.running);
+    }, { timeout: 60_000 }).toBe(true);
+    await grant(request, SETUP, { read_access: 'unlimited', brief_daily_max: 0, mandate_daily_max: 50 }, SETUP_KEYS, { allowed_profiles: 'customers,email', allowed_modes: 'review,automatic' }, SETUP_SCOPE_KEYS, 'review', 'Let the AI propose email mandates too.');
+    const scope = { allowed_recipients: 'kunde@attach.example', allowed_domains: 'attach.example' };
+    const emailId = await grant(request, EMAIL, { read_access: 'unlimited', recipient_max: 1, send_daily_max: 50, read_max_age_days: 30, setup_daily_max: 0 }, EMAIL_KEYS, scope, Object.keys(scope), 'automatic', 'Send customers their documents.');
+    await new Promise(r => setTimeout(r, 2000));
+    const ai = new Client({ name: 'change-card-e2e-mail', version: '1.0.0' }, { capabilities: {} });
+    await ai.connect(new SSEClientTransport(new URL(`${GW_MCP_URL}/sse`)));
+    try {
+      // The refusal the gateway records itself: the AI tried to attach a saved file.
+      const refused = await ai.callTool({ name: 'mail__send_message', arguments: { to: ['kunde@attach.example'], subject: 'Unterlagen', body: 'Im Anhang.', attachments: [{ connector: 'files', kind: 'file', id: 'f1' }] } });
+      expect(refused.isError, text(refused)).toBe(true);
+      const r = await ai.callTool({ name: 'setup__change_mandate', arguments: { mandate_id: emailId, scope: { allowed_attachment_sources: 'files:file' } } });
+      expect(r.isError, text(r)).toBeFalsy();
+    } finally {
+      await ai.close().catch(() => {});
+    }
+
+    // Away from the form the previous test left open, as a person would go back.
+    await page.click('.sidebar-item:has-text("Approvals")');
+    const card = await openApprovalCard(page, 'What the AI may attach');
+    const row = card.locator('[data-field="allowed_attachment_sources"]');
+    await expect(row.locator('.mc-name')).toHaveText('What the AI may attach');
+    await expect(row.getByTestId('change-tag')).toHaveText('More');
+    await expect(row.locator('.mc-add')).toHaveText('Saved files');
+    await expect(row.getByTestId('change-meaning')).toHaveText('From now on, emails under this mandate may also carry: Saved files.');
+    const facts = card.getByTestId('change-facts');
+    await expect(facts.getByTestId('change-fact').first())
+      .toHaveText(/^Your AI was refused attaching Saved files today at .+, because this mandate did not allow it\.$/, { timeout: 15_000 });
+    // Codes never reach the person.
+    await expect(card).not.toContainText('files:file');
+    await expect(card).not.toContainText('Allowed attachment sources');
+    await page.screenshot({ path: join(SHOTS, 'attach-more.png'), fullPage: true });
+    await card.getByTestId('btn-reject').click();
   });
 });

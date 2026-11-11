@@ -31,6 +31,9 @@ const P = 'github.com/humanagencyprotocol/hap-profiles';
 const CUSTOMERS = `${P}/customers@0.11`;
 const RECORDS = `${P}/records@0.6`;
 const DELEGATION = `${P}/delegation@0.6`;
+const EMAIL = `${P}/email@0.9`;
+const EMAIL_KEYS = ['profile', 'read_access', 'recipient_max', 'send_daily_max', 'read_max_age_days', 'setup_daily_max'];
+const EMAIL_BOUNDS = { read_access: 'unlimited', recipient_max: 1, send_daily_max: 50, read_max_age_days: 30, setup_daily_max: 0 };
 const available = existsSync(join(PROFILES_DIR, 'customers', '0.11.profile.json')) && existsSync(join(PROFILES_DIR, 'delegation', '0.6.profile.json'));
 
 const BOUNDS_KEYS = ['profile', 'read_access', 'export_access', 'write_daily_max', 'delete_daily_max', 'setup_daily_max'];
@@ -403,6 +406,107 @@ describe.skipIf(!available)('a change to a mandate, proposed by the AI (real sta
       expect(told).toMatch(/still live with its old limits/);
       noAddress(told);
     }, 120_000);
+  });
+
+  describe('a list whose empty value allows nothing: what the AI may attach', () => {
+    const SAVED = { connector: 'files', kind: 'file', id: 'not-saved-yet' };
+    type Row = { field: string; tag: string; added?: string[]; removed?: string[]; emptyMeans?: string; format?: string };
+
+    /** An email mandate; `sources` undefined leaves the attachment list out entirely. */
+    async function grantEmail(to: string, sources: string | undefined): Promise<string> {
+      const scope: Record<string, string> = { allowed_recipients: to, allowed_domains: to.split('@')[1] };
+      if (sources !== undefined) scope.allowed_attachment_sources = sources;
+      return grant(w, EMAIL, EMAIL_KEYS, EMAIL_BOUNDS, scope, Object.keys(scope), 'automatic', `Why — email ${to}.`);
+    }
+
+    /** The sealed differences, as the approval card reads them (decrypted on this gateway when needed). */
+    async function sealedRows(proposalId: string): Promise<Row[]> {
+      const p = (await as('GET', `/api/proposals/${proposalId}`, w.owner.apiKey)).body.proposal;
+      let args = p.toolArgs;
+      if (!args) {
+        const res = await w.cp.authed(w.owner.apiKey, 'POST', '/api/decrypt-proposal-content', p.content);
+        const dec = await res.json() as { plaintext?: string };
+        expect(res.status, JSON.stringify(dec)).toBe(200);
+        args = JSON.parse(dec.plaintext!);
+      }
+      return args.change.rows as Row[];
+    }
+
+    /** The gateway's own facts for the card: what the page reads under "From your gateway". */
+    async function cardFacts(proposalId: string) {
+      const res = await w.cp.authed(w.owner.apiKey, 'GET', `/proposal-status/${proposalId}/preview`);
+      const body = await res.json() as { status: string; body?: { structured?: { refused?: Array<{ field: string; values?: string[]; ts: number }> } } };
+      expect(res.status, JSON.stringify(body)).toBe(200);
+      return body.body?.structured;
+    }
+
+    beforeAll(async () => {
+      // The practice mailbox, from its shipped manifest; Setup may now propose email mandates too.
+      const on = await w.cp.authed(w.owner.apiKey, 'POST', '/mcp/integrations/mail/activate');
+      expect(on.status, await on.text()).toBe(200);
+      await w.mcp.waitForIntegration('mail');
+      await grant(w, DELEGATION, DELEGATION_KEYS, { read_access: 'unlimited', brief_daily_max: 0, mandate_daily_max: 50 },
+        { allowed_profiles: 'customers,email', allowed_modes: 'review,automatic' }, ['allowed_profiles', 'allowed_modes'], 'review', 'Why — email too.');
+      await w.agent.close().catch(() => {});
+      w.agent = new Client({ name: 'agent-anna-mail', version: '1.0.0' }, { capabilities: {} });
+      await w.agent.connect(new SSEClientTransport(new URL(`http://localhost:${ANNA.mcp}/sse`)));
+    }, 180_000);
+
+    it('adding Saved files is More, and the card names the refusal it would have allowed; once signed, the gateway lets the source through', async () => {
+      const id = await grantEmail('kunde@attach.example', undefined);
+      await new Promise((r) => setTimeout(r, 1500));
+      const send = { to: ['kunde@attach.example'], subject: 'Unterlagen', body: 'Im Anhang.', attachments: [SAVED] };
+      const refused = await w.agent.callTool({ name: 'mail__send_message', arguments: send });
+      expect(refused.isError, textOf(refused)).toBe(true);
+      expect(textOf(refused)).toMatch(/no Email mandate lets .* attach Saved files/);
+
+      const r = await change(w, { mandate_id: id, scope: { allowed_attachment_sources: 'files:file' } });
+      expect(r.denied, r.text).toBe(false);
+      const proposalId = proposalIdOf(r.text);
+      const row = (await sealedRows(proposalId)).find((x) => x.field === 'allowed_attachment_sources');
+      expect(row).toMatchObject({ tag: 'More', added: ['files:file'], removed: [], emptyMeans: 'nothing', format: 'connector:kind' });
+
+      const facts = await cardFacts(proposalId);
+      expect(facts?.refused, JSON.stringify(facts)).toEqual([expect.objectContaining({ field: 'allowed_attachment_sources', values: ['files:file'] })]);
+      expect(Date.now() - facts!.refused![0].ts).toBeLessThan(120_000);
+
+      // Signed: the source is no longer refused by the mandate (the file itself does not exist).
+      await approveChange(w, proposalId, id);
+      await new Promise((r2) => setTimeout(r2, 1500));
+      const after = await w.agent.callTool({ name: 'mail__send_message', arguments: send });
+      expect(textOf(after)).not.toMatch(/no Email mandate lets/);
+      expect(textOf(after)).toMatch(/could not resolve attachment|not-saved-yet/);
+    }, 150_000);
+
+    it('removing a source is Less, also when the list ends up empty', async () => {
+      const id = await grantEmail('kunde@less.example', 'erp:invoice-pdf,files:file');
+      const one = await change(w, { mandate_id: id, scope: { allowed_attachment_sources: 'files:file' } });
+      expect(one.denied, one.text).toBe(false);
+      expect((await sealedRows(proposalIdOf(one.text))).find((x) => x.field === 'allowed_attachment_sources'))
+        .toMatchObject({ tag: 'Less', added: [], removed: ['erp:invoice-pdf'] });
+      await resolve(w, proposalIdOf(one.text), 'reject');
+
+      const none = await change(w, { mandate_id: id, scope: { allowed_attachment_sources: '' } });
+      expect(none.denied, none.text).toBe(false);
+      expect((await sealedRows(proposalIdOf(none.text))).find((x) => x.field === 'allowed_attachment_sources'))
+        .toMatchObject({ tag: 'Less', removed: ['erp:invoice-pdf', 'files:file'] });
+      await resolve(w, proposalIdOf(none.text), 'reject');
+    }, 90_000);
+
+    it('a recipients change behaves as before: adding one is More; an empty list allows anyone, so emptying it is More', async () => {
+      const id = await grantEmail('anna@rcpt.example', 'files:file');
+      const add = await change(w, { mandate_id: id, scope: { allowed_recipients: 'anna@rcpt.example,bob@rcpt.example' } });
+      expect(add.denied, add.text).toBe(false);
+      expect((await sealedRows(proposalIdOf(add.text))).find((x) => x.field === 'allowed_recipients'))
+        .toMatchObject({ tag: 'More', added: ['bob@rcpt.example'], removed: [], emptyMeans: 'anything' });
+      await resolve(w, proposalIdOf(add.text), 'reject');
+
+      const open = await change(w, { mandate_id: id, scope: { allowed_recipients: '' } });
+      expect(open.denied, open.text).toBe(false);
+      expect((await sealedRows(proposalIdOf(open.text))).find((x) => x.field === 'allowed_recipients'))
+        .toMatchObject({ tag: 'More', removed: ['anna@rcpt.example'] });
+      await resolve(w, proposalIdOf(open.text), 'reject');
+    }, 90_000);
   });
 
   describe('the web page signs through the same code', () => {
