@@ -17,6 +17,9 @@
  *    refused;
  *  - allowed_recipients: a `cc` address not on the list is refused;
  *  - the connector has no bcc argument; one passed anyway is refused before any
+ *    ticket;
+ *  - an entry that holds more than one address ("x@evil.example,a@example.com",
+ *    "x@evil.example <a@example.com>") is refused by the gate — nothing sent, no
  *    ticket.
  */
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
@@ -190,6 +193,25 @@ describe.skipIf(!available)('every recipient of an email is counted and checked,
       expect((await sent()).length).toBe(before);
       expect(await ticketsFor(id)).toHaveLength(ticketsBefore);
     }, 60_000);
+
+    // One entry, two addresses: `join` would split it on the comma and
+    // `join_domains` read only the text after the last "@" — so it would count
+    // as one recipient in example.com. The gate refuses it itself, whatever the
+    // connector's own format check does later.
+    for (const [label, args] of [
+      ['a to entry holding two addresses', { to: ['x@evil.example,kunde@example.com'] }],
+      ['a cc entry with a display-name form', { to: ['kunde@example.com'], cc: ['x@evil.example <kunde@example.com>'] }],
+    ] as const) {
+      it(`${label} is refused at the gate: nothing sent, no ticket`, async () => {
+        const before = (await sent()).length;
+        const ticketsBefore = (await ticketsFor(id)).length;
+        const r = await send(args);
+        expect(r.denied, r.text).toBe(true);
+        expect((await sent()).length).toBe(before);
+        expect(await ticketsFor(id), 'a ticket was issued for it').toHaveLength(ticketsBefore);
+        expect(r.text).toContain('is not one email address. Give one plain address per entry');
+      }, 60_000);
+    }
 
     it('a bcc (the connector has none) is refused before any ticket', async () => {
       const before = (await sent()).length;
