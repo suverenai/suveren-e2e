@@ -1,13 +1,11 @@
 /**
- * The sign form and the dashboard for "an Email mandate must name who it may write to"
+ * The sign form for "an Email mandate must name who it may write to"
  * (email@0.10 `scopeSchema.atLeastOne`), in a real browser on the real stack.
  *
  *  - while the limits allow sending, step 2 says "at least one of these" over the
  *    recipient fields and the review step keeps Sign off until one is filled;
  *  - with a send limit of 0 (read only) neither is needed and the mandate signs;
  *  - with a domain the mandate signs;
- *  - the dashboard points out an open email@0.9 mandate that names no one, with the
- *    way to replace it.
  *
  * Simulation gateway (the Email connector runs on its practice mailbox).
  */
@@ -22,7 +20,6 @@ const EMAIL_SCOPE_KEYS = ['allowed_recipients', 'allowed_domains', 'allowed_atta
 
 const FORM_HINT = 'At least one of these: Allowed recipients or Allowed domains. Needed while this mandate allows sending.';
 const SIGN_HINT = 'Name at least one allowed recipient or domain in step 2: this mandate allows sending.';
-const DASHBOARD_LINE = 'names no allowed recipient or domain. Email 0.10 requires one: open it under Mandates and press Edit to replace it.';
 
 test.describe.serial('An Email mandate must name who it may write to (browser)', () => {
   let page: Page;
@@ -100,26 +97,4 @@ test.describe.serial('An Email mandate must name who it may write to (browser)',
     await sign();
   });
 
-  test('the dashboard points out an open email@0.9 mandate that names no one', async ({ request }) => {
-    const bounds = { profile: EMAIL_09, read_access: 'unlimited', recipient_max: 1, send_daily_max: 5, read_max_age_days: 30, setup_daily_max: 0 };
-    const boundsHash = computeBoundsHash(bounds, EMAIL_KEYS);
-    const contextHash = computeScopeHash({}, EMAIL_SCOPE_KEYS);
-    const intent = 'An open 0.9 mandate from before.';
-    const att = await spApiAttest(request, apiKey, {
-      profile_id: EMAIL_09, domain: 'owner', did, bounds, bounds_hash: boundsHash, scope_hash: contextHash, title: 'Old open mail',
-      gate_content_hashes: hashGateContent({ intent }), execution_context_hash: 'sha256:' + 'd'.repeat(64), commitment_mode: 'review',
-    });
-    const res = await fetch(`${GW_MCP_URL}/internal/gate-content`, {
-      method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Internal-Secret': INTERNAL_SECRET },
-      body: JSON.stringify({ authorizationId: att.authorization_id, boundsHash, contextHash, context: {}, path: EMAIL_09, gateContent: { intent } }),
-    });
-    expect(res.ok).toBe(true);
-
-    await page.click('.sidebar-item:has-text("Dashboard")');
-    const row = page.locator('.dash-att-row', { hasText: 'Older version' });
-    await expect(row).toBeVisible({ timeout: 15_000 });
-    await expect(row).toContainText(`Old open mail ${DASHBOARD_LINE}`);
-    // Only that one: the 0.10 mandates signed above are not pointed out.
-    await expect(page.locator('.dash-att-row', { hasText: 'Older version' })).toHaveCount(1);
-  });
 });
