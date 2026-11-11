@@ -76,7 +76,15 @@ function raw(
 }
 
 const withKey = () => ({ 'x-api-key': apiKey });
-const fromAs = (r: RawResponse) => String(r.headers['x-powered-by'] ?? '').includes('Next.js');
+/**
+ * Did this answer come from the Authority Server? Its pages carry Next.js's
+ * marks (header, /_next/ assets); its API routes do not, so /api/groups is
+ * recognised by its own body.
+ */
+const fromAs = (r: RawResponse) =>
+  String(r.headers['x-powered-by'] ?? '').includes('Next.js') ||
+  r.body.includes('/_next/') ||
+  r.body.startsWith('{"groups":');
 
 beforeAll(async () => {
   pm.buildGateway();
@@ -113,7 +121,7 @@ describe('B — the API key guard and the /api proxy read the same path', () => 
   it('control: /api/groups with the key reaches the Authority Server; without it, 401', async () => {
     const ok = await raw('/api/groups', { headers: withKey() });
     expect(ok.status).toBe(200);
-    expect(fromAs(ok), 'the control must prove the AS marker header').toBe(true);
+    expect(fromAs(ok), 'the control must prove the AS marker').toBe(true);
     const noKey = await raw('/api/groups');
     expect(noKey.status).toBe(401);
     expect(fromAs(noKey)).toBe(false);
