@@ -98,6 +98,10 @@ describe.skipIf(!available)('ERP updates show Now → New (real AS + gateway + e
     try {
       expect(await tile.locator('.av3-sealed-h').innerText()).toBe('You approve this change');
       expect(await compareRows(tile)).toEqual(['List price 120.00 EUR 130.00 EUR']);
+      // Round 3 (Andreas 2026-11-11): checks are for findings — no check line repeats the change.
+      const cardText = await card.innerText();
+      expect(cardText).not.toMatch(/List price:?\s*120\.00 EUR\s*→\s*130\.00 EUR/);
+      expect(cardText).not.toMatch(/List price \(new\)/);
       if (process.env.HAP_E2E_SHOW_CARD) console.error('[walkthrough E erp] item card:\n' + await card.innerText());
       if (SHOTS) await card.screenshot({ path: join(SHOTS, 'erp-item-price-card.png') });
     } finally {
