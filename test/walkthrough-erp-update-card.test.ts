@@ -62,6 +62,27 @@ async function openCard(): Promise<{ page: Page; tile: ReturnType<Page['locator'
   return { page, card, tile: card.getByTestId('sealed-values') };
 }
 
+/**
+ * Round 4 (Andreas 2026-11-11): as calm as the CRM card. The tile shows the
+ * record by its name, the change, and the version sentence; the record's
+ * other fields (and values equal to them) are folded under "Unchanged".
+ */
+async function expectCalm(tile: ReturnType<Page['locator']>, label: string, name: string) {
+  const text = await tile.innerText();
+  if (process.env.HAP_E2E_SHOW_CARD) console.error(`[walkthrough E erp] tile:\n${text}`);
+  const lines = text.split('\n').map((l) => l.trim()).filter(Boolean);
+  const at = lines.indexOf(label);
+  expect(at, text).toBeGreaterThanOrEqual(0);
+  expect(lines[at + 1], 'the record by its name only').toBe(name);
+  expect(text).not.toMatch(/^Revision$/m);
+  expect(text).not.toMatch(/Created |Updated |Item number|Tax mode/);
+  expect(text).toContain('You approve revision 1; if it changes, ERP refuses it.');
+  const fold = tile.getByTestId('change-unchanged');
+  expect(await fold.getAttribute('open')).toBeNull();
+  expect(await fold.locator(':scope > summary').innerText()).toMatch(/^Unchanged in ERP \(\d+\)/);
+  return { text, fold };
+}
+
 async function compareRows(tile: ReturnType<Page['locator']>): Promise<string[]> {
   await tile.getByTestId('compare-table').waitFor({ timeout: 20_000 });
   return (await tile.getByTestId('compare-table').locator('tbody tr').allInnerTexts()).map((t) => t.replace(/\s+/g, ' ').trim());
@@ -98,6 +119,12 @@ describe.skipIf(!available)('ERP updates show Now → New (real AS + gateway + e
     try {
       expect(await tile.locator('.av3-sealed-h').innerText()).toBe('You approve this change');
       expect(await compareRows(tile)).toEqual(['List price 120.00 EUR 130.00 EUR']);
+      // VAT 20 % → 20 % is not a row: it is under Unchanged.
+      const { text, fold } = await expectCalm(tile, 'Item', 'Beratungsstunde');
+      expect(text).not.toMatch(/^VAT rate$/m);
+      await fold.locator(':scope > summary').click();
+      expect(await fold.innerText()).toMatch(/VAT rate/);
+      await fold.locator(':scope > summary').click(); // folded again, as the person first sees it
       // Round 3 (Andreas 2026-11-11): checks are for findings — no check line repeats the change.
       const cardText = await card.innerText();
       expect(cardText).not.toMatch(/List price:?\s*120\.00 EUR\s*→\s*130\.00 EUR/);
@@ -116,6 +143,7 @@ describe.skipIf(!available)('ERP updates show Now → New (real AS + gateway + e
     try {
       expect(await tile.locator('.av3-sealed-h').innerText()).toBe('You approve this change');
       expect(await compareRows(tile)).toEqual(['Email alt@kunde.example neu@kunde.example']);
+      await expectCalm(tile, 'Customer', 'Kunde Ohne UID GmbH');
       if (process.env.HAP_E2E_SHOW_CARD) console.error('[walkthrough E erp] customer card:\n' + await card.innerText());
       if (SHOTS) await card.screenshot({ path: join(SHOTS, 'erp-customer-card.png') });
     } finally {
