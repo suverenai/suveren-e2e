@@ -195,6 +195,10 @@ describe.skipIf(!available)('walkthrough 2026-11-11: update card, limit names, M
       expect(row).toMatch(/Name Andreas Andreas Schadauer/);
       expect(await tile.locator('.compare-now').first().innerText()).toBe('Andreas');
       expect(await tile.locator('.compare-new').first().innerText()).toBe('Andreas Schadauer');
+      // The value being replaced is struck through (Andreas, 2026-11-11); the new one is not.
+      const deco = (sel: string) => tile.locator(sel).first().evaluate((el) => getComputedStyle(el).textDecorationLine);
+      expect(await deco('.compare-now')).toContain('line-through');
+      expect(await deco('.compare-new')).not.toContain('line-through');
       const tileText = await tile.innerText();
       expect(tileText).toMatch(/What will be changed in CRM/i); // the heading is set in capitals by CSS
       expect(await tile.locator('.av3-sealed-h').innerText()).toBe('You approve this change');
