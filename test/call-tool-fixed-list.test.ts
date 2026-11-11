@@ -14,9 +14,11 @@
  * The flow, without the client ever listing tools again:
  *   empty gateway → chat starts → Setup is signed → the note names the new tools →
  *   the AI proposes an Email mandate through call-tool → the person approves →
- *   the mail connector starts → a send through call-tool is refused like a direct call (no Email
- *   mandate yet); an internal tool and bad arguments are refused → the Email mandate is approved →
- *   the send becomes a proposal → approved → it runs, and the Authority Server holds its ticket.
+ *   the mail connector starts → the note names its tools with their arguments; the app builds its
+ *   send from that list alone → the send through call-tool is refused like a direct call (no Email
+ *   mandate yet), never for its arguments; an internal tool and bad arguments are refused (the
+ *   refusal names the arguments) → the Email mandate is approved → the same send becomes a
+ *   proposal → approved → it runs, and the Authority Server holds its ticket.
  */
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { existsSync, mkdtempSync, rmSync } from 'node:fs';
@@ -173,8 +175,10 @@ describe.skipIf(!available)('an app that never re-lists tools reaches every tool
     await new Promise((r) => setTimeout(r, 1_500));
 
     const r = await app.call('list-authorizations', {});
-    expect(r.all).toMatch(/New tools are available since this chat started: [^\n]*setup__create_mandate/);
-    expect(r.all).toContain('If they are not in your tool list, call them through call-tool(tool: "<name>", arguments: {...}). Or the person restarts the AI app, which then lists them.');
+    expect(r.all).toMatch(/\[Suveren gateway\][^\n]*\n\nNew tools since this chat started: [^\n]*setup__create_mandate\(profile, [^)]*\)/);
+    expect(r.all).toMatch(/New tools since this chat started: [^\n]*\. If they are not in your tool list, call them through call-tool\.$/m);
+    // The internal preview tools are never named.
+    expect(r.all).not.toContain('describe_mandate_proposal');
     // The gateway did announce the change; this app ignored it, like ChatGPT.
     expect(app.listChanged).toBeGreaterThan(0);
     expect(app.names).not.toContain('setup__create_mandate');
@@ -200,15 +204,27 @@ describe.skipIf(!available)('an app that never re-lists tools reaches every tool
     await addMailConnector(internal, { readAgeDays: 30 });
     await new Promise((r) => setTimeout(r, 1_000));
     const r = await app.call('list-authorizations', { domain: 'email' });
-    expect(r.all).toMatch(/New tools are available since this chat started: [^\n]*mail__send_message/);
+    expect(r.all).toMatch(/New tools since this chat started: [^\n]*mail__send_message\(/);
     // The hint is said once per chat, not again.
-    expect(r.all).not.toContain('restarts the AI app');
+    expect(r.all).not.toContain('call them through call-tool');
+    // The app builds its send from the note alone: the required arguments, by name.
+    const sig = r.all.match(/mail__send_message\(([^)]*)\)/)?.[1];
+    expect(sig, r.all).toBeTruthy();
+    const args = sig!.split(', ').filter(Boolean);
+    const required = args.filter((a) => !a.endsWith('?'));
+    expect(required).toEqual(['to', 'subject', 'body']);
+    // No types or descriptions in it.
+    expect(sig).not.toMatch(/[:{]/);
+    const values: Record<string, unknown> = { to: [RECIPIENT], subject: 'Your question', body: 'Thank you, we will answer tomorrow. (Sent by an AI.)' };
+    SEND = Object.fromEntries(required.map((a) => [a, values[a]]));
     // The area's answer names the exact tool name and how to reach it.
     expect(r.text).toContain('If a tool named here is not in your tool list, call it through call-tool(tool: "<exact name>", arguments: {...}).');
     expect(app.names.some((n) => n.startsWith('mail__'))).toBe(false);
   }, 180_000);
 
-  const SEND = { to: [RECIPIENT], subject: 'Your question', body: 'Thank you, we will answer tomorrow. (Sent by an AI.)' };
+  /** Built from the argument list in the note (above), not known to the app in advance. */
+  let SEND: Record<string, unknown> = {};
+  let sendAttempts = 0;
 
   it('without an Email mandate, a send through call-tool is refused exactly like a direct call, and both are Blocked', async () => {
     const direct = new Client({ name: 'direct-app', version: '1.0.0' }, { capabilities: {} });
@@ -216,10 +232,14 @@ describe.skipIf(!available)('an app that never re-lists tools reaches every tool
     const before = (await denials()).length;
     const d = await direct.callTool({ name: 'mail__send_message', arguments: SEND });
     const t = await app.through('mail__send_message', SEND);
+    sendAttempts++;
     await direct.close();
     expect(d.isError, textOf(d)).toBe(true);
     expect(t.denied, t.text).toBe(true);
     expect(t.text).toBe(textOf(d));
+    // Refused for the missing mandate, never for its arguments: the note's list was enough.
+    expect(t.text).not.toContain('do not fit');
+    expect(t.text).not.toContain('does not offer');
     const after = await denials();
     expect(after.length - before).toBe(2);
     // Both recorded under Blocked, the same way.
@@ -240,6 +260,8 @@ describe.skipIf(!available)('an app that never re-lists tools reaches every tool
     expect(r.denied).toBe(true);
     expect(r.text).toMatch(/^Refused: the arguments do not fit "mail__send_message": /);
     expect(r.text).toContain('no ticket was requested');
+    // The refusal names the tool's arguments, as the note did.
+    expect(r.text).toMatch(/Call it again with the arguments that tool takes: mail__send_message\(to, subject, body[^)]*\)\.$/);
     expect((await as('GET', '/api/proposals?domain=owner')).body.proposals?.length ?? 0).toBe(before);
   });
 
@@ -249,7 +271,10 @@ describe.skipIf(!available)('an app that never re-lists tools reaches every tool
     await new Promise((r) => setTimeout(r, 1_000));
 
     const sent = await app.through('mail__send_message', SEND);
+    sendAttempts++;
     expect(sent.denied, sent.text).toBe(false);
+    // The same arguments, built from the note: no attempt was ever refused for them.
+    expect(sendAttempts).toBe(2);
     expect(sent.text).toContain('Awaiting commitment');
     const sendProposal = proposalIdOf(sent.text)!;
     expect(sendProposal).toBeTruthy();
