@@ -112,7 +112,7 @@ test.describe.serial('Approval panel (real stack, simulation gateway)', () => {
     await expect(panel).toHaveAttribute('aria-hidden', 'false', { timeout: 45_000 });
     const card = panel.getByTestId('approval-card');
     await expect(card).toHaveCount(1);
-    await expect(card.getByTestId('approval-summary')).toHaveText('Create contact Panel Paula', { timeout: 30_000 });
+    await expect(card.getByTestId('approval-summary')).toHaveText('New contact Panel Paula', { timeout: 30_000 });
     await expect(page).toHaveURL(/\/$|\/dashboard/); // still the Dashboard underneath
 
     await card.locator('button:has-text("Approve")').click();

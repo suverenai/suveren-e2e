@@ -333,10 +333,10 @@ test.describe.serial('AU10: request and customer history on the approval card (r
     await page.click('.sidebar-item:has-text("Approvals")');
     await page.waitForURL('**/approvals');
     const sums = page.getByTestId('approval-row-summary');
-    await expect(sums.filter({ hasText: 'Create contact J. Kraus' })).toHaveCount(1, { timeout: 30_000 });
-    await expect(sums.filter({ hasText: 'Create contact No Source' })).toHaveCount(1);
+    await expect(sums.filter({ hasText: 'New contact J. Kraus' })).toHaveCount(1, { timeout: 30_000 });
+    await expect(sums.filter({ hasText: 'New contact No Source' })).toHaveCount(1);
     await expect(sums.filter({ hasText: 'Email to j.kraus@bavaria-umform.de: Re: RF 55 Stillstand' })).toHaveCount(1);
-    await expect(sums.filter({ hasText: /^Send quote of €385(\.00)? net — 0% discount$/ })).toHaveCount(1);
+    await expect(sums.filter({ hasText: /^Send quote of 385\.00 EUR net — 0 % discount$/ })).toHaveCount(1);
     // Never the bare action name when the template could be filled.
     await expect(sums.filter({ hasText: /^(Create contact|Send message|Send quote)$/ })).toHaveCount(0);
   });
