@@ -84,9 +84,12 @@ const sp = new SPClient(AS_URL);
 const gw = new GatewayClient(MCP_URL);
 const cp = new ControlPlaneClient(CP_URL);
 
-// realpath: macOS's temp dir sits behind a symlink (/var -> /private/var), and the
-// contract refuses symlinked path components.
-const work = realpathSync(mkdtempSync(join(tmpdir(), 'hap-e2e-docs-')));
+// Not the system temp folder: files-mcp 0.1.2 refuses a shared folder there (other programs
+// read it, the computer empties it). A folder in this checkout stands in for one in the home
+// folder. realpath: the contract refuses symlinked path components.
+const WORK_ROOT = join(import.meta.dirname, '..', '.work');
+mkdirSync(WORK_ROOT, { recursive: true });
+const work = realpathSync(mkdtempSync(join(WORK_ROOT, 'hap-e2e-docs-')));
 const FOLDER = join(work, 'shared-folder');
 const OUTSIDE = join(work, 'outside');
 const SECRET_NAME = 'secret.txt';
@@ -504,7 +507,9 @@ describe.skipIf(!available)('Files connector (real AS + gateway + files-mcp + pr
       expect(row).toMatchObject({ id: doc.id, filename: 'listed.md', contentType: 'text/markdown', bytes: doc.bytes, sha256: doc.sha256 });
       expect(row.created_at).toBeTruthy();
       expect(r.text).not.toContain('contentBase64');
-      expect(r.text).not.toContain(FOLDER);
+      // files-mcp 0.1.2: every answer names the shared folder, so the AI never has to ask.
+      expect(r.json.sharedFolder).toBe(FOLDER);
+      expect(r.json.sharedFolderProblem).toBeUndefined();
     });
 
     const ACCEPTED: Array<[string, () => Buffer, string, string]> = [
@@ -1086,6 +1091,99 @@ describe.skipIf(!available)('Files connector (real AS + gateway + files-mcp + pr
       expect(done.denied, done.text).toBe(false);
       expect(resultJson(done.text).sha256).toBe(sha256(bytes));
       expect(storeFiles().length).toBe(before + 1);
+    }, 60_000);
+  });
+
+  // After the review mandate above, on purpose: a save here becomes a proposal the person approves,
+  // which is how the person sees the connector's refusal (the card's "Refused by Files" box).
+  describe('a shared folder the connector cannot use (files-mcp 0.1.2)', () => {
+    const isRoot = typeof process.getuid === 'function' && process.getuid() === 0;
+
+    /** The person saves the folder on the card, the way the UI does; the gateway restarts the connector. */
+    async function setFolder(folder: string): Promise<any> {
+      const put = await cp.authed(apiKey, 'PUT', '/vault/credentials/files', { sharedFolder: folder });
+      expect(put.status, await put.text()).toBe(200);
+      const res = await cp.authed(apiKey, 'POST', '/mcp/integrations/files/activate');
+      const body = await res.json().catch(() => null);
+      expect(res.status, JSON.stringify(body)).toBe(200);
+      await gw.waitForIntegration('files');
+      await reconnectAgent();
+      return body;
+    }
+
+    async function saveDescription(): Promise<string> {
+      return (await agent.listTools()).tools.find((t) => t.name === 'files__save_file')?.description ?? '';
+    }
+
+    it.skipIf(isRoot)('not permitted (chmod 000): the AI is told why before it tries; the person sees the reason on the card after approving', async () => {
+      const blocked = join(work, 'blocked-folder');
+      mkdirSync(blocked);
+      writeFileSync(join(blocked, 'note.txt'), 'in a folder the connector may not read\n');
+      chmodSync(blocked, 0o000);
+      try {
+        const reason = `The Files connector cannot use ${blocked}: this computer does not allow it to read or write there (Permission denied).`;
+        const activated = await setFolder(blocked);
+        // What the card's Save says today (recorded, not asserted: the gateway has no way to show a connector's own problem here).
+        console.error(`[FILES E2E] activate answer for a blocked folder: ${JSON.stringify(activated)}`);
+        const status = (await gw.integrations()).find((x) => x.id === 'files');
+        console.error(`[FILES E2E] card status for a blocked folder: ${JSON.stringify(status)}`);
+
+        // The AI: the tool description carries the reason and the next step.
+        const d = await saveDescription();
+        expect(d).toContain(reason);
+        expect(d).toMatch(/\*\*Edit credentials\*\*/);
+        expect(d).toMatch(/Do not copy files to another folder/);
+
+        // The AI's list_files names the folder and the problem.
+        const list = await call('files__list_files', {});
+        expect(list.denied, list.text).toBe(false);
+        expect(list.json.sharedFolder).toBe(blocked);
+        expect(list.json.sharedFolderProblem).toContain(reason);
+
+        // Review mandate: the save is a proposal; approved, the connector refuses with the reason.
+        const before = storeFiles().length;
+        const r = await call('files__save_file', { file: 'note.txt' });
+        expect(r.denied, r.text).toBe(false);
+        const proposal = proposalIdOf(r.text);
+        await commit(proposal);
+        const done = await awaitExecution(proposal);
+        // The AI's answer after the decision.
+        expect(done.text).toContain(reason);
+        expect(done.text).not.toMatch(/could not be opened/);
+        expect(storeFiles().length, 'a file was stored').toBe(before);
+        // The person: the card reads this outcome ("Refused by Files: <detail>"), cut at 500 characters.
+        const outcome = await cpGet(`/proposal-status/${proposal}/outcome`);
+        expect(outcome.status, JSON.stringify(outcome.body)).toBe(200);
+        expect(outcome.body.state, JSON.stringify(outcome.body)).toBe('failed');
+        expect(String(outcome.body.detail).slice(0, 500)).toContain(reason);
+        console.error(`[FILES E2E] person sees: Refused by Files: ${String(outcome.body.detail).slice(0, 500)}`);
+      } finally {
+        chmodSync(blocked, 0o700);
+      }
+    }, 120_000);
+
+    it('a temporary system folder: the AI is told why', async () => {
+      const temp = realpathSync(mkdtempSync(join(tmpdir(), 'hap-e2e-docs-temp-')));
+      try {
+        await setFolder(temp);
+        expect(await saveDescription()).toContain(`The Files connector cannot use ${temp}: it is a temporary system folder. Other programs can read it, and the computer empties it.`);
+      } finally {
+        rmSync(temp, { recursive: true, force: true });
+      }
+    }, 60_000);
+
+    it('back to a usable folder: the description names it again and a save works', async () => {
+      await setFolder(FOLDER);
+      expect(await saveDescription()).toContain(`The shared folder is: ${FOLDER}`);
+      const bytes = drop('after-fix.txt', Buffer.from('folder works again'));
+      const r = await call('files__save_file', { file: 'after-fix.txt' });
+      expect(r.denied, r.text).toBe(false);
+      const proposal = proposalIdOf(r.text);
+      await commit(proposal);
+      const done = await awaitExecution(proposal);
+      expect(done.denied, done.text).toBe(false);
+      expect(resultJson(done.text).sha256).toBe(sha256(bytes));
+      expect(resultJson(done.text).sharedFolder).toBe(FOLDER);
     }, 60_000);
   });
 });

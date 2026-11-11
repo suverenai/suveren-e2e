@@ -9,8 +9,7 @@
  * NOT proven here: that a video actually plays. The fixture is a header-only MP4;
  * the check is that the card offers a <video> element for it.
  */
-import { existsSync, mkdtempSync, readFileSync, realpathSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { SSEClientTransport } from '@modelcontextprotocol/sdk/client/sse.js';
@@ -32,7 +31,11 @@ const GW_MANIFEST = join(ROOT, 'suveren-gateway', 'content', 'integrations', 'fi
 const available = existsSync(GW_MANIFEST) && existsSync(join(PROFILES_DIR, 'files', '0.1.profile.json'));
 if (!available) console.warn('[FILES CONNECTOR E2E] SKIPPED: needs files.json in the gateway and hap-profiles files@0.1.');
 const FILES_PROFILE = available ? latestProfileId('files') : '';
-const FOLDER = realpathSync(mkdtempSync(join(tmpdir(), 'hap-e2e-docs-pw-')));
+// Not the system temp folder: files-mcp 0.1.2 refuses a shared folder there. A folder in this
+// checkout stands in for one in the home folder.
+const WORK_ROOT = join(import.meta.dirname, '..', '.work');
+mkdirSync(WORK_ROOT, { recursive: true });
+const FOLDER = realpathSync(mkdtempSync(join(WORK_ROOT, 'hap-e2e-docs-pw-')));
 
 const ALLOWED_TO = 'kunde@doc-allowed.example';
 const NOTHING_TICKED_TO = 'kunde@doc-text-only.example';
