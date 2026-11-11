@@ -55,7 +55,9 @@ test.describe.serial('Ticket card shows the sealed email body (real stack, gatew
     const bounds = { profile: EMAIL_PROFILE, read_access: 'unlimited', recipient_max: 1, send_daily_max: 10, read_max_age_days: 30, setup_daily_max: 0 };
     const intent = 'Ticket email body e2e: send the customer a reply.';
     const boundsHash = computeBoundsHash(bounds, EMAIL_KEY_ORDER);
-    const scopeHash = computeScopeHash({}, []);
+    // Since email@0.10 a mandate that allows sending names who it may write to.
+    const scope = { allowed_recipients: TO };
+    const scopeHash = computeScopeHash(scope, Object.keys(scope));
     const att = await spApiAttest(request, apiKey, {
       profile_id: EMAIL_PROFILE, domain: 'owner', did,
       bounds, bounds_hash: boundsHash, scope_hash: scopeHash,
@@ -68,7 +70,7 @@ test.describe.serial('Ticket card shows the sealed email body (real stack, gatew
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'X-Internal-Secret': INTERNAL_SECRET },
       body: JSON.stringify({
-        authorizationId: att.authorization_id, boundsHash, contextHash: scopeHash, context: {},
+        authorizationId: att.authorization_id, boundsHash, contextHash: scopeHash, context: scope,
         path: EMAIL_PROFILE, gateContent: { intent },
       }),
     });

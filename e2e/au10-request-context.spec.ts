@@ -288,7 +288,8 @@ test.describe.serial('AU10: request and customer history on the approval card (r
       intent: 'AU10 e2e: review new contacts before they are created.',
     });
     await mandate(request, apiKey, did, {
-      profile: EMAIL_PROFILE, keyOrder: EMAIL_KEY_ORDER, scope: {}, mode: 'review',
+      // Since email@0.10 a mandate that allows sending names who it may write to.
+      profile: EMAIL_PROFILE, keyOrder: EMAIL_KEY_ORDER, scope: { allowed_domains: 'bavaria-umform.de' }, mode: 'review',
       bounds: { profile: EMAIL_PROFILE, read_access: 'unlimited', recipient_max: 1, send_daily_max: 10, read_max_age_days: 30, setup_daily_max: 0 },
       intent: 'AU10 e2e: review replies before they go out.',
     });

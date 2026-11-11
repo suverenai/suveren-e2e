@@ -18,6 +18,7 @@ export const SIMULATION_SPECS = [
   'au8-preview-reads.spec.ts',
   'blocked-seen.spec.ts',
   'core-objects.spec.ts',
+  'email-at-least-one.spec.ts',
   'files-connector.spec.ts',
   'journey-5-agent-flow.spec.ts',
   'team-roles-caps.spec.ts',
