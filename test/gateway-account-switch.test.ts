@@ -62,6 +62,14 @@ async function annaMandateIntent(): Promise<string | undefined> {
   return body.entry?.gateContent?.intent;
 }
 
+/** Each signed-out case starts from Anna signed in, then signing out — so
+ *  it does not depend on what an earlier case did to the session. */
+async function annaSignsOut() {
+  if (!(await health()).vaultUnlocked) expect((await login(annaKey)).status).toBe(200);
+  expect((await logout(annaKey)).status).toBe(200);
+  expect((await health()).vaultUnlocked).toBe(false);
+}
+
 const vaultFile = () => join(dataDir, 'vault.enc.json');
 const readVault = () => JSON.parse(readFileSync(vaultFile(), 'utf-8')) as { verifier?: unknown; credentials: Record<string, unknown> };
 
@@ -145,8 +153,7 @@ describe('A3 — another key never ends Anna\'s session', () => {
 
 describe('A3 — signed out: Mallory never takes over Anna\'s gateway silently', () => {
   it('control: with the vault as sign-in leaves it, the wipe is asked for and nothing changes', async () => {
-    expect((await logout(annaKey)).status).toBe(200);
-    expect((await health()).vaultUnlocked).toBe(false);
+    await annaSignsOut();
     const before = readFileSync(join(dataDir, 'gates.enc.json'), 'utf-8');
 
     const r = await login(malloryKey);
@@ -160,7 +167,7 @@ describe('A3 — signed out: Mallory never takes over Anna\'s gateway silently',
   });
 
   it('a mandate but no credential at all, in a vault from before the verifier: still detected, and the vault gains the verifier', async () => {
-    expect((await logout(annaKey)).status).toBe(200);
+    await annaSignsOut();
     // What such a vault looks like on disk: Anna's mandate in gates.enc.json,
     // no credential in vault.enc.json (the E2EE key pair was never written —
     // it is written in the background after sign-in, and nothing retries it),
