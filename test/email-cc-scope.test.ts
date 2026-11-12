@@ -43,8 +43,7 @@ const AS_PORT = 18710;
 const PORTS = { cp: 18711, mcp: 18712 };
 const AS_URL = `http://localhost:${AS_PORT}`;
 const EMAIL_10 = 'github.com/humanagencyprotocol/hap-profiles/email@0.10';
-const EMAIL_04 = 'github.com/humanagencyprotocol/hap-profiles/email@0.4';
-const available = existsSync(join(PROFILES_DIR, 'email', '0.10.profile.json')) && existsSync(join(PROFILES_DIR, 'email', '0.4.profile.json'));
+const available = existsSync(join(PROFILES_DIR, 'email', '0.10.profile.json'));
 if (!available) console.warn('[EMAIL CC SCOPE E2E] SKIPPED — needs hap-profiles email@0.10.');
 
 const EMAIL_KEYS = ['profile', 'read_access', 'recipient_max', 'send_daily_max', 'read_max_age_days', 'setup_daily_max'];
@@ -66,11 +65,6 @@ let mailbox: Client;
 /** An automatic Email mandate signed straight against the Authority Server, its scope pushed to the gateway. */
 type Version = { profile: string; keys: string[]; scopeKeys: string[]; limits: Record<string, string | number> };
 const V10: Version = { profile: EMAIL_10, keys: EMAIL_KEYS, scopeKeys: EMAIL_SCOPE_KEYS, limits: LIMITS };
-// email@0.4 seals only the body (content_binding kind "text"), and names its scope `contextSchema`.
-const V04: Version = {
-  profile: EMAIL_04, keys: ['profile', 'recipient_max', 'send_daily_max', 'read_max_age_days', 'read_daily_max'],
-  scopeKeys: ['allowed_recipients', 'allowed_domains'], limits: { recipient_max: 2, send_daily_max: 10, read_max_age_days: 30, read_daily_max: 50 },
-};
 
 async function grant(scope: Record<string, string>, intent: string, v: Version = V10): Promise<string> {
   const b = { profile: v.profile, ...v.limits };
@@ -272,27 +266,11 @@ describe.skipIf(!available)('every recipient of an email is counted and checked,
       expect(await ticketsFor(id)).toHaveLength(0);
     }, 60_000);
   });
-  describe('cc under an email@0.4 mandate (seals only the body)', () => {
-    let id = '';
-    beforeAll(async () => { id = await grant({ allowed_domains: 'example.com' }, 'E2E: an old 0.4 mandate.', V04); }, 60_000);
-    afterAll(async () => { if (id) await revoke(id); }, 30_000);
-
-    it('a send with cc is refused as an unsealed argument, even with every address inside: nothing sent, no ticket', async () => {
-      const before = (await sent()).length;
-      const r = await send({ to: ['kunde@example.com'], cc: ['buchhaltung@example.com'] });
-      expect(r.denied, r.text).toBe(true);
-      expect(r.text).toContain('"cc"');
-      expect((await sent()).length).toBe(before);
-      expect(await ticketsFor(id)).toHaveLength(0);
-    }, 60_000);
-
-    it('the same send without cc works (to stays allowed under 0.4)', async () => {
-      const before = (await sent()).length;
-      const r = await send({ to: ['kunde@example.com'] });
-      expect(r.denied, r.text).toBe(false);
-      expect((await sent()).length).toBe(before + 1);
-    }, 60_000);
-  });
+  // cc under email@0.4 (which seals only the body) stays refused as an
+  // unsealed argument — tested in the gateway's unit tests (sealedOnlyArgs,
+  // sealed-args-audit). It cannot be set up here: this Authority Server refuses
+  // to issue a new email@0.4 mandate (PROFILE_INVALID under v0.7 validation),
+  // so only a 0.4 mandate issued long ago could still carry such a call.
 
   describe('the AI mark: approved text = hashed text = sent text', () => {
     let id = '';
