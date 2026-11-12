@@ -114,9 +114,11 @@ beforeAll(async () => {
   });
   expect(push.status, await push.clone().text()).toBe(200);
   expect(await annaMandateIntent()).toBe(intent);
-  // The case this suite is about: data on the gateway, no connector credential.
+  // Anna's mandate is sealed on disk. (The vault holds no connector
+  // credential; its only credential is the gateway's own E2EE key pair,
+  // written in the background after sign-in.)
   expect(existsSync(join(dataDir, 'gates.enc.json'))).toBe(true);
-  expect(Object.keys(readVault().credentials)).toEqual([]);
+  expect(Object.keys(readVault().credentials).filter(k => k !== 'e2eKey')).toEqual([]);
 }, 300_000);
 
 afterAll(async () => {
@@ -141,8 +143,8 @@ describe('A3 — another key never ends Anna\'s session', () => {
   });
 });
 
-describe('A3 — signed out, a gateway with a mandate but no credential', () => {
-  it('Mallory\'s sign-in is not a silent switch: the wipe is asked for, nothing changes', async () => {
+describe('A3 — signed out: Mallory never takes over Anna\'s gateway silently', () => {
+  it('control: with the vault as sign-in leaves it, the wipe is asked for and nothing changes', async () => {
     expect((await logout(annaKey)).status).toBe(200);
     expect((await health()).vaultUnlocked).toBe(false);
     const before = readFileSync(join(dataDir, 'gates.enc.json'), 'utf-8');
@@ -153,26 +155,29 @@ describe('A3 — signed out, a gateway with a mandate but no credential', () => 
     expect((await health()).vaultUnlocked).toBe(false);
     expect(readFileSync(join(dataDir, 'gates.enc.json'), 'utf-8')).toBe(before);
 
-    // Anna comes back to her gateway as she left it.
     expect((await login(annaKey)).status).toBe(200);
     expect(await annaMandateIntent()).toBe('Anna: keep the customer list current.');
   });
 
-  it('a vault from before the verifier still detects Mallory, and gains the verifier', async () => {
-    expect(readVault().verifier, 'the gateway writes a verifier at sign-in').toBeTruthy();
+  it('a mandate but no credential at all, in a vault from before the verifier: still detected, and the vault gains the verifier', async () => {
     expect((await logout(annaKey)).status).toBe(200);
-    // What an old vault looks like: no verifier.
+    // What such a vault looks like on disk: Anna's mandate in gates.enc.json,
+    // no credential in vault.enc.json (the E2EE key pair was never written —
+    // it is written in the background after sign-in, and nothing retries it),
+    // and no verifier (a vault from before it existed).
     const v = readVault();
+    v.credentials = {};
     delete v.verifier;
     writeFileSync(vaultFile(), JSON.stringify(v, null, 2));
 
     const r = await login(malloryKey);
-    expect(r.status).toBe(409);
+    expect(r.status, 'Mallory took over the gateway silently').toBe(409);
     expect((await r.json() as { error?: string }).error).toBe('different_account');
+    expect((await health()).vaultUnlocked).toBe(false);
     expect(readVault().verifier).toBeUndefined();
 
     expect((await login(annaKey)).status).toBe(200);
-    expect(readVault().verifier).toBeTruthy();
+    expect(readVault().verifier, 'the old vault gained its verifier').toBeTruthy();
     expect(await annaMandateIntent()).toBe('Anna: keep the customer list current.');
   });
 });
