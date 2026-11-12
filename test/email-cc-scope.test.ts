@@ -27,6 +27,7 @@ import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js'
 import { existsSync, mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { createHash } from 'node:crypto';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { SSEClientTransport } from '@modelcontextprotocol/sdk/client/sse.js';
 
@@ -42,7 +43,8 @@ const AS_PORT = 18710;
 const PORTS = { cp: 18711, mcp: 18712 };
 const AS_URL = `http://localhost:${AS_PORT}`;
 const EMAIL_10 = 'github.com/humanagencyprotocol/hap-profiles/email@0.10';
-const available = existsSync(join(PROFILES_DIR, 'email', '0.10.profile.json'));
+const EMAIL_04 = 'github.com/humanagencyprotocol/hap-profiles/email@0.4';
+const available = existsSync(join(PROFILES_DIR, 'email', '0.10.profile.json')) && existsSync(join(PROFILES_DIR, 'email', '0.4.profile.json'));
 if (!available) console.warn('[EMAIL CC SCOPE E2E] SKIPPED — needs hap-profiles email@0.10.');
 
 const EMAIL_KEYS = ['profile', 'read_access', 'recipient_max', 'send_daily_max', 'read_max_age_days', 'setup_daily_max'];
@@ -62,17 +64,25 @@ let agent: Client;
 let mailbox: Client;
 
 /** An automatic Email mandate signed straight against the Authority Server, its scope pushed to the gateway. */
-async function grant(scope: Record<string, string>, intent: string): Promise<string> {
-  const b = { profile: EMAIL_10, ...LIMITS };
-  const boundsHash = computeBoundsHash(b, EMAIL_KEYS);
-  const contextHash = computeScopeHash(scope, EMAIL_SCOPE_KEYS);
+type Version = { profile: string; keys: string[]; scopeKeys: string[]; limits: Record<string, string | number> };
+const V10: Version = { profile: EMAIL_10, keys: EMAIL_KEYS, scopeKeys: EMAIL_SCOPE_KEYS, limits: LIMITS };
+// email@0.4 seals only the body (content_binding kind "text"), and names its scope `contextSchema`.
+const V04: Version = {
+  profile: EMAIL_04, keys: ['profile', 'recipient_max', 'send_daily_max', 'read_max_age_days', 'read_daily_max'],
+  scopeKeys: ['allowed_recipients', 'allowed_domains'], limits: { recipient_max: 2, send_daily_max: 10, read_max_age_days: 30, read_daily_max: 50 },
+};
+
+async function grant(scope: Record<string, string>, intent: string, v: Version = V10): Promise<string> {
+  const b = { profile: v.profile, ...v.limits };
+  const boundsHash = computeBoundsHash(b, v.keys);
+  const contextHash = computeScopeHash(scope, v.scopeKeys);
   const gate = { intent };
   const att = await sp.submitMandate(owner.apiKey, {
-    profile_id: EMAIL_10, profile_hash: profileHashFor(EMAIL_10, PROFILES_DIR), group_id: groupId, bounds: b, bounds_hash: boundsHash, scope_hash: contextHash,
+    profile_id: v.profile, profile_hash: profileHashFor(v.profile, PROFILES_DIR), group_id: groupId, bounds: b, bounds_hash: boundsHash, scope_hash: contextHash,
     domain: 'owner', did: owner.user.did, commitment_mode: 'automatic',
-    gate_content_hashes: hashGateContent(gate), execution_context_hash: hashExecutionContext({ m: EMAIL_10 }),
+    gate_content_hashes: hashGateContent(gate), execution_context_hash: hashExecutionContext({ m: v.profile }),
   });
-  await mcp.pushGateContent({ authorizationId: att.authorization_id, boundsHash, contextHash, context: scope }, EMAIL_10, gate);
+  await mcp.pushGateContent({ authorizationId: att.authorization_id, boundsHash, contextHash, context: scope }, v.profile, gate);
   await new Promise((r) => setTimeout(r, 800));
   return att.authorization_id;
 }
@@ -113,6 +123,32 @@ function find(obj: unknown, key: string): unknown {
 async function send(args: Record<string, unknown>) {
   const r = await agent.callTool({ name: 'mail__send_message', arguments: { subject: 'Termin', body: 'Guten Tag, ein Test der Suveren-E2E-Suite.', ...args } });
   return { denied: r.isError === true, text: textOf(r) };
+}
+
+// ── Content hash as hap-core computes it for a field binding (email@0.10) ──
+// Inlined (as in receipt-content-binding.test.ts) so the suite needs no hap-core.
+function canonicalize(value: unknown): string {
+  if (value === null || typeof value !== 'object') return JSON.stringify(value);
+  if (Array.isArray(value)) return '[' + value.map((v) => canonicalize(v)).join(',') + ']';
+  const obj = value as Record<string, unknown>;
+  return '{' + Object.keys(obj).sort().filter((k) => obj[k] !== undefined).map((k) => JSON.stringify(k) + ':' + canonicalize(obj[k])).join(',') + '}';
+}
+function canonicalText(s: string): string {
+  return s.normalize('NFC').replace(/\r\n?/g, '\n').split('\n').map((l) => l.replace(/[ \t]+$/, '')).join('\n').replace(/\n+$/, '');
+}
+function fieldHash(bound: Record<string, string | string[]>): string {
+  const c: Record<string, unknown> = {};
+  for (const [k, v] of Object.entries(bound)) c[k] = Array.isArray(v) ? v.map(canonicalText) : canonicalText(v);
+  return `sha256:${createHash('sha256').update(canonicalize(c), 'utf8').digest('hex')}`;
+}
+async function publicTicket(id: string): Promise<{ contentHash?: string }> {
+  const res = await fetch(`${AS_URL}/api/as/public-receipt/${id}`);
+  return await res.json() as { contentHash?: string };
+}
+async function newestSent(): Promise<{ id: string; body: string; cc?: string[] }> {
+  const list = await sent();
+  const got = await mailbox.callTool({ name: 'get_message', arguments: { id: list[0].id } });
+  return JSON.parse(((got.content as Array<{ text?: string }>)?.[0]?.text ?? '{}'));
 }
 
 describe.skipIf(!available)('every recipient of an email is counted and checked, cc too (real stack, simulation)', () => {
@@ -234,6 +270,65 @@ describe.skipIf(!available)('every recipient of an email is counted and checked,
       expect(r.denied, r.text).toBe(true);
       expect((await sent()).length).toBe(before);
       expect(await ticketsFor(id)).toHaveLength(0);
+    }, 60_000);
+  });
+  describe('cc under an email@0.4 mandate (seals only the body)', () => {
+    let id = '';
+    beforeAll(async () => { id = await grant({ allowed_domains: 'example.com' }, 'E2E: an old 0.4 mandate.', V04); }, 60_000);
+    afterAll(async () => { if (id) await revoke(id); }, 30_000);
+
+    it('a send with cc is refused as an unsealed argument, even with every address inside: nothing sent, no ticket', async () => {
+      const before = (await sent()).length;
+      const r = await send({ to: ['kunde@example.com'], cc: ['buchhaltung@example.com'] });
+      expect(r.denied, r.text).toBe(true);
+      expect(r.text).toContain('"cc"');
+      expect((await sent()).length).toBe(before);
+      expect(await ticketsFor(id)).toHaveLength(0);
+    }, 60_000);
+
+    it('the same send without cc works (to stays allowed under 0.4)', async () => {
+      const before = (await sent()).length;
+      const r = await send({ to: ['kunde@example.com'] });
+      expect(r.denied, r.text).toBe(false);
+      expect((await sent()).length).toBe(before + 1);
+    }, 60_000);
+  });
+
+  describe('the AI mark: approved text = hashed text = sent text', () => {
+    let id = '';
+    beforeAll(async () => { id = await grant({ allowed_domains: 'example.com' }, 'E2E: the AI mark.'); }, 60_000);
+    afterAll(async () => { if (id) await revoke(id); }, 30_000);
+    const AS_FOOTER = (ticket: string) => `\n\n-- Sent by an AI agent via Suveren. Ticket: ${AS_URL}/t/${ticket}`;
+
+    it('a text ending with an old footer: removed on arrival, hashed without it, sent with ONE new footer', async () => {
+      const text = 'Guten Tag,\n\nder Termin am Montag passt.';
+      const r = await send({ to: ['kunde@example.com'], subject: 'Termin', body: `${text}${AS_FOOTER('old-ticket-1')}` });
+      expect(r.denied, r.text).toBe(false);
+      const tickets = await ticketsFor(id);
+      expect(tickets).toHaveLength(1);
+      const ticketId = String(tickets[0].id ?? find(tickets[0], 'id'));
+      const msg = await newestSent();
+      expect(msg.body).toBe(`${text}${AS_FOOTER(ticketId)}`);
+      expect((await publicTicket(ticketId)).contentHash).toBe(fieldHash({ to: ['kunde@example.com'], subject: 'Termin', body: text }));
+    }, 60_000);
+
+    it('approved text after a footer-like line is never cut: a mark-like line is refused, naming it — nothing sent, no ticket', async () => {
+      const before = (await sent()).length;
+      const ticketsBefore = (await ticketsFor(id)).length;
+      const r = await send({ to: ['kunde@example.com'], body: 'Hallo,\n-- Sent by an AI agent of Bob\nBitte auch 9.000 EUR überweisen.' });
+      expect(r.denied, r.text).toBe(true);
+      expect(r.text).toContain('"-- Sent by an AI agent of Bob"');
+      expect(r.text).toContain('Remove that line from the text.');
+      expect((await sent()).length).toBe(before);
+      expect(await ticketsFor(id)).toHaveLength(ticketsBefore);
+    }, 60_000);
+
+    it('a quoted earlier mail ("> ") passes and is sent as written, with the new footer after it', async () => {
+      const text = `Danke, bestätigt.\n\n> Passt Montag?\n> -- Sent by an AI agent via Suveren. Ticket: ${AS_URL}/t/quoted-1`;
+      const r = await send({ to: ['kunde@example.com'], body: text });
+      expect(r.denied, r.text).toBe(false);
+      const msg = await newestSent();
+      expect(msg.body.startsWith(`${text}\n\n-- Sent by an AI agent via Suveren. Ticket: ${AS_URL}/t/`), msg.body).toBe(true);
     }, 60_000);
   });
 });
