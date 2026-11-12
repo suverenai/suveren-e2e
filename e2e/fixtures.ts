@@ -391,7 +391,22 @@ export async function authenticatedPage(browser: Browser, apiKey: string, baseUR
  * twice (any 429 never resolves the race, so it falls through to the second,
  * unconditional `leftLogin` wait) before failing with a misleading timeout.
  */
+// The key this worker last signed in to the shared gateway with (workers: 1).
+// Since the account-switch fix (gateway: a different account is refused while
+// one is signed in — "This gateway is signed in to another account. Sign out
+// first, then sign in with the new one."), switching accounts means signing the
+// previous one out first, exactly as a person does.
+let lastGatewayKey: string | null = null;
+const ANOTHER_ACCOUNT = 'This gateway is signed in to another account';
+
 export async function signInToGateway(page: Page, apiKey: string): Promise<void> {
+  if (lastGatewayKey && lastGatewayKey !== apiKey) {
+    const out = await page.request.post(`${GW_URL}/auth/logout`, { headers: { 'X-API-Key': lastGatewayKey } });
+    // 401 = that session is already gone (expired, or signed out elsewhere): nothing to undo.
+    if (!out.ok() && out.status() !== 401) {
+      throw new Error(`signing the previous account out failed: ${out.status()} ${await out.text()}`);
+    }
+  }
   await page.goto(`${GW_URL}/login`, { waitUntil: 'networkidle' });
   await page.locator('input[type="password"]').waitFor({ state: 'visible', timeout: 10_000 });
   await page.locator('input[type="password"]').fill(apiKey);
@@ -401,6 +416,7 @@ export async function signInToGateway(page: Page, apiKey: string): Promise<void>
   const wipeBtn = page.locator('button:has-text("Wipe local data and sign in")');
   const rateLimited = page.locator('.error-message', { hasText: 'Too many login attempts' });
   const signInBtn = page.locator('button:has-text("Sign In")');
+  const anotherAccount = page.locator('.error-message', { hasText: ANOTHER_ACCOUNT });
 
   await signInBtn.click();
 
@@ -420,7 +436,13 @@ export async function signInToGateway(page: Page, apiKey: string): Promise<void>
       leftLogin(45_000).catch(() => {}),
       wipeBtn.waitFor({ state: 'visible', timeout: 45_000 }).catch(() => {}),
       rateLimited.waitFor({ state: 'visible', timeout: 45_000 }).catch(() => {}),
+      anotherAccount.waitFor({ state: 'visible', timeout: 45_000 }).catch(() => {}),
     ]);
+
+    if (await anotherAccount.isVisible().catch(() => false)) {
+      // Fail visibly with the gateway's own words, not after a 45 s timeout.
+      throw new Error(`gateway refused the sign-in: ${(await anotherAccount.innerText()).trim()}`);
+    }
 
     if (await rateLimited.isVisible().catch(() => false)) {
       // Extend this test's own timeout — the wait-out below (outlasting the
@@ -444,6 +466,7 @@ export async function signInToGateway(page: Page, apiKey: string): Promise<void>
     break;
   }
   await leftLogin(45_000);
+  lastGatewayKey = apiKey;
   // Wait for the post-login navigation to settle on a real page.
   await expect(page.locator('.page-title')).toBeVisible({ timeout: 15_000 });
 }
