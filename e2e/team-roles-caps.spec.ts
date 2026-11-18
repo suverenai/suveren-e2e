@@ -86,18 +86,20 @@ import {
 } from './fixtures';
 import { openApprovalById } from '../src/helpers/gateway-ui';
 import type { APIRequestContext } from '@playwright/test';
+import { gatewayHas } from '../src/helpers/gateway-feature.js';
+import { gwUiFile } from '../src/helpers/gw-ui-file.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 const GW_DIR = join(__dirname, '..', '..', 'suveren-gateway');
 
 // ── Feature gate: skip only when #119's gateway source is absent ───────────
-const TEAM_CAPS_FILE = join(GW_DIR, 'apps', 'ui', 'src', 'lib', 'team-caps.ts');
-const APPROVER_CARD_FILE = join(GW_DIR, 'apps', 'ui', 'src', 'components', 'ApproverProposalCard.tsx');
-const hasTeamRolesCapsUi =
+const TEAM_CAPS_FILE = gwUiFile(GW_DIR, 'lib', 'team-caps.ts');
+const APPROVER_CARD_FILE = gwUiFile(GW_DIR, 'components', 'ApproverProposalCard.tsx');
+const hasTeamRolesCapsUi = gatewayHas('team roles and caps UI', '0.30.0',
   existsSync(TEAM_CAPS_FILE) &&
   existsSync(APPROVER_CARD_FILE) &&
-  readFileSync(APPROVER_CARD_FILE, 'utf8').includes('cant-approve-own-action');
+  readFileSync(APPROVER_CARD_FILE, 'utf8').includes('cant-approve-own-action'));
 
 const CUSTOMERS_ID = latestProfileId('customers');
 // DEC-71 (suveren-as #142): a team cap on a CUMULATIVE bound (a daily count) is always hard. Above-cap
@@ -634,7 +636,7 @@ test.describe('Team roles, caps and read limits — gateway (#119)', () => {
 // recorded on the Authority Server. The proposal is made at the AS directly
 // with readable args (as au8 does) — a single test gateway cannot hold two
 // users' device keys, which sealed content would need.
-const HAS_CORE_UI = existsSync(join(GW_DIR, 'apps', 'ui', 'src', 'components', 'ApprovalRow.tsx'));
+const HAS_CORE_UI = gatewayHas('approval row', '0.31.0', existsSync(gwUiFile(GW_DIR, 'components', 'ApprovalRow.tsx')));
 test.describe('Team approval from a row (UI spec §12.2)', () => {
   test.skip(!HAS_CORE_UI, 'gateway without the core-objects Approvals rows');
 

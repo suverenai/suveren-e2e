@@ -46,6 +46,7 @@ import { DatabaseSync } from 'node:sqlite';
 import { randomUUID } from 'node:crypto';
 import { hashGateContent, computeBoundsHash, computeScopeHash } from '../src/helpers/crypto.js';
 import { gwUiFile } from '../src/helpers/gw-ui-file.js';
+import { gatewayHas } from '../src/helpers/gateway-feature.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const SCREENSHOT_DIR = join(__dirname, '..', 'test-results', 'au10');
@@ -71,17 +72,17 @@ const HISTORY_LABEL = 'Read by the gateway — same customer, not matched to thi
 // Gateway 0.31.1: `_source` (stripped before execution) is never shown as a
 // sent value; the manifest's request link reads "Replying to".
 const GW_ARGS_TSX = gwUiFile(join(__dirname, '..', '..', 'suveren-gateway'), 'components', 'ProposalArgs.tsx');
-const HAS_REQUEST_REF = existsSync(GW_ARGS_TSX) && readFileSync(GW_ARGS_TSX, 'utf8').includes('requestRefArg');
+const HAS_REQUEST_REF = gatewayHas('request link on the card', '0.31.1', existsSync(GW_ARGS_TSX) && readFileSync(GW_ARGS_TSX, 'utf8').includes('requestRefArg'));
 
 // Runs only against a gateway that has AU10 (CI runs the journeys against the
 // gateway's main branch, which may not have it yet) — same gate as AU8.
 const GW_AU10_TS = join(__dirname, '..', '..', 'suveren-gateway', 'apps', 'mcp-server', 'src', 'lib', 'request-context.ts');
-const HAS_AU10 = existsSync(GW_AU10_TS) && readFileSync(GW_AU10_TS, 'utf8').includes('stripSourceLink');
+const HAS_AU10 = gatewayHas('AU10 request context', '0.29.0', existsSync(GW_AU10_TS) && readFileSync(GW_AU10_TS, 'utf8').includes('stripSourceLink'));
 // Phase B needs both sides: the gateway's snapshot store and an AS that
 // records shown_hash per decision.
 const GW_SHOWN_TS = join(__dirname, '..', '..', 'suveren-gateway', 'apps', 'control-plane', 'src', 'lib', 'shown-snapshot.ts');
 const AS_STORE_TS = join(__dirname, '..', '..', 'suveren-as', 'apps', 'as', 'src', 'lib', 'proposal-store.ts');
-const HAS_PHASE_B = existsSync(GW_SHOWN_TS)
+const HAS_PHASE_B = gatewayHas('shown snapshot store', '0.29.0', existsSync(GW_SHOWN_TS))
   && existsSync(AS_STORE_TS) && readFileSync(AS_STORE_TS, 'utf8').includes('shownHashes');
 
 async function pushGateContent(opts: {
@@ -327,7 +328,7 @@ test.describe.serial('AU10: request and customer history on the approval card (r
   // gateway builds from the connector manifest's template and the sealed
   // values — here with three real connectors (CRM, mail, ERP).
   test('S: each waiting approval reads as one sentence from its manifest template', async () => {
-    test.skip(!existsSync(gwUiFile(join(__dirname, '..', '..', 'suveren-gateway'), 'lib', 'approval-summary.ts')),
+    test.skip(!gatewayHas('manifest summaries', '0.31.0', existsSync(gwUiFile(join(__dirname, '..', '..', 'suveren-gateway'), 'lib', 'approval-summary.ts'))),
       'gateway without manifest summaries (UI3)');
     test.setTimeout(90_000);
     await page.click('.sidebar-item:has-text("Dashboard")');

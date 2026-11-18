@@ -38,6 +38,8 @@ import {
   ControlPlaneClient, MANIFESTS_DIR, PROFILES_DIR, newSecret, startControlPlane, startMcpServer, type StackOptions,
 } from '../src/helpers/gateway-stack.js';
 import { openFirstApprovalInPanel } from '../src/helpers/gateway-ui.js';
+import { gatewayHas } from '../src/helpers/gateway-feature.js';
+import { gwUiFile } from '../src/helpers/gw-ui-file.js';
 
 const AS_PORT = 19800;
 const CP_PORT = 19801;
@@ -52,9 +54,9 @@ const manifest = existsSync(MANIFEST) ? JSON.parse(readFileSync(MANIFEST, 'utf8'
 const available = !!manifest?.toolGating?.overrides?.send_quote?.preview;
 
 /** AU6 (ticket view) ships after AU3 — its browser check runs only against a gateway that has it. */
-const hasTicketView = existsSync(join(MANIFESTS_DIR, '..', '..', 'apps', 'ui', 'src', 'components', 'TicketWhatWasDone.tsx'));
+const hasTicketView = gatewayHas('ticket what-was-done view', '0.23.0', existsSync(gwUiFile(join(MANIFESTS_DIR, '..', '..'), 'components', 'TicketWhatWasDone.tsx')));
 // UI spec §14: automatic tickets show what was sent (two levels, 'sealed' / 'recorded').
-const hasTicketContent = existsSync(join(MANIFESTS_DIR, '..', '..', 'apps', 'mcp-server', 'src', 'lib', 'ticket-content.ts'));
+const hasTicketContent = gatewayHas('ticket content', '0.33.0', existsSync(join(MANIFESTS_DIR, '..', '..', 'apps', 'mcp-server', 'src', 'lib', 'ticket-content.ts')));
 
 const PROFILE_ID = PROFILE_V07.sales;
 const BOUNDS_KEY_ORDER = ['profile', 'read_access', 'value_max', 'discount_max', 'order_value_daily_max',

@@ -29,6 +29,7 @@ import { test, expect, openApprovalCard, selectQueueView, settleAfterSignIn } fr
 import { ErpLocalStack, ERP_MANIFEST_PATH, P, TODAY_VIENNA, proposalIdOf, resultJson } from '../src/helpers/erp-local-stack.js';
 import { ViesStub } from '../src/helpers/vies-stub.js';
 import { gwUiFile } from '../src/helpers/gw-ui-file.js';
+import { gatewayHas } from '../src/helpers/gateway-feature.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const ROOT = join(__dirname, '..', '..');
@@ -39,7 +40,7 @@ const manifest = (() => { try { return JSON.parse(readFileSync(ERP_MANIFEST_PATH
 const PRE = process.env.HAP_E2E_PREINSTALLED_INTEGRATIONS;
 const preErp = PRE ? join(PRE, 'node_modules', '@humanagencyp', 'erp-mcp', 'dist', 'index.js') : '';
 const AVAILABLE = !!manifest?.credentials?.envMapping?.ERP_VIES_URL
-  && existsSync(gwUiFile(join(ROOT, 'suveren-gateway'), 'components', 'ChecksLines.tsx'))
+  && gatewayHas('blocking checks lines', '0.38.0', existsSync(gwUiFile(join(ROOT, 'suveren-gateway'), 'components', 'ChecksLines.tsx')))
   && existsSync(join(ROOT, 'hap-profiles', 'master-data', '0.1.profile.json'))
   && ((!!preErp && existsSync(preErp) && readFileSync(preErp, 'utf8').includes('check_customer_duplicates'))
     || String(manifest?.npmVersion ?? '').localeCompare('0.10.0', undefined, { numeric: true }) >= 0);

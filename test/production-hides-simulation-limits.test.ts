@@ -23,6 +23,7 @@ import { hashGateContent, hashExecutionContext, computeBoundsHash, computeScopeH
 import { profileHashFor } from '../src/helpers/profiles.js';
 import { ControlPlaneClient, PROFILES_DIR, GW_DIR, newSecret, startControlPlane, startMcpServer, type StackOptions } from '../src/helpers/gateway-stack.js';
 import { gwUiFile } from '../src/helpers/gw-ui-file.js';
+import { gatewayHas } from '../src/helpers/gateway-feature.js';
 
 const AS_PORT = 19858;
 const CP_PORT = 19859;
@@ -36,7 +37,7 @@ const PROFILE_DOC = existsSync(join(PROFILES_DIR, 'customers', '0.11.profile.jso
   ? JSON.parse(readFileSync(join(PROFILES_DIR, 'customers', '0.11.profile.json'), 'utf8'))
   : null;
 /** Only meaningful against a gateway that has the rule. */
-const available = !!PROFILE_DOC && existsSync(gwUiFile(GW_DIR, 'lib', 'simulation-only-limits.ts'));
+const available = !!PROFILE_DOC && gatewayHas('simulation-only limits hidden', '0.45.0', existsSync(gwUiFile(GW_DIR, 'lib', 'simulation-only-limits.ts')));
 /** The profile's own name for the limit that only `setup` uses — read, never typed in. */
 const SETUP_KEY = PROFILE_DOC
   ? Object.entries(PROFILE_DOC.boundsSchema.fields as Record<string, { appliesTo?: string[] }>).find(([, f]) => f.appliesTo?.length === 1 && f.appliesTo[0] === 'setup')?.[0]
