@@ -396,10 +396,28 @@ export async function authenticatedPage(browser: Browser, apiKey: string, baseUR
 // one is signed in — "This gateway is signed in to another account. Sign out
 // first, then sign in with the new one."), switching accounts means signing the
 // previous one out first, exactly as a person does.
-let lastGatewayKey: string | null = null;
+// Kept in a file beside the shared gateway's data, not in module memory: after any failed test
+// Playwright starts a new worker, module memory starts empty, the gateway is still signed in, and
+// every later sign-in with another key was refused — one failure cascaded into a dozen.
+const lastKeyFile = () => {
+  const dir = process.env.HAP_E2E_GATEWAY_DATA_DIR;
+  return dir ? join(dir, '..', `${dir.split('/').pop()}.e2e-last-key`) : null;
+};
+let lastGatewayKeyMemory: string | null = null;
+const readLastGatewayKey = (): string | null => {
+  const f = lastKeyFile();
+  if (!f) return lastGatewayKeyMemory;
+  try { return readFileSync(f, 'utf8') || null; } catch { return null; }
+};
+const writeLastGatewayKey = (key: string): void => {
+  lastGatewayKeyMemory = key;
+  const f = lastKeyFile();
+  if (f) writeFileSync(f, key, { mode: 0o600 });
+};
 const ANOTHER_ACCOUNT = 'This gateway is signed in to another account';
 
 export async function signInToGateway(page: Page, apiKey: string): Promise<void> {
+  const lastGatewayKey = readLastGatewayKey();
   if (lastGatewayKey && lastGatewayKey !== apiKey) {
     const out = await page.request.post(`${GW_URL}/auth/logout`, { headers: { 'X-API-Key': lastGatewayKey } });
     // 401 = that session is already gone (expired, or signed out elsewhere): nothing to undo.
@@ -466,7 +484,7 @@ export async function signInToGateway(page: Page, apiKey: string): Promise<void>
     break;
   }
   await leftLogin(45_000);
-  lastGatewayKey = apiKey;
+  writeLastGatewayKey(apiKey);
   // Wait for the post-login navigation to settle on a real page.
   await expect(page.locator('.page-title')).toBeVisible({ timeout: 15_000 });
 }
