@@ -26,8 +26,9 @@ const PROFILES_DIR = `${process.cwd()}/../hap-profiles`;
 // not a re-implementation. It is dependency-free (uses only globalThis.fetch),
 // so this cross-package import drags in no other gateway internals.
 import { SPClient as GatewaySPClient } from '../../suveren-gateway/apps/mcp-server/src/lib/sp-client.ts';
+import { e2ePort } from '../src/helpers/ports.js';
 
-const SP_PORT = 15401;
+const SP_PORT = e2ePort(15401);
 const SP_URL = `http://localhost:${SP_PORT}`;
 const PROFILE_ID = PROFILE_V07.charge;
 

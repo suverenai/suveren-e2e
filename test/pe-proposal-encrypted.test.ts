@@ -26,10 +26,11 @@ import {
   ControlPlaneClient, GW_DIR, RECORDS_DIST, RECORDS_INTEGRATION, RECORDS_PROFILE_ID,
   grantRecordsMandate, newSecret, startControlPlane, startMcpServer, textOf, type StackOptions,
 } from '../src/helpers/gateway-stack.js';
+import { e2ePort } from '../src/helpers/ports.js';
 
-const AS_PORT = 19890;
-const CP_PORT = 19891;
-const MCP_PORT = 19892;
+const AS_PORT = e2ePort(19890);
+const CP_PORT = e2ePort(19891);
+const MCP_PORT = e2ePort(19892);
 const AS_URL = `http://localhost:${AS_PORT}`;
 const CP_URL = `http://localhost:${CP_PORT}`;
 const CONTENT_CRYPTO = join(GW_DIR, 'apps', 'control-plane', 'src', 'lib', 'content-crypto.ts');

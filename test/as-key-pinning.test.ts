@@ -46,10 +46,11 @@ import {
   readPairingFile, recordTitles, seedOperatorGroup, sleep, startControlPlane, startMcpServer, textOf,
   type StackOptions,
 } from '../src/helpers/gateway-stack';
+import { e2ePort } from '../src/helpers/ports.js';
 
-const AS_PORT = 18100;
-const CP_PORT = 18101;
-const MCP_PORT = 18102;
+const AS_PORT = e2ePort(18100);
+const CP_PORT = e2ePort(18101);
+const MCP_PORT = e2ePort(18102);
 const AS_URL = `http://localhost:${AS_PORT}`;
 
 const PAIRED_KEY = ed25519Keypair();

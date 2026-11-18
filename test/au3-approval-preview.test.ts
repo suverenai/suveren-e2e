@@ -40,10 +40,11 @@ import {
 import { openFirstApprovalInPanel } from '../src/helpers/gateway-ui.js';
 import { gatewayHas } from '../src/helpers/gateway-feature.js';
 import { gwUiFile } from '../src/helpers/gw-ui-file.js';
+import { e2ePort } from '../src/helpers/ports.js';
 
-const AS_PORT = 19800;
-const CP_PORT = 19801;
-const MCP_PORT = 19802;
+const AS_PORT = e2ePort(19800);
+const CP_PORT = e2ePort(19801);
+const MCP_PORT = e2ePort(19802);
 const AS_URL = `http://localhost:${AS_PORT}`;
 const CP_URL = `http://localhost:${CP_PORT}`;
 const MCP_URL = `http://localhost:${MCP_PORT}`;

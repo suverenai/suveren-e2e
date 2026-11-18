@@ -40,13 +40,14 @@ import { computeBoundsHash, computeScopeHash, hashGateContent, hashExecutionCont
 // export tooling would read it.
 import { ReceiptArchive } from '../../suveren-gateway/apps/mcp-server/src/lib/receipt-archive.ts';
 import { issuerFromPublicKeyHex } from '../../suveren-gateway/apps/mcp-server/src/lib/issuer-from-hex.ts';
+import { e2ePort } from '../src/helpers/ports.js';
 
 const PROFILES_DIR = join(ROOT, 'hap-profiles');
 
 describe('POST /api/as/receipt is retired (v0.7 hard switch)', () => {
   const pm = new ProcessManager();
   let sp: SPClient;
-  const PORT = 18910;
+  const PORT = e2ePort(18910);
 
   beforeAll(async () => {
     await pm.startSP(PORT);
@@ -67,7 +68,7 @@ describe('POST /api/as/receipt is retired (v0.7 hard switch)', () => {
 describe('A pre-0.7 mandate request is refused with VERSION_UNSUPPORTED', () => {
   const pm = new ProcessManager();
   let sp: SPClient;
-  const PORT = 18911;
+  const PORT = e2ePort(18911);
 
   beforeAll(async () => {
     await pm.startSP(PORT);
@@ -107,7 +108,7 @@ describe('A pre-0.7 mandate request is refused with VERSION_UNSUPPORTED', () => 
 describe('A revoked authorization cannot be renewed', () => {
   const pm = new ProcessManager();
   let sp: SPClient;
-  const PORT = 18912;
+  const PORT = e2ePort(18912);
 
   beforeAll(async () => {
     await pm.startSP(PORT);
@@ -153,7 +154,7 @@ describe('A revoked authorization cannot be renewed', () => {
 describe('A profile whose appliesTo names an unregistered action type is refused at mandate time', () => {
   const pm = new ProcessManager();
   let sp: SPClient;
-  const PORT = 18913;
+  const PORT = e2ePort(18913);
 
   beforeAll(async () => {
     await pm.startSP(PORT);
@@ -214,8 +215,8 @@ describe('A custody archive entry verifies offline with its stored issuer key', 
   let sp: SPClient;
   let mcpInternal: GatewayClient;
   let agent: Client;
-  const SP_PORT = 18920;
-  const MCP_PORT = 18922;
+  const SP_PORT = e2ePort(18920);
+  const MCP_PORT = e2ePort(18922);
   const dataDir = pm.getDataDir();
 
   async function createRecord(title: string) {

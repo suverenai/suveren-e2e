@@ -12,11 +12,12 @@ import { SPClient } from '../src/helpers/sp-client';
 import { GatewayClient } from '../src/helpers/gateway-client';
 import { computeBoundsHash, hashGateContent, hashExecutionContext } from '../src/helpers/crypto';
 import { PROFILE_V07, profileHashFor } from '../src/helpers/profiles';
+import { e2ePort } from '../src/helpers/ports.js';
 
 const PROFILES_DIR = `${process.cwd()}/../hap-profiles`;
 
-const SP_PORT = 16200;
-const GW_PORT = 16230;
+const SP_PORT = e2ePort(16200);
+const GW_PORT = e2ePort(16230);
 const pm = new ProcessManager();
 let sp: SPClient;
 let gw: GatewayClient;

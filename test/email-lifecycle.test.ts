@@ -32,11 +32,12 @@ import {
 } from '../src/helpers/crypto.js';
 import { PROFILE_V07, profileHashFor } from '../src/helpers/profiles.js';
 import { addMailConnector, startMailGateway } from '../src/helpers/mail-connector.js';
+import { e2ePort } from '../src/helpers/ports.js';
 
 // ── Constants ───────────────────────────────────────────────────────────────
 
-const SP_PORT = 16100;
-const GW_PORT = 16030;
+const SP_PORT = e2ePort(16100);
+const GW_PORT = e2ePort(16030);
 const SP_URL = `http://localhost:${SP_PORT}`;
 const GW_URL = `http://localhost:${GW_PORT}`;
 

@@ -17,8 +17,9 @@ import { ProcessManager } from '../src/helpers/process-manager.js';
 import { SPClient } from '../src/helpers/sp-client.js';
 import { hashGateContent, hashExecutionContext, computeScopeHash } from '../src/helpers/crypto.js';
 import { PROFILE_V07, profileHashFor } from '../src/helpers/profiles.js';
+import { e2ePort } from '../src/helpers/ports.js';
 
-const SP_PORT = 15410;
+const SP_PORT = e2ePort(15410);
 const SP_URL = `http://localhost:${SP_PORT}`;
 const PROFILES_DIR = `${process.cwd()}/../hap-profiles`;
 const PROFILE_ID = PROFILE_V07.charge;

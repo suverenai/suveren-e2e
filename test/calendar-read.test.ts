@@ -30,14 +30,15 @@ import { SPClient } from '../src/helpers/sp-client.js';
 import { GatewayClient } from '../src/helpers/gateway-client.js';
 import { hashGateContent, hashExecutionContext, computeBoundsHash, computeScopeHash } from '../src/helpers/crypto.js';
 import { PROFILE_V07, profileHashFor } from '../src/helpers/profiles.js';
+import { e2ePort } from '../src/helpers/ports.js';
 
 const CLIENT_ID = process.env.GOOGLE_CLIENT_ID ?? '';
 const CLIENT_SECRET = process.env.GOOGLE_CLIENT_SECRET ?? '';
 const REFRESH_TOKEN = process.env.GOOGLE_CALENDAR_REFRESH_TOKEN ?? '';
 const HAS_CAL = !!(CLIENT_ID && CLIENT_SECRET && REFRESH_TOKEN);
 
-const SP_PORT = 17280;
-const GW_PORT = 17281;
+const SP_PORT = e2ePort(17280);
+const GW_PORT = e2ePort(17281);
 const SP_URL = `http://localhost:${SP_PORT}`;
 const GW_URL = `http://localhost:${GW_PORT}`;
 

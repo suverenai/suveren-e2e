@@ -33,10 +33,11 @@ import { GatewayClient } from '../src/helpers/gateway-client.js';
 import { hashGateContent, hashExecutionContext, computeBoundsHash, computeScopeHash } from '../src/helpers/crypto.js';
 import { ControlPlaneClient, newSecret, startControlPlane, startMcpServer, textOf, PROFILES_DIR, type StackOptions } from '../src/helpers/gateway-stack.js';
 import { profileHashFor, newestProfileId } from '../src/helpers/profiles.js';
+import { e2ePort } from '../src/helpers/ports.js';
 
 // 18700–18709 belong to this file.
-const AS_PORT = 18700;
-const PORTS = { cp: 18701, mcp: 18702 };
+const AS_PORT = e2ePort(18700);
+const PORTS = { cp: e2ePort(18701), mcp: e2ePort(18702) };
 const AS_URL = `http://localhost:${AS_PORT}`;
 const P = 'github.com/humanagencyprotocol/hap-profiles';
 const EMAIL_10 = `${P}/email@0.10`;

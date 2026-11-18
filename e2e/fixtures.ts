@@ -17,6 +17,30 @@ import { localProfilesForAs } from '../src/helpers/local-profiles';
 import { profileHashFor } from '../src/helpers/profiles';
 import { assertPortFree, stopTracked, trackProcess } from '../src/helpers/process-registry';
 import { typeTitle } from '../src/helpers/give-page';
+import { e2ePort, worldDbName, PORT_OFFSET } from '../src/helpers/ports.js';
+import pg from 'pg';
+
+/**
+ * The Playwright run's database. Offset 0: the given URL, unchanged. Another world
+ * (HAP_E2E_PORT_OFFSET) gets its own database next to it, created when missing, so
+ * two worlds never share one.
+ */
+async function worldDbUrl(url: string): Promise<string> {
+  if (PORT_OFFSET === 0) return url;
+  const u = new URL(url);
+  const name = worldDbName(u.pathname.replace(/^\//, '') || 'suveren_as');
+  if (!/^[a-z0-9_]+$/.test(name)) throw new Error(`world database name "${name}" is not plain`);
+  const admin = new URL(url);
+  admin.pathname = '/postgres';
+  const c = new pg.Client({ connectionString: admin.toString() });
+  await c.connect();
+  try {
+    const { rowCount } = await c.query('select 1 from pg_database where datname = $1', [name]);
+    if (!rowCount) await c.query(`create database ${name}`);
+  } finally { await c.end(); }
+  u.pathname = `/${name}`;
+  return u.toString();
+}
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -45,9 +69,9 @@ export function latestProfileId(short: string): string {
 // ─── Ports ───────────────────────────────────────────────────────────────────
 
 // Default 19100; HAP_E2E_PW_AS_PORT moves it when a stray process of another run holds it.
-export const SP_PORT = Number(process.env.HAP_E2E_PW_AS_PORT ?? 19100);
-export const GW_CP_PORT = 19402;
-export const GW_MCP_PORT = 19430;
+export const SP_PORT = process.env.HAP_E2E_PW_AS_PORT ? Number(process.env.HAP_E2E_PW_AS_PORT) : e2ePort(19100);
+export const GW_CP_PORT = e2ePort(19402);
+export const GW_MCP_PORT = e2ePort(19430);
 
 export const SP_URL = `http://localhost:${SP_PORT}`;
 export const GW_URL = `http://localhost:${GW_CP_PORT}`;
@@ -206,6 +230,7 @@ async function startServersInner(): Promise<void> {
   // PROFILE_HASH_MISMATCH. next start is still pointed at SP_DIR; only the
   // cwd (bundled-profiles/migrations source) changes.
   const localProfiles = localProfilesForAs(PROFILES_DIR);
+  const dbUrl = await worldDbUrl(process.env.SUVEREN_DB_URL ?? 'postgres://postgres:suveren_test@localhost:55432/suveren_as');
   const sp = launch('as', process.execPath, [nextBin, 'start', SP_DIR, '-p', String(SP_PORT)], {
     cwd: localProfiles.cwd,
     env: {
@@ -218,7 +243,7 @@ async function startServersInner(): Promise<void> {
       // This AS build refuses to start with no durable store even with
       // SUVEREN_ALLOW_EPHEMERAL set — point it at the local test Postgres
       // (already running) rather than loosening that refusal.
-      SUVEREN_DB_URL: process.env.SUVEREN_DB_URL ?? 'postgres://postgres:suveren_test@localhost:55432/suveren_as',
+      SUVEREN_DB_URL: dbUrl,
       ...localProfiles.env,
     },
   });

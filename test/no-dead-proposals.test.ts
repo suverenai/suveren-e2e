@@ -38,6 +38,7 @@ import { GatewayClient } from '../src/helpers/gateway-client.js';
 import { ControlPlaneClient } from '../src/helpers/gateway-stack.js';
 import { hashGateContent, hashExecutionContext, computeBoundsHash, computeScopeHash } from '../src/helpers/crypto.js';
 import { PROFILE_V07, profileHashFor } from '../src/helpers/profiles.js';
+import { e2ePort } from '../src/helpers/ports.js';
 
 const PROFILE_ID = PROFILE_V07.customers;
 const ROOT = join(import.meta.dirname, '..', '..');
@@ -45,7 +46,7 @@ const PROFILES_DIR = join(ROOT, 'hap-profiles');
 const BOUNDS_KEY_ORDER = ['profile', 'read_access', 'export_access', 'write_daily_max', 'delete_daily_max', 'setup_daily_max'];
 const CONTEXT_KEY_ORDER = ['contact_type'];
 
-const SP_PORT = 17940;
+const SP_PORT = e2ePort(17940);
 const SP_URL = `http://localhost:${SP_PORT}`;
 
 const CRM_INTEGRATION = {
@@ -187,7 +188,7 @@ afterAll(async () => {
 // ─────────────────────────────────────────────────────────────────────────────
 
 describe('revoked directly on the server, then a review call', () => {
-  const w = new World('revoked', 17941, 17951);
+  const w = new World('revoked', e2ePort(17941), 17951);
   let revokedId: string;
 
   beforeAll(async () => {
@@ -227,7 +228,7 @@ describe('revoked directly on the server, then a review call', () => {
 });
 
 describe('the limit is used up, then a review call', () => {
-  const w = new World('limit', 17942, 17952);
+  const w = new World('limit', e2ePort(17942), 17952);
   let reviewId: string;
   let burnerId: string;
 
@@ -280,7 +281,7 @@ describe('the limit is used up, then a review call', () => {
 });
 
 describe('two mandates fit and one has no room', () => {
-  const w = new World('two', 17943, 17953);
+  const w = new World('two', e2ePort(17943), 17953);
   let narrowId: string; // most specific: the selector prefers it
   let broadId: string;
   let burnerId: string;
@@ -310,7 +311,7 @@ describe('two mandates fit and one has no room', () => {
 });
 
 describe('the limit fills up AFTER the proposal exists', () => {
-  const w = new World('late', 17944, 17954);
+  const w = new World('late', e2ePort(17944), 17954);
   let reviewId: string;
   let burnerId: string;
   let proposalId: string;
@@ -377,7 +378,7 @@ describe('the limit fills up AFTER the proposal exists', () => {
 });
 
 describe('a revoked mandate leaves no way to act', () => {
-  const w = new World('noway', 17945, 17955);
+  const w = new World('noway', e2ePort(17945), 17955);
   let id: string;
   let pendingProposalId: string;
 
@@ -430,7 +431,7 @@ describe('a revoked mandate leaves no way to act', () => {
 // no room is skipped for the call, selection runs over the rest.
 
 describe('automatic mode: two mandates fit and one has no room', () => {
-  const w = new World('auto', 17946, 17956);
+  const w = new World('auto', e2ePort(17946), 17956);
   let narrowId: string;
   let broadId: string;
   let burnerId: string;
@@ -470,7 +471,7 @@ describe('automatic mode: two mandates fit and one has no room', () => {
 });
 
 describe('automatic mode: no mandate has room', () => {
-  const w = new World('autofull', 17947, 17957);
+  const w = new World('autofull', e2ePort(17947), 17957);
   let burnerId: string;
 
   beforeAll(async () => {

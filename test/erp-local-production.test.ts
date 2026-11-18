@@ -60,6 +60,7 @@ import { COMPANY, ErpLocalStack, ERP_MANIFEST_PATH, P, TODAY_VIENNA, proposalIdO
 import { ViesStub } from '../src/helpers/vies-stub.js';
 import { viesCheckedDay } from '../src/helpers/vies-day.js';
 import { PROFILES_DIR } from '../src/helpers/gateway-stack.js';
+import { e2ePort } from '../src/helpers/ports.js';
 
 // ── availability (skip loudly) ───────────────────────────────────────────
 
@@ -192,7 +193,7 @@ describe.skipIf(!available)('ERP Local in production (real AS + gateway + erp-mc
     vies.set(C1_NEW_UID, { kind: 'valid' });
     vies.set(VAT_INVALID, { kind: 'invalid' });
     vies.set(DE_UNREACHABLE.uid, { kind: 'unavailable' });
-    s = new ErpLocalStack({ asPort: 19940, mcpPort: 19941, cpPort: 19942, viesUrl: url, label: 'main' });
+    s = new ErpLocalStack({ asPort: e2ePort(19940), mcpPort: e2ePort(19941), cpPort: e2ePort(19942), viesUrl: url, label: 'main' });
     await s.start();
   }, 300_000);
 
@@ -629,7 +630,7 @@ describe.skipIf(!available)('7. a Local DB made by erp-mcp 0.9.5, under the new 
   beforeAll(async () => {
     const url = await migVies.start();
     m = new ErpLocalStack({
-      asPort: 19945, mcpPort: 19946, cpPort: 19947, viesUrl: url, label: 'migration',
+      asPort: e2ePort(19945), mcpPort: e2ePort(19946), cpPort: e2ePort(19947), viesUrl: url, label: 'migration',
       beforeGateway: (dataDir) => {
         // As erp-mcp 0.9.5 left it in the gateway's data folder: the SQLite DB and the archive.
         mkdirSync(dataDir, { recursive: true });

@@ -46,6 +46,7 @@ import {
   computeScopeHash,
 } from '../src/helpers/crypto.js';
 import { PROFILE_V07, profileHashFor } from '../src/helpers/profiles.js';
+import { e2ePort } from '../src/helpers/ports.js';
 
 const PROFILE_ID = PROFILE_V07.customers;
 const PROFILE_SHORT = 'customers';
@@ -63,8 +64,8 @@ const BOUNDS = {
   write_daily_max: 10, delete_daily_max: 5, setup_daily_max: 0,
 };
 
-const SP_PORT = 17300;
-const GW_PORT = 17301;
+const SP_PORT = e2ePort(17300);
+const GW_PORT = e2ePort(17301);
 const SP_URL = `http://localhost:${SP_PORT}`;
 const GW_URL = `http://localhost:${GW_PORT}`;
 

@@ -24,6 +24,7 @@ import { PROFILE_V07, profileHashFor } from '../src/helpers/profiles.js';
 import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { AS_DIR } from '../src/helpers/as-dir.js';
+import { e2ePort } from '../src/helpers/ports.js';
 
 // TR5/TR6: cumulative team caps escalate from the first write
 // over the cap. An AS checkout before it escalated only past the mandate's own
@@ -32,7 +33,7 @@ const PROFILE_CONFIG_ROUTE = join(AS_DIR, 'src', 'app', 'api', 'groups', '[id]',
 const hasTeamRolesCaps =
   existsSync(PROFILE_CONFIG_ROUTE) && readFileSync(PROFILE_CONFIG_ROUTE, 'utf8').includes('grantors');
 
-const SP_PORT = 15300;
+const SP_PORT = e2ePort(15300);
 const SP_URL = `http://localhost:${SP_PORT}`;
 const PROFILE_ID = PROFILE_V07.charge;
 const PROFILES_DIR = `${process.cwd()}/../hap-profiles`;

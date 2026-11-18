@@ -16,8 +16,9 @@ import { join } from 'node:path';
 import { ProcessManager } from '../src/helpers/process-manager.js';
 import { GatewayClient } from '../src/helpers/gateway-client.js';
 import { MANIFESTS_DIR, newSecret, startMcpServer, type StackOptions } from '../src/helpers/gateway-stack.js';
+import { e2ePort } from '../src/helpers/ports.js';
 
-const MCP_PORT = 19822;
+const MCP_PORT = e2ePort(19822);
 const MANIFEST = join(MANIFESTS_DIR, 'deploy-github.json');
 const available = existsSync(MANIFEST);
 
@@ -25,7 +26,7 @@ const pm = new ProcessManager();
 const dataDir = mkdtempSync(join(tmpdir(), 'hap-e2e-deploy-start-'));
 const secret = newSecret();
 const stack: StackOptions = {
-  dataDir, ports: { cp: 19821, mcp: MCP_PORT }, secret, asUrl: 'http://localhost:19820',
+  dataDir, ports: { cp: e2ePort(19821), mcp: MCP_PORT }, secret, asUrl: `http://localhost:${e2ePort(19820)}`,
   extraEnv: { SUVEREN_DISABLE_AUTO_INTEGRATIONS: '1' },
 };
 const mcpInternal = new GatewayClient(`http://localhost:${MCP_PORT}`, secret);

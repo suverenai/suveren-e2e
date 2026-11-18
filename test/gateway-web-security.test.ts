@@ -26,10 +26,11 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { ProcessManager } from '../src/helpers/process-manager';
 import { SPClient } from '../src/helpers/sp-client';
+import { e2ePort } from '../src/helpers/ports.js';
 
-const SP_PORT = 19400;
-const CP_PORT = 19401;
-const MCP_PORT = 19430;
+const SP_PORT = e2ePort(19400);
+const CP_PORT = e2ePort(19401);
+const MCP_PORT = e2ePort(19430);
 const SP_URL = `http://localhost:${SP_PORT}`;
 const PROFILES_DIR = `${process.cwd()}/../hap-profiles`;
 

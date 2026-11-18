@@ -36,6 +36,7 @@ import {
   computeScopeHash,
 } from '../src/helpers/crypto.js';
 import { PROFILE_V07, profileHashFor } from '../src/helpers/profiles.js';
+import { e2ePort } from '../src/helpers/ports.js';
 
 const ROOT = join(import.meta.dirname, '..', '..');
 const PROFILES_DIR = join(ROOT, 'hap-profiles');
@@ -190,7 +191,7 @@ async function callText(client: Client, name: string, args: Record<string, unkno
 
 describe.skipIf(!available)('Mail (email-mcp) read_access gate — read_access:none is blocked', () => {
   let stack: Stack;
-  beforeAll(async () => { stack = await boot(19100, 19101, 'none'); }, 180_000);
+  beforeAll(async () => { stack = await boot(e2ePort(19100), e2ePort(19101), 'none'); }, 180_000);
   afterAll(async () => {
     try { await stack?.client.close(); } catch { /* ignore */ }
     await stack?.pm.killAll();
@@ -215,7 +216,7 @@ describe.skipIf(!available)('Mail (email-mcp) read_access gate — read_access:u
   let stack: Stack;
   let messageId: string;
   beforeAll(async () => {
-    stack = await boot(19110, 19111, 'unlimited');
+    stack = await boot(e2ePort(19110), e2ePort(19111), 'unlimited');
     // Seed one message so get_message has a real id to fetch.
     const pkg = minimalPackage('Mail Read Gate Co', 'c1');
     const r = await stack.client.callTool({ name: 'mail__load_simulation', arguments: { package: pkg } });

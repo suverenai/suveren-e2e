@@ -66,10 +66,11 @@ import { shiftedClock, type ShiftedClock } from '../src/helpers/clock.js';
 import { localProfilesForAs } from '../src/helpers/local-profiles.js';
 import { gatewayHas } from '../src/helpers/gateway-feature.js';
 import { gwUiFile } from '../src/helpers/gw-ui-file.js';
+import { e2ePort } from '../src/helpers/ports.js';
 
-const AS_PORT = 19600;
-const CP_PORT = 19601;
-const MCP_PORT = 19602;
+const AS_PORT = e2ePort(19600);
+const CP_PORT = e2ePort(19601);
+const MCP_PORT = e2ePort(19602);
 const AS_URL = `http://localhost:${AS_PORT}`;
 const CP_URL = `http://localhost:${CP_PORT}`;
 const CLI = join(GW_DIR, 'bundle', 'dist', 'bin', 'suveren-gateway.js');

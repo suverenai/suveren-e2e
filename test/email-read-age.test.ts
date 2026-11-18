@@ -35,9 +35,10 @@ import { GatewayClient } from '../src/helpers/gateway-client.js';
 import { hashGateContent, hashExecutionContext, computeBoundsHash, computeScopeHash } from '../src/helpers/crypto.js';
 import { PROFILE_V07, profileHashFor } from '../src/helpers/profiles.js';
 import { addMailConnector, callText, practicePackage, startMailGateway } from '../src/helpers/mail-connector.js';
+import { e2ePort } from '../src/helpers/ports.js';
 
-const SP_PORT = 17270;
-const GW_PORT = 17271;
+const SP_PORT = e2ePort(17270);
+const GW_PORT = e2ePort(17271);
 const SP_URL = `http://localhost:${SP_PORT}`;
 const GW_URL = `http://localhost:${GW_PORT}`;
 

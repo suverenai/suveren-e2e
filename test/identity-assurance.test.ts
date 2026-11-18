@@ -14,8 +14,9 @@ import {
   decodeMandateBlob, encodeMandateBlob, deriveIdentityLine, verifyMandateSignature, encodeDidKey,
 } from '@humanagencyp/hap-core';
 import { PROFILE_V07, profileHashFor } from '../src/helpers/profiles.js';
+import { e2ePort } from '../src/helpers/ports.js';
 
-const SP_PORT = 17131;
+const SP_PORT = e2ePort(17131);
 const SP_URL = `http://localhost:${SP_PORT}`;
 const ADMIN_KEY = 'local-dev-key'; // seed local-admin (ADMIN_USER_IDS=local-admin in the harness)
 const PROFILES_DIR = `${process.cwd()}/../hap-profiles`;

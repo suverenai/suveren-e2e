@@ -31,11 +31,12 @@ import {
   GW_DIR, SEED_API_KEY, ControlPlaneClient, asKeyEnv, ed25519Keypair, newSecret, readPairingFile, sleep,
   startControlPlane, startMcpServer, type StackOptions,
 } from '../src/helpers/gateway-stack';
+import { e2ePort } from '../src/helpers/ports.js';
 
-const AS_PORT = 18170;
-const URL_PORT = 18171; // the gateway's configured AS URL — genuine front, later the relay
-const CP_PORT = 18172;
-const MCP_PORT = 18173;
+const AS_PORT = e2ePort(18170);
+const URL_PORT = e2ePort(18171); // the gateway's configured AS URL — genuine front, later the relay
+const CP_PORT = e2ePort(18172);
+const MCP_PORT = e2ePort(18173);
 const AS_URL = `https://localhost:${URL_PORT}`;
 
 const pm = new ProcessManager();

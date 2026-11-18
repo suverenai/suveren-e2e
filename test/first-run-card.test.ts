@@ -26,10 +26,11 @@ import { hashGateContent, hashExecutionContext, computeBoundsHash, computeScopeH
 import { ControlPlaneClient, PROFILES_DIR, newSecret, startControlPlane, startMcpServer, type StackOptions } from '../src/helpers/gateway-stack.js';
 import { localProfilesForAs } from '../src/helpers/local-profiles.js';
 import { PROFILE_V07, profileHashFor } from '../src/helpers/profiles.js';
+import { e2ePort } from '../src/helpers/ports.js';
 
-const AS_PORT = 19700;
-const CP_PORT = 19701;
-const MCP_PORT = 19702;
+const AS_PORT = e2ePort(19700);
+const CP_PORT = e2ePort(19701);
+const MCP_PORT = e2ePort(19702);
 const AS_URL = `http://localhost:${AS_PORT}`;
 const CP_URL = `http://localhost:${CP_PORT}`;
 const DELEGATION = PROFILE_V07.delegation;

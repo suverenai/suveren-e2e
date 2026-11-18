@@ -30,10 +30,11 @@ import { hashGateContent, hashExecutionContext, computeBoundsHash, computeScopeH
 import { ControlPlaneClient, newSecret, startControlPlane, startMcpServer, textOf, PROFILES_DIR, type StackOptions } from '../src/helpers/gateway-stack.js';
 import { profileHashFor } from '../src/helpers/profiles.js';
 import { openFirstApprovalInPanel } from '../src/helpers/gateway-ui.js';
+import { e2ePort } from '../src/helpers/ports.js';
 
-const AS_PORT = 19830;
-const CP_PORT = 19831;
-const MCP_PORT = 19832;
+const AS_PORT = e2ePort(19830);
+const CP_PORT = e2ePort(19831);
+const MCP_PORT = e2ePort(19832);
 const AS_URL = `http://localhost:${AS_PORT}`;
 const CP_URL = `http://localhost:${CP_PORT}`;
 const P = 'github.com/humanagencyprotocol/hap-profiles';

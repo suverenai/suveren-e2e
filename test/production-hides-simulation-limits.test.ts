@@ -24,10 +24,11 @@ import { profileHashFor } from '../src/helpers/profiles.js';
 import { ControlPlaneClient, PROFILES_DIR, GW_DIR, newSecret, startControlPlane, startMcpServer, type StackOptions } from '../src/helpers/gateway-stack.js';
 import { gwUiFile } from '../src/helpers/gw-ui-file.js';
 import { gatewayHas } from '../src/helpers/gateway-feature.js';
+import { e2ePort } from '../src/helpers/ports.js';
 
-const AS_PORT = 19858;
-const CP_PORT = 19859;
-const MCP_PORT = 19860;
+const AS_PORT = e2ePort(19858);
+const CP_PORT = e2ePort(19859);
+const MCP_PORT = e2ePort(19860);
 const AS_URL = `http://localhost:${AS_PORT}`;
 const CP_URL = `http://localhost:${CP_PORT}`;
 const SHOTS = process.env.HAP_E2E_SHOTS_DIR;

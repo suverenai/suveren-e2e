@@ -27,9 +27,10 @@ import { join } from 'node:path';
 import { ProcessManager } from '../src/helpers/process-manager.js';
 import { SPClient } from '../src/helpers/sp-client.js';
 import { GatewayClient } from '../src/helpers/gateway-client.js';
+import { e2ePort } from '../src/helpers/ports.js';
 
-const SP_PORT = 16500;
-const GW_PORT = 16530;
+const SP_PORT = e2ePort(16500);
+const GW_PORT = e2ePort(16530);
 const ROOT = join(import.meta.dirname, '..', '..');
 const PROFILES_DIR = join(ROOT, 'hap-profiles');
 

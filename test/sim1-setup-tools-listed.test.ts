@@ -39,10 +39,11 @@ import { GatewayClient, registerGatewaySecret } from '../src/helpers/gateway-cli
 import { newSecret, startControlPlane, startMcpServer, type StackOptions } from '../src/helpers/gateway-stack.js';
 import { hashGateContent, hashExecutionContext, computeBoundsHash, computeScopeHash } from '../src/helpers/crypto.js';
 import { PROFILE_V07, profileHashFor } from '../src/helpers/profiles.js';
+import { e2ePort } from '../src/helpers/ports.js';
 
-const SP_PORT = 18870;
-const GW_PORT = 18871;
-const CP_PORT = 18872;
+const SP_PORT = e2ePort(18870);
+const GW_PORT = e2ePort(18871);
+const CP_PORT = e2ePort(18872);
 const SP_URL = `http://localhost:${SP_PORT}`;
 const GW_URL = `http://localhost:${GW_PORT}`;
 const ROOT = join(import.meta.dirname, '..', '..');

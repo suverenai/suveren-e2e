@@ -44,6 +44,7 @@ import {
   computeScopeHash,
 } from '../src/helpers/crypto.js';
 import { PROFILE_V07, profileHashFor } from '../src/helpers/profiles.js';
+import { e2ePort } from '../src/helpers/ports.js';
 
 const ROOT = join(import.meta.dirname, '..', '..');
 const PROFILES_DIR = join(ROOT, 'hap-profiles');
@@ -55,8 +56,8 @@ const EXECUTION_RESULT_STORE_SRC = join(
 // source rather than a version string.
 const available = existsSync(EXECUTION_RESULT_STORE_SRC);
 
-const SP_PORT = 19160;
-const GW_PORT = 19161;
+const SP_PORT = e2ePort(19160);
+const GW_PORT = e2ePort(19161);
 const SP_URL = `http://localhost:${SP_PORT}`;
 const GW_URL = `http://localhost:${GW_PORT}`;
 

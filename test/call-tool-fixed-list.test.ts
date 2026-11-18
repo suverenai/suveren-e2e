@@ -35,10 +35,11 @@ import { ControlPlaneClient, PROFILES_DIR, newSecret, startControlPlane, startMc
 import { computeBoundsHash, computeScopeHash, hashGateContent, hashExecutionContext } from '../src/helpers/crypto.js';
 import { profileHashFor } from '../src/helpers/profiles.js';
 import { addMailConnector } from '../src/helpers/mail-connector.js';
+import { e2ePort } from '../src/helpers/ports.js';
 
-const AS_PORT = 18880;
-const CP_PORT = 18881;
-const MCP_PORT = 18882;
+const AS_PORT = e2ePort(18880);
+const CP_PORT = e2ePort(18881);
+const MCP_PORT = e2ePort(18882);
 const AS_URL = `http://localhost:${AS_PORT}`;
 const P = 'github.com/humanagencyprotocol/hap-profiles';
 const DELEGATION = `${P}/delegation@0.6`;

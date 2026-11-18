@@ -32,12 +32,13 @@ import { SPClient, mintAuthorizationId } from '../src/helpers/sp-client.js';
 import { GatewayClient, internalSecretHeaders } from '../src/helpers/gateway-client.js';
 import { hashGateContent, computeBoundsHash, computeScopeHash, computeExecutionContextHash, sha256Hash } from '../src/helpers/crypto.js';
 import { PROFILE_V07, profileHashFor, loadProfile } from '../src/helpers/profiles.js';
+import { e2ePort } from '../src/helpers/ports.js';
 
-const SP_PORT = 19620; // unused elsewhere in the suite as of 2026-11-04
+const SP_PORT = e2ePort(19620); // unused elsewhere in the suite as of 2026-11-04
 const SP_URL = `http://localhost:${SP_PORT}`;
-const OWNER_GW = { mcp: 19630, cp: 19631 };
-const GRANTOR_GW = { mcp: 19632, cp: 19633 };
-const APPROVER_GW = { mcp: 19634, cp: 19635 };
+const OWNER_GW = { mcp: e2ePort(19630), cp: e2ePort(19631) };
+const GRANTOR_GW = { mcp: e2ePort(19632), cp: e2ePort(19633) };
+const APPROVER_GW = { mcp: e2ePort(19634), cp: e2ePort(19635) };
 const PROFILES_DIR = join(process.cwd(), '..', 'hap-profiles');
 
 const sp = new SPClient(SP_URL);

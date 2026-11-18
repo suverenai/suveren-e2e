@@ -37,10 +37,11 @@ import { ControlPlaneClient, recordTitles } from '../src/helpers/gateway-stack.j
 import { hashGateContent, hashExecutionContext, computeBoundsHash, computeScopeHash } from '../src/helpers/crypto.js';
 import { PROFILE_V07, profileHashFor } from '../src/helpers/profiles.js';
 import { gatewayHas } from '../src/helpers/gateway-feature.js';
+import { e2ePort } from '../src/helpers/ports.js';
 
-const SP_PORT = 18990;
-const GW_PORT = 18991;
-const CP_PORT = 18992;
+const SP_PORT = e2ePort(18990);
+const GW_PORT = e2ePort(18991);
+const CP_PORT = e2ePort(18992);
 const SP_URL = `http://localhost:${SP_PORT}`;
 const GW_URL = `http://localhost:${GW_PORT}`;
 
