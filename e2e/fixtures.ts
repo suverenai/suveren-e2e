@@ -491,7 +491,14 @@ export async function waitForPageGate(page: Page, timeout = 30_000): Promise<voi
 export async function signInToGateway(page: Page, apiKey: string): Promise<void> {
   const lastGatewayKey = readLastGatewayKey();
   if (lastGatewayKey && lastGatewayKey !== apiKey) {
-    const out = await page.request.post(`${GW_URL}/auth/logout`, { headers: { 'X-API-Key': lastGatewayKey } });
+    // A fresh connection, and one retry on a reset socket: at the end of a long run the request
+    // context reused a keep-alive connection the control plane had just closed (ECONNRESET,
+    // zz-connector-mode-switch). Signing out is idempotent, and a second 401 reads as "already gone".
+    const logout = () => page.request.post(`${GW_URL}/auth/logout`, { headers: { 'X-API-Key': lastGatewayKey, connection: 'close' } });
+    const out = await logout().catch(async (err: unknown) => {
+      if (!/ECONNRESET|socket hang up/i.test(String(err))) throw err;
+      return logout();
+    });
     // 401 = that session is already gone (expired, or signed out elsewhere): nothing to undo.
     if (!out.ok() && out.status() !== 401) {
       throw new Error(`signing the previous account out failed: ${out.status()} ${await out.text()}`);
@@ -613,14 +620,17 @@ export async function activateIntegration(page: Page, integrationName: string): 
   // ("CRM · Test data", "ERP · Local") and renamed "Email (simulation)" to
   // "Email" — match the name alone or followed by " · <label>".
   const card = page.locator('.card', { has: page.locator('.card-title', { hasText: cardTitlePattern(integrationName) }) }).first();
-  await card.waitFor({ state: 'visible', timeout: 10_000 });
+  // Right after a gateway starts, the connector list is still being read from its manifests
+  // (approval-outcome setup missed the CRM card at 10 s): wait for the card, with a bound that is
+  // a ceiling, not a pause.
+  await card.waitFor({ state: 'visible', timeout: 45_000 });
   await card.scrollIntoViewIfNeeded();
 
   // Wait for the card to know its state — "Running" or an Activate button —
   // instead of reading it once, before the integration status has loaded.
   const running = card.locator('text=Running');
   const activateBtn = card.locator('button:has-text("Activate")');
-  await expect(running.or(activateBtn).first()).toBeVisible({ timeout: 10_000 });
+  await expect(running.or(activateBtn).first()).toBeVisible({ timeout: 30_000 });
   if (await running.isVisible()) return;
 
   await activateBtn.click();
@@ -899,8 +909,14 @@ async function showApprovalInPanel(page: Page, hasText: string | RegExp): Promis
   // while it slides out — a card found there passes a few checks and then detaches (CI 2026-11-07, AU10 A).
   const card = page.locator('[data-testid="approval-panel"][aria-hidden="false"]').getByTestId('approval-card').filter({ hasText }).first();
   const isOpen = async () => (await panel.getAttribute('aria-hidden').catch(() => 'true')) === 'false';
+  // A card shows its content only once it has decrypted it ("Decrypting…" until then). Checking a
+  // card's text before that made the walk step past the right card on every pass (AU10 C, "No
+  // approval containing unknown@au10-bad.de"): settle each card before reading it.
+  const openCards = page.locator('[data-testid="approval-panel"][aria-hidden="false"]').getByTestId('approval-card');
+  const settled = () => expect(openCards.getByTestId('proposal-decrypting').filter({ hasText: 'Decrypting' })).toHaveCount(0, { timeout: 15_000 }).catch(() => {});
   const deadline = Date.now() + 60_000;
   while (Date.now() < deadline) {
+    await settled();
     if (await card.isVisible().catch(() => false)) return card;
     if (await isOpen()) {
       const prev = page.getByTestId('approval-prev');
@@ -909,10 +925,13 @@ async function showApprovalInPanel(page: Page, hasText: string | RegExp): Promis
       // Walk from the first to the last.
       for (let i = 0; i < 50 && (await prev.isEnabled().catch(() => false)); i++) await prev.click();
       for (let i = 0; i < 50; i++) {
+        await settled();
         if (await card.isVisible().catch(() => false)) return card;
         if (!(await next.isEnabled().catch(() => false))) break;
+        const before = await openCards.first().getAttribute('data-proposal-id').catch(() => null);
         await next.click();
-        await page.waitForTimeout(300);
+        // The next card is a different proposal: wait until it is the one shown, then until it decrypted.
+        await expect(openCards.first()).not.toHaveAttribute('data-proposal-id', before ?? '', { timeout: 5_000 }).catch(() => {});
       }
     } else {
       const strip = page.getByTestId('approval-strip-open');
