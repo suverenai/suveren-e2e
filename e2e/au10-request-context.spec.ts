@@ -45,6 +45,7 @@ import {
 import { DatabaseSync } from 'node:sqlite';
 import { randomUUID } from 'node:crypto';
 import { hashGateContent, computeBoundsHash, computeScopeHash } from '../src/helpers/crypto.js';
+import { gwUiFile } from '../src/helpers/gw-ui-file.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const SCREENSHOT_DIR = join(__dirname, '..', 'test-results', 'au10');
@@ -69,7 +70,7 @@ const salesBounds = (o: Record<string, unknown> = {}) => ({
 const HISTORY_LABEL = 'Read by the gateway — same customer, not matched to this request';
 // Gateway 0.31.1: `_source` (stripped before execution) is never shown as a
 // sent value; the manifest's request link reads "Replying to".
-const GW_ARGS_TSX = join(__dirname, '..', '..', 'suveren-gateway', 'apps', 'ui', 'src', 'components', 'ProposalArgs.tsx');
+const GW_ARGS_TSX = gwUiFile(join(__dirname, '..', '..', 'suveren-gateway'), 'components', 'ProposalArgs.tsx');
 const HAS_REQUEST_REF = existsSync(GW_ARGS_TSX) && readFileSync(GW_ARGS_TSX, 'utf8').includes('requestRefArg');
 
 // Runs only against a gateway that has AU10 (CI runs the journeys against the
@@ -326,7 +327,7 @@ test.describe.serial('AU10: request and customer history on the approval card (r
   // gateway builds from the connector manifest's template and the sealed
   // values — here with three real connectors (CRM, mail, ERP).
   test('S: each waiting approval reads as one sentence from its manifest template', async () => {
-    test.skip(!existsSync(join(__dirname, '..', '..', 'suveren-gateway', 'apps', 'ui', 'src', 'lib', 'approval-summary.ts')),
+    test.skip(!existsSync(gwUiFile(join(__dirname, '..', '..', 'suveren-gateway'), 'lib', 'approval-summary.ts')),
       'gateway without manifest summaries (UI3)');
     test.setTimeout(90_000);
     await page.click('.sidebar-item:has-text("Dashboard")');
