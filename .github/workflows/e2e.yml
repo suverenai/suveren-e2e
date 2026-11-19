@@ -32,9 +32,21 @@ on:
         description: 'suveren-gateway ref to test against (branch, tag or SHA). Defaults to main.'
         required: false
         default: 'main'
+      as_ref:
+        description: 'suveren-as ref to test against (branch, tag or SHA). Defaults to main. Its migrations run when the Authority Server starts.'
+        required: false
+        default: 'main'
+      device_keys:
+        description: 'Device-keys switch (SUVEREN_DEVICE_KEYS) for the Authority Server and the gateway: off, on, or both (two parallel legs).'
+        required: false
+        type: choice
+        options: [off, on, both]
+        default: 'off'
 
+# The refs are part of the group so dispatches for different branches run side
+# by side; the same refs dispatched again replace the earlier run.
 concurrency:
-  group: e2e-${{ github.ref }}
+  group: e2e-${{ github.ref }}-${{ github.event.inputs.as_ref || 'main' }}-${{ github.event.inputs.gateway_ref || 'main' }}-${{ github.event.inputs.device_keys || 'off' }}
   cancel-in-progress: true
 
 jobs:
@@ -89,10 +101,34 @@ jobs:
         working-directory: hap-e2e
         run: npm run test:offline
 
+  # Turns the device_keys input into the list of legs. Every trigger other than
+  # a dispatch runs the single default leg (off).
+  legs:
+    name: Plan legs
+    runs-on: ubuntu-24.04
+    timeout-minutes: 2
+    outputs:
+      matrix: ${{ steps.plan.outputs.matrix }}
+    steps:
+      - id: plan
+        env:
+          DEVICE_KEYS: ${{ github.event.inputs.device_keys || 'off' }}
+        run: |
+          case "$DEVICE_KEYS" in
+            off)  echo 'matrix={"device_keys":["off"]}' >> "$GITHUB_OUTPUT" ;;
+            on)   echo 'matrix={"device_keys":["on"]}' >> "$GITHUB_OUTPUT" ;;
+            both) echo 'matrix={"device_keys":["off","on"]}' >> "$GITHUB_OUTPUT" ;;
+            *)    echo "unknown device_keys: $DEVICE_KEYS" >&2; exit 1 ;;
+          esac
+
   e2e:
-    name: Full suite (needs the Suveren Authority Server)
+    name: Full suite, device keys ${{ matrix.device_keys }} (needs the Suveren Authority Server)
+    needs: legs
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.legs.outputs.matrix) }}
     runs-on: ubuntu-24.04  # Playwright 1.58 has no Chromium for ubuntu 26.04 (ubuntu-latest since 2026-11-17)
-    timeout-minutes: 45
+    timeout-minutes: 75
     # The Authority Server is proprietary and lives in another org, so this job
     # needs a token that a fork's pull request will never receive. Gating on the
     # token means a fork PR skips this job with a clear name instead of failing
@@ -120,6 +156,10 @@ jobs:
     env:
       SUVEREN_DB_URL: postgres://postgres:e2e@localhost:5432/suveren_as
       SUVEREN_SEED_DEV_USERS: '1'
+      # Read by the Authority Server and the gateway the suite spawns (the
+      # harness passes its whole environment on). Set only for the "on" leg;
+      # an unset variable is the default behaviour.
+      SUVEREN_DEVICE_KEYS: ${{ matrix.device_keys == 'on' && 'on' || '' }}
 
     steps:
       # The harness resolves siblings from the repo's PARENT directory
@@ -148,6 +188,7 @@ jobs:
           repository: suverenai/suveren-as
           path: suveren-as
           token: ${{ secrets.HAP_CI_TOKEN }}
+          ref: ${{ github.event.inputs.as_ref || 'main' }}
 
       - name: Check out hap-profiles
         uses: actions/checkout@v6
@@ -259,7 +300,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: e2e-logs
+          name: e2e-logs-device-keys-${{ matrix.device_keys }}
           path: |
             hap-e2e/test-results/**
             hap-e2e/playwright-report/**
