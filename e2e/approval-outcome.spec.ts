@@ -110,7 +110,13 @@ test.describe.serial('The outcome of an approval, and a dead mandate (real stack
 
   test('O1: refused after approval shows the reason at once, and stays while the next one waits', async ({ request }) => {
     test.setTimeout(120_000);
-    await propose('Refused Ruth', 'customer');
+    const ruth = await propose('Refused Ruth', 'customer');
+    // The AS stores a proposal's creation time in whole SECONDS and the queue is ordered by it: two
+    // proposals made in the same second come in no fixed order (Nora first, or Ruth last so "Next"
+    // has nowhere to go — both seen, 2026-11-17/19). Make Nora's second a later one, from the stored value.
+    const got = await request.get(`${SP_URL}/api/proposals/${encodeURIComponent(ruth)}`, { headers: { 'x-api-key': apiKey } });
+    const ruthCreated = ((await got.json()) as { proposal: { createdAt: number } }).proposal.createdAt;
+    await expect.poll(() => Math.floor(Date.now() / 1000) > ruthCreated, { timeout: 5_000, intervals: [100] }).toBe(true);
     await propose('Next Nora', 'customer');
     const panel = page.getByTestId('approval-panel');
     await expect(panel).toHaveAttribute('aria-hidden', 'false', { timeout: 45_000 });
