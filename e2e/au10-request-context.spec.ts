@@ -346,7 +346,10 @@ test.describe.serial('AU10: request and customer history on the approval card (r
 
   test('A: request linked by the AI, and the latest entries for the same email domain', async () => {
     test.setTimeout(120_000);
-    const card = await openCard(page, 'j.kraus@bavaria-umform.de');
+    // By the title ("New contact J. Kraus"): the address is in the body, which renders later, and also in the
+    // email proposal to J. Kraus (run 2 of 5, 2026-11-19).
+    const card = await openCard(page, 'New contact J. Kraus');
+    await expect(card).toContainText('j.kraus@bavaria-umform.de', { timeout: 30_000 });
     const req = card.getByTestId('au10-request');
     const hist = card.getByTestId('au10-history');
 
@@ -382,7 +385,8 @@ test.describe.serial('AU10: request and customer history on the approval card (r
 
   test('B: no link → "No request linked."; approving still creates the contact', async () => {
     test.setTimeout(120_000);
-    const card = await openCard(page, 'nosource@au10-nolink.de');
+    const card = await openCard(page, 'New contact No Source');
+    await expect(card).toContainText('nosource@au10-nolink.de', { timeout: 30_000 });
     await expect(card.getByTestId('au10-request')).toContainText('No request linked.', { timeout: 45_000 });
     await expect(card.getByTestId('au10-request')).not.toContainText('Linked by the AI');
     await expect(card.getByTestId('au10-history')).toContainText(HISTORY_LABEL);
@@ -432,11 +436,15 @@ test.describe.serial('AU10: request and customer history on the approval card (r
 
   test('C: an unreadable link is shown as such and never blocks', async () => {
     test.setTimeout(120_000);
-    const unknown = await openCard(page, 'unknown@au10-bad.de');
+    // Found by the title the card shows from the start ("New contact Unknown Connector"), not by a value
+    // in its body, which can render after the walk looked (run 4 of 5, 2026-11-19).
+    const unknown = await openCard(page, 'Unknown Connector');
+    await expect(unknown).toContainText('unknown@au10-bad.de', { timeout: 30_000 });
     await expect(unknown.getByTestId('au10-request')).toContainText('Request: link not readable', { timeout: 45_000 });
     await expect(unknown.locator('button:has-text("Approve")')).toBeEnabled();
 
-    const missing = await openApprovalCard(page, 'missing@au10-bad.de');
+    const missing = await openApprovalCard(page, 'Missing Message');
+    await expect(missing).toContainText('missing@au10-bad.de', { timeout: 30_000 });
     await expect(missing.getByTestId('au10-request')).toContainText('Request: this message no longer exists.', { timeout: 45_000 });
     await expect(missing.locator('button:has-text("Approve")')).toBeEnabled();
   });
@@ -455,7 +463,9 @@ test.describe.serial('AU10: request and customer history on the approval card (r
 
   test('F: a reply with in_reply_to shows the request although the AI gave no _source', async () => {
     test.setTimeout(120_000);
-    const card = await openCard(page, 'IMPLICIT-REPLY');
+    // By the title (the subject); the body text "IMPLICIT-REPLY" renders later (run 2 of 5, 2026-11-19).
+    const card = await openCard(page, 'Re: RF 55 Stillstand');
+    await expect(card).toContainText('IMPLICIT-REPLY', { timeout: 30_000 }); // the body is shown (it was the lookup before)
     const req = card.getByTestId('au10-request');
     await expect(req).toContainText('Linked by the AI', { timeout: 45_000 });
     await expect(req).toContainText('RF 55 Stillstand – Seriennummer 55-2291');

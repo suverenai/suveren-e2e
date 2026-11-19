@@ -571,6 +571,15 @@ export async function signInToGateway(page: Page, apiKey: string): Promise<void>
   writeLastGatewayKey(apiKey);
   await settleAfterSignIn(page);
   await expect(page.locator('.page-title')).toBeVisible({ timeout: 15_000 });
+  // The gateway registers its end-to-end key with the AS in the background after sign-in. A proposal
+  // made before that is refused ("No recipient … has a registered end-to-end key"; AU10 setup, 5 of 8
+  // runs, 2026-11-19): wait until the AS has the key.
+  await expect.poll(async () => {
+    const r = await page.request.get(`${SP_URL}/api/users/me/pubkey`, { headers: { 'x-api-key': apiKey } }).catch(() => null);
+    if (!r?.ok()) return false;
+    const b = await r.json().catch(() => ({})) as { pubkey?: unknown };
+    return typeof b.pubkey === 'string' && b.pubkey.length > 0;
+  }, { timeout: 30_000, message: 'the gateway registered its end-to-end key with the AS after sign-in' }).toBe(true);
 }
 
 /**
@@ -929,7 +938,9 @@ async function showApprovalInPanel(page: Page, hasText: string | RegExp): Promis
       for (let i = 0; i < 50 && (await prev.isEnabled().catch(() => false)); i++) await prev.click();
       for (let i = 0; i < 50; i++) {
         await settled();
-        if (await card.isVisible().catch(() => false)) return card;
+        // The panel slides a card in: a single visibility check right after "next" can miss it (AU10 C,
+        // "Missing Message", 2026-11-19). Give each card a moment to show before moving on.
+        if (await card.waitFor({ state: 'visible', timeout: 1_500 }).then(() => true, () => false)) return card;
         if (!(await next.isEnabled().catch(() => false))) break;
         const before = await openCards.first().getAttribute('data-proposal-id').catch(() => null);
         await next.click();
