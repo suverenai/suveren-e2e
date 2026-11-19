@@ -56,7 +56,8 @@ function gettingStarted(): string {
 function firstStep(): string {
   const i = agent.getInstructions() ?? '';
   const at = i.indexOf('=== FIRST STEP ===');
-  return at < 0 ? '' : i.slice(at, i.indexOf('=== RULES ===', at));
+  const next = i.indexOf('\n=== ', at + 1);
+  return at < 0 ? '' : i.slice(at, next < 0 ? undefined : next);
 }
 
 /** The AI is never given the gateway page's address: not as localhost:<port>, not as an http URL. */
@@ -112,8 +113,9 @@ describe.skipIf(!available)('first contact (real AS + gateway in simulation mode
   it('no Delegation mandate: the instructions name the one step a person takes; no ungated tool', async () => {
     const section = firstStep();
     expect(section).toContain('An AI can never create the first one: a person signs it.');
-    expect(section).toContain('1. They open the Suveren Gateway page themselves, in their own browser, outside this chat. In the left menu they choose **Mandates**, then **+ New mandate** (top right).');
-    expect(section).toContain('2. Pick the card **Setup** and press **Give a mandate**.');
+    expect(section).toContain('They open the Suveren Gateway page themselves, in their own browser, outside this chat, then **Mandates → + New mandate**, card **Setup**, **Give a mandate**.');
+    // One step, not the form: the form only through list-authorizations(domain) when the person asks.
+    expect(section).not.toContain('Scope & Limits');
     // Always told, in every session: never the gateway page, the key or an approval; only the Suveren tools.
     const instructions = agent.getInstructions() ?? '';
     expect(instructions).toContain('=== RULES ===');

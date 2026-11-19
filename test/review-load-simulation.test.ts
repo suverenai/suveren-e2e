@@ -114,7 +114,7 @@ async function reconnect() {
 async function call(tool: string, args: Record<string, unknown>) {
   const r = await mcpClient.callTool({ name: tool, arguments: args });
   const text = (r.content as Array<{ text?: string }>)?.map((c) => c.text ?? '').join('\n') ?? '';
-  return { denied: r.isError === true, text, json: (() => { try { return JSON.parse(text); } catch { return null; } })() };
+  return { denied: r.isError === true, text, json: (() => { try { return JSON.parse(((r.content as Array<{ text?: string }>)?.[0]?.text ?? '')); } catch { return null; } })() };
 }
 
 async function resolveProposal(proposalId: string): Promise<void> {
@@ -314,7 +314,7 @@ describe.skipIf(!refusedAvailable)('review-mode load_simulation: the Authority S
   async function call2(tool: string, args: Record<string, unknown>) {
     const r = await mcpClient2.callTool({ name: tool, arguments: args });
     const text = (r.content as Array<{ text?: string }>)?.map((c) => c.text ?? '').join('\n') ?? '';
-    return { denied: r.isError === true, text, json: (() => { try { return JSON.parse(text); } catch { return null; } })() };
+    return { denied: r.isError === true, text, json: (() => { try { return JSON.parse(((r.content as Array<{ text?: string }>)?.[0]?.text ?? '')); } catch { return null; } })() };
   }
 
   async function resolveProposal2(proposalId: string): Promise<void> {

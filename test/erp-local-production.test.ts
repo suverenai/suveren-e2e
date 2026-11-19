@@ -582,7 +582,9 @@ describe.skipIf(!available)('ERP Local in production (real AS + gateway + erp-mc
       });
       const priceProposal = await propose('erp__update_item_price', { id: item.id, revision: 1, list_price: 130, vat_rate: 20 });
       const pc = await s.cardPreview(priceProposal);
-      expect(check(pc.checks, 'price-change').status).toBe('notice');
+      // Since the next release the card shows the price as Now → New; no check repeats it
+      // (walkthrough-erp-update-card.test.ts covers the table).
+      expect(pc.checks.map((c: { key: string }) => c.key)).not.toContain('price-change');
       expect((await approveOk(priceProposal)).revision).toBe(2);
       const before = await invoiceCount();
       const done = await s.approve(pinned);
@@ -759,7 +761,7 @@ describe.skipIf(!available || !preinstalledHasTools)('optional: the real EU VIES
     }));
     try {
       const r = await client.callTool({ name: 'check_vat_id', arguments: PUBLIC_VALID_VAT });
-      const text = (r.content as Array<{ text?: string }>).map((c) => c.text ?? '').join('');
+      const text = ((r.content as Array<{ text?: string }>)?.[0]?.text ?? '');
       const out = JSON.parse(text);
       expect(out.format).toBe('ok');
       // The company's own (invented) VAT ID is refused as requester → checked without a consultation number.

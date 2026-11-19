@@ -129,7 +129,7 @@ function erpCliWith(extraEnv: Record<string, string>, ...args: string[]): string
 async function call(tool: string, args: Record<string, unknown>) {
   const r = await mcpClient.callTool({ name: tool, arguments: args });
   const text = (r.content as Array<{ text?: string }>)?.map((c) => c.text ?? '').join('\n') ?? '';
-  return { denied: r.isError === true, text, json: (() => { try { return JSON.parse(text); } catch { return null; } })() };
+  return { denied: r.isError === true, text, json: (() => { try { return JSON.parse(((r.content as Array<{ text?: string }>)?.[0]?.text ?? '')); } catch { return null; } })() };
 }
 
 async function invoiceCount(): Promise<number> {

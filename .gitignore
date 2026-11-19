@@ -5,3 +5,4 @@ dist/
 *.log
 test-results/
 .test-users.json
+.work/

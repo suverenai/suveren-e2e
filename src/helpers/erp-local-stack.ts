@@ -134,7 +134,7 @@ export class ErpLocalStack {
 
   async call(tool: string, args: Record<string, unknown>): Promise<CallResult> {
     const r = await this.agent.callTool({ name: tool, arguments: args }, undefined, { timeout: 120_000 });
-    const text = (r.content as Array<{ text?: string }>)?.map((c) => c.text ?? '').join('\n') ?? '';
+    const text = (r.content as Array<{ text?: string }>)?.[0]?.text ?? '';
     let json: any = null;
     try { json = JSON.parse(text); } catch { /* not JSON */ }
     return { denied: r.isError === true, text, json };

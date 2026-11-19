@@ -135,9 +135,9 @@ test.describe.serial('Core objects — dashboard, tickets, approvals (real stack
     // §18.5: the Approvals page's own row — type line with the age ("4 min"), no "waiting" word.
     await expect(waiting.getByTestId('dash-approval').first().getByTestId('approval-row')).toBeVisible();
     // UI3: the sentence comes from the manifest's summary template + the
-    // sealed values ("Create contact Dora Review"), not just the action name.
-    await expect(waiting.getByTestId('dash-approval').filter({ hasText: 'Create contact Dora Review' })).toHaveCount(1, { timeout: 30_000 });
-    await expect(waiting.getByTestId('dash-approval').filter({ hasText: 'Create contact Emil Review' })).toHaveCount(1);
+    // sealed values ("New contact Dora Review"), not just the action name.
+    await expect(waiting.getByTestId('dash-approval').filter({ hasText: 'New contact Dora Review' })).toHaveCount(1, { timeout: 30_000 });
+    await expect(waiting.getByTestId('dash-approval').filter({ hasText: 'New contact Emil Review' })).toHaveCount(1);
 
     const auto = page.getByTestId('col-automatic');
     const group = auto.getByTestId('auto-group').filter({ hasText: 'Contact created' }).first();
@@ -184,12 +184,12 @@ test.describe.serial('Core objects — dashboard, tickets, approvals (real stack
     const cards = panel.getByTestId('approval-card');
     await expect(cards).toHaveCount(1, { timeout: 30_000 });
     await expect(cards.first()).toHaveAttribute('data-proposal-id', openId!);
-    await expect(cards.first().getByTestId('approval-summary')).toHaveText(/^Create contact (Dora|Emil) Review$/, { timeout: 30_000 });
+    await expect(cards.first().getByTestId('approval-summary')).toHaveText(/^New contact (Dora|Emil) Review$/, { timeout: 30_000 });
     await expect(page.getByTestId('approval-position')).toContainText('of 2');
     // The Approvals page is a list only: both, one sentence each (behind the panel).
     const rows = page.getByTestId('approval-row');
     await expect(rows).toHaveCount(2, { timeout: 30_000 });
-    await expect(page.getByTestId('approval-row-summary').filter({ hasText: /^Create contact (Dora|Emil) Review$/ })).toHaveCount(2, { timeout: 30_000 });
+    await expect(page.getByTestId('approval-row-summary').filter({ hasText: /^New contact (Dora|Emil) Review$/ })).toHaveCount(2, { timeout: 30_000 });
     // "Later" sends the panel to the strip; a list row brings its approval back.
     await page.getByTestId('approval-later').click();
     await expect(panel).toHaveAttribute('aria-hidden', 'true');
@@ -217,7 +217,7 @@ test.describe.serial('Core objects — dashboard, tickets, approvals (real stack
     // proposal's sealed values), not only the action's name.
     if (HAS_AREAS) {
       await expect(page.locator('.ticket-obj-card').first().getByTestId('ticket-headline'))
-        .toHaveText(/^Create contact (Dora|Emil) Review$/, { timeout: 30_000 });
+        .toHaveText(/^New contact (Dora|Emil) Review$/, { timeout: 30_000 });
     }
   });
   test('E: areas first, tools second — area + "via CRM" on the top line, the mandate name underneath', async ({ request }) => {
@@ -301,7 +301,7 @@ test.describe.serial('Core objects — dashboard, tickets, approvals (real stack
     const cards = page.locator('.ticket-obj-card');
     await expect(cards).toHaveCount(3, { timeout: 30_000 });
     // The headline is the manifest's sentence filled from what was sent.
-    const anna = cards.filter({ has: page.getByTestId('ticket-headline').filter({ hasText: /^Create contact Anna Auto$/ }) });
+    const anna = cards.filter({ has: page.getByTestId('ticket-headline').filter({ hasText: /^New contact Anna Auto$/ }) });
     await expect(anna).toHaveCount(1, { timeout: 30_000 });
     await anna.locator('.ticket-obj-head').click();
     const sent = anna.getByTestId('ticket-what-was-done');

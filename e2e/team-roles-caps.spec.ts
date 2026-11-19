@@ -704,11 +704,11 @@ test.describe('Team approval from a row (UI spec §12.2)', () => {
     await expect(row.or(lone).first()).toBeVisible({ timeout: 30_000 });
     if (await row.count()) {
       // In the list: one sentence (manifest template), and it says others are involved.
-      await expect(row.getByTestId('approval-row-summary')).toHaveText('Create contact TR5 Row Approval', { timeout: 30_000 });
+      await expect(row.getByTestId('approval-row-summary')).toHaveText('New contact TR5 Row Approval', { timeout: 30_000 });
       await expect(row).toContainText('Team approval');
     }
     const card = await openApprovalById(page, id);
-    await expect(card.getByTestId('approval-summary')).toHaveText('Create contact TR5 Row Approval', { timeout: 30_000 });
+    await expect(card.getByTestId('approval-summary')).toHaveText('New contact TR5 Row Approval', { timeout: 30_000 });
     await card.locator('button:has-text("Approve")').click();
 
     await expect(async () => {

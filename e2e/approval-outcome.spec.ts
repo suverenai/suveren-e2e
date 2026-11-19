@@ -114,7 +114,7 @@ test.describe.serial('The outcome of an approval, and a dead mandate (real stack
     await propose('Next Nora', 'customer');
     const panel = page.getByTestId('approval-panel');
     await expect(panel).toHaveAttribute('aria-hidden', 'false', { timeout: 45_000 });
-    await expect(panel.getByTestId('approval-summary')).toHaveText('Create contact Refused Ruth', { timeout: 30_000 });
+    await expect(panel.getByTestId('approval-summary')).toHaveText('New contact Refused Ruth', { timeout: 30_000 });
 
     // Between proposing and approving the shared daily limit is used up, on the server.
     for (let i = 0; i < 2; i++) {
@@ -134,7 +134,7 @@ test.describe.serial('The outcome of an approval, and a dead mandate (real stack
     await expect(refused).toBeVisible();
     await expect(page.getByTestId('result-dismiss')).toHaveText('Next');
     await page.getByTestId('result-dismiss').click();
-    await expect(panel.getByTestId('approval-summary')).toHaveText('Create contact Next Nora', { timeout: 30_000 });
+    await expect(panel.getByTestId('approval-summary')).toHaveText('New contact Next Nora', { timeout: 30_000 });
     await expect(panel.locator('button:has-text("Approve")')).toBeVisible();
   });
 

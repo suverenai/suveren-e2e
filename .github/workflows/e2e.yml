@@ -46,7 +46,7 @@ jobs:
   # looked like their fault.
   offline:
     name: Offline conformance (no Authority Server)
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04  # Playwright 1.58 has no Chromium for ubuntu 26.04 (ubuntu-latest since 2026-11-17)
     timeout-minutes: 10
 
     steps:
@@ -91,7 +91,7 @@ jobs:
 
   e2e:
     name: Full suite (needs the Suveren Authority Server)
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04  # Playwright 1.58 has no Chromium for ubuntu 26.04 (ubuntu-latest since 2026-11-17)
     timeout-minutes: 45
     # The Authority Server is proprietary and lives in another org, so this job
     # needs a token that a fork's pull request will never receive. Gating on the

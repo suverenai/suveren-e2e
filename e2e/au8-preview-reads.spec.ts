@@ -154,7 +154,7 @@ test.describe.serial('AU8: several reads per preview (real stack)', () => {
     // (gateway feat/erp-local-production adds "to <customer> (<id>)" via {customer_id|ref}).
     const openRow = page.getByTestId('approval-card');
     if (await openRow.count()) {
-      await expect(openRow.getByTestId('approval-summary')).toHaveText(/^Quote of €385(\.00)? net( to Steiner Landtechnik GmbH \(cust-1\))? — 0% discount$/, { timeout: 20_000 });
+      await expect(openRow.getByTestId('approval-summary')).toHaveText(/^Quote of 385\.00 EUR net( to (Steiner Landtechnik GmbH|cust-1))? — 0 % discount$/, { timeout: 20_000 });
     }
     // Wait for the gateway's own live read (get_customer + get_item) to
     // settle — generous on CI, where the erp connector's own npm install

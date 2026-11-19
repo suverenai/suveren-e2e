@@ -192,7 +192,7 @@ test.describe.serial('ERP Local in production — the approval card and Blocked 
     const proposal = proposalIdOf((await s.call('erp__update_customer_tax_data', {
       id: customerId, revision: 1, name: CUSTOMER.name, address_lines: ['Kundenweg 9', '4020 Linz'], country: 'AT', uid: NEW_UID,
     })).text);
-    const card = await openCard(page, s, /Change tax data of customer/);
+    const card = await openCard(page, s, /Change customer .+: tax data/);
 
     const table = card.getByTestId('compare-table');
     await expect(table).toHaveCount(1);
