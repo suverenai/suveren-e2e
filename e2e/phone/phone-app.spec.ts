@@ -30,7 +30,7 @@ import {
   asKeyHex, chainOf, clearMailboxes, codeOf, computerAnswersJoin, computerWithChain, connectDb, enrolmentCode, headOf, http,
   identityCodeOf, mailboxRow, newJoiner, newPairing, newPerson, newRoot, nowSec, openMailbox,
   pairingQr, qrMatrix, readBox, show, signinBody, stackFromEnv, until, verifiedChain, waitForMessage,
-  b64uEncode, newDevice, entryHash, randomBytes,
+  b64uEncode, newDevice, entryHash, randomBytes, checkOver,
   type Computer, type PhoneStack, type Root,
 } from '../../src/helpers/phone-app';
 
@@ -334,6 +334,64 @@ test.describe('a computer admits the phone', () => {
     await startJoin(phone, qr);
     await expect(phone.page.getByText('This code is not open any more. Show a new one and scan it again.')).toBeVisible({ timeout: 20_000 });
     await phone.context.close();
+  });
+
+  test('a passkey made at a look-alike origin is refused at the pairing, and the add with that pairing id fails', async ({ browser }) => {
+    const comp = await computerWithChain(stack, db, 'Office computer');
+    const { pairing } = await offerQr(comp);
+    expect((await openMailbox(stack, comp, pairing)).status).toBe(201);
+    // A real passkey from a real browser on the same host and another port: genuine, but its clientDataJSON names the wrong origin.
+    const other = await newPhone(browser, { passkeys: true });
+    await other.page.goto(`${stack.lookalikeUrl}/__blank`);
+    const seed = randomBytes(32);
+    const signPub = await ed25519PublicKey(seed);
+    const keyId = await keyIdOf(signPub);
+    const made = await other.page.evaluate(async (keyIdText) => {
+      const enc = new TextEncoder();
+      const label = enc.encode('suveren-passkey-register-v1');
+      const id = enc.encode(keyIdText);
+      const input = new Uint8Array(label.length + 1 + id.length);
+      input.set(label, 0); input.set(id, label.length + 1);
+      const challenge = new Uint8Array(await crypto.subtle.digest('SHA-256', input));
+      const b64u = (b: ArrayBuffer) => btoa(String.fromCharCode(...new Uint8Array(b))).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+      const cred = (await navigator.credentials.create({ publicKey: {
+        rp: { id: 'localhost', name: 'Suveren' }, user: { id: crypto.getRandomValues(new Uint8Array(16)), name: 'x', displayName: 'x' },
+        challenge, pubKeyCredParams: [{ type: 'public-key', alg: -7 }], attestation: 'none', timeout: 60_000,
+        authenticatorSelection: { residentKey: 'required', userVerification: 'required' },
+      } })) as PublicKeyCredential;
+      const r = cred.response as AuthenticatorAttestationResponse;
+      return { cred_id: b64u(cred.rawId), spki: Array.from(new Uint8Array(r.getPublicKey()!)), client_data_json: b64u(r.clientDataJSON), attestation_object: b64u(r.attestationObject) };
+    }, keyId);
+    const spki = Uint8Array.from(made.spki);
+    const pub = b64uEncode(encodeCoseEc2(spki.slice(27, 59), spki.slice(59, 91)));
+    const registration = { cred_id: made.cred_id, pub, rp_id: 'localhost', client_data_json: made.client_data_json, attestation_object: made.attestation_object };
+
+    // 1. The registration is refused where the new phone stores it.
+    const stored = await http(stack.asUrl, 'POST', `/api/devices/pairings/${pairing.pairingId}/passkey`, { body: registration });
+    expect(stored.status, show(stored)).toBe(400);
+    expect(['PASSKEY_INVALID', 'PASSKEY_REQUIRED']).toContain(codeOf(stored));
+
+    // 2. The computer's `add` of that phone, naming the pairing, fails: no registration is held under it.
+    const check = { type: 'webauthn' as const, rp_id: 'localhost', cred_id: made.cred_id, pub };
+    const record = await buildDeviceRecord({ sign_pub: b64uEncode(signPub), read_pub: b64uEncode(randomBytes(32)), kind: 'approve-app', label: 'Lookalike phone', keystore: 'platform', check }, signPub);
+    const head = await headOf(comp.entries[0]);
+    const entry = buildEntry({ root_did: comp.root.did, seq: 1, prev: head.hash, op: 'add', created_at: nowSec(), signer: comp.dev.record.key_id, device: record });
+    const hash = await entryHash(entry);
+    const proof = await other.page.evaluate(async ({ credId, h }) => {
+      const dec = (s: string) => Uint8Array.from(atob(s.replace(/-/g, '+').replace(/_/g, '/')), (c) => c.charCodeAt(0));
+      const challenge = Uint8Array.from(h.slice('sha256:'.length).match(/../g)!.map((x) => parseInt(x, 16)));
+      const b64u = (b: ArrayBuffer) => btoa(String.fromCharCode(...new Uint8Array(b))).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+      const a = (await navigator.credentials.get({ publicKey: { challenge, rpId: 'localhost', allowCredentials: [{ type: 'public-key', id: dec(credId) }], userVerification: 'required' } })) as PublicKeyCredential;
+      const r = a.response as AuthenticatorAssertionResponse;
+      return { authenticatorData: b64u(r.authenticatorData), clientDataJSON: b64u(r.clientDataJSON), signature: b64u(r.signature) };
+    }, { credId: made.cred_id, h: hash });
+    entry.sigs = [await signEntry(entry, comp.dev.record.key_id, comp.dev.seed), await signEntry(entry, record.key_id, seed)];
+    entry.checks = [{ by: record.key_id, check: proof }, { by: comp.dev.record.key_id, check: await checkOver(comp.dev.checkPriv, hash) }];
+    const add = await http(stack.asUrl, 'POST', '/api/devices/chain', { token: comp.token, body: { entry, pairing_id: pairing.pairingId } });
+    expect(add.status, show(add)).toBe(400);
+    expect(codeOf(add)).toBe('PASSKEY_REQUIRED');
+    expect((await chainOf(stack, comp, comp.root.did)).entries).toHaveLength(1);
+    await other.context.close();
   });
 
   test('a device that was never confirmed can neither read nor approve', async () => {
