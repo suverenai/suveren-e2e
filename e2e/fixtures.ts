@@ -373,6 +373,23 @@ export async function authenticatedPage(browser: Browser, apiKey: string, baseUR
 }
 
 /**
+ * After an account-key sign-in, wait for a real page. With SUVEREN_DEVICE_KEYS=on and no unlock password yet the page offers the
+ * password ONCE (screen 1, "never forced"). It is an offer, not a gate: leave it by an in-page navigation (a reload offers it again).
+ */
+export async function settleAfterSignIn(page: Page): Promise<void> {
+  const offer = page.getByRole('heading', { name: 'Set an unlock password' });
+  await Promise.race([
+    offer.waitFor({ state: 'visible', timeout: 15_000 }).catch(() => {}),
+    page.locator('.page-title').waitFor({ state: 'visible', timeout: 15_000 }).catch(() => {}),
+  ]);
+  if (await offer.isVisible().catch(() => false)) {
+    await page.evaluate(() => { history.pushState({}, '', '/'); window.dispatchEvent(new PopStateEvent('popstate')); });
+  }
+  // Wait for the post-login navigation to settle on a real page.
+  await expect(page.locator('.page-title')).toBeVisible({ timeout: 15_000 });
+}
+
+/**
  * Sign in to the gateway through the browser login form.
  * Waits for the URL to leave /login rather than checking .sidebar (hidden on mobile).
  *
@@ -485,7 +502,7 @@ export async function signInToGateway(page: Page, apiKey: string): Promise<void>
   }
   await leftLogin(45_000);
   writeLastGatewayKey(apiKey);
-  // Wait for the post-login navigation to settle on a real page.
+  await settleAfterSignIn(page);
   await expect(page.locator('.page-title')).toBeVisible({ timeout: 15_000 });
 }
 
