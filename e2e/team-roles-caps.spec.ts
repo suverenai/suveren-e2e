@@ -99,6 +99,42 @@ const hasTeamRolesCapsUi =
   readFileSync(APPROVER_CARD_FILE, 'utf8').includes('cant-approve-own-action');
 
 const CUSTOMERS_ID = latestProfileId('customers');
+// DEC-71 (suveren-as #142): a team cap on a CUMULATIVE bound (a daily count) is always hard. Above-cap
+// approval runs per single action, so the escalation scenarios use email's per-message recipient_max.
+const EMAIL_ESC_ID = latestProfileId('email');
+const EMAIL_ESC_KEYS = ['profile', 'read_access', 'recipient_max', 'send_daily_max', 'read_max_age_days', 'setup_daily_max'];
+const EMAIL_SCOPE = { allowed_domains: 'example.com' };
+const EMAIL_SCOPE_KEYS = ['allowed_recipients', 'allowed_domains', 'allowed_attachment_sources'];
+
+/** The team's email settings: sending to more than one recipient at once needs 1 approval from Lisa or Andreas. */
+async function emailApprovalCap(request: APIRequestContext, t: { tom: AsUser; lisa: AsUser; andreas: AsUser; groupId: string }): Promise<void> {
+  await putProfileConfig(request, t.andreas, t.groupId, EMAIL_ESC_ID, {
+    grantors: [t.tom.id], approvers: [t.lisa.id, t.andreas.id],
+    caps: { recipient_max: { value: 1, kind: 'approval' } },
+  });
+}
+
+/** Tom's email mandate: up to 3 recipients per message (above the team's approval cap of 1). */
+/** `push`: hand the mandate's gate content to the gateway (needs Tom signed in there: the gateway looks
+ *  the mandate up under the signed-in account). A proposal made at the AS directly needs no push. */
+async function tomEmailMandate(request: APIRequestContext, tom: AsUser, groupId: string, intent: string, push = true): Promise<Record<string, unknown>> {
+  const sessionRes = await request.post(`${SP_URL}/api/auth/session`, { headers: { 'x-api-key': tom.apiKey } });
+  const { user } = await sessionRes.json() as { user: { did: string } };
+  const bounds = { profile: EMAIL_ESC_ID, read_access: 'unlimited', recipient_max: 3, send_daily_max: 20, read_max_age_days: 30, setup_daily_max: 0 };
+  const boundsHash = computeBoundsHash(bounds, EMAIL_ESC_KEYS);
+  const scopeHash = computeScopeHash(EMAIL_SCOPE, EMAIL_SCOPE_KEYS);
+  const mandate = await spApiAttest(request, tom.apiKey, {
+    profile_id: EMAIL_ESC_ID, group_id: groupId, domain: tom.id, did: user.did,
+    bounds, bounds_hash: boundsHash, scope_hash: scopeHash,
+    gate_content_hashes: hashGateContent({ intent }),
+    execution_context_hash: 'sha256:' + 'd'.repeat(64), commitment_mode: 'automatic',
+  });
+  if (push) {
+    const gw = new GatewayClient(GW_MCP_URL, INTERNAL_SECRET);
+    await gw.pushGateContent({ authorizationId: mandate.authorization_id as string, boundsHash, contextHash: scopeHash, context: EMAIL_SCOPE }, EMAIL_ESC_ID, { intent });
+  }
+  return mandate;
+}
 
 // ── AS helpers (no wrapper in e2e/fixtures.ts for groups/profile-config —
 // same raw-fetch style spApiAttest/spApiReceipt already use) ───────────────
@@ -195,7 +231,7 @@ async function setUpTeam(request: APIRequestContext): Promise<{ tom: AsUser; lis
     approvers: [lisa.id, andreas.id],
     // approvals omitted — defaults to 1.
     caps: {
-      write_daily_max: { value: 1, kind: 'approval' },
+      write_daily_max: { value: 1, kind: 'hard' }, // a daily count can only be hard (DEC-71)
       read_access: { value: 'none', kind: 'hard' },
       delete_daily_max: { value: 2, kind: 'hard' },
     },
@@ -239,83 +275,32 @@ test.describe('Team roles, caps and read limits — gateway (#119)', () => {
       // to it directly, which the UI wizard would normally do on submit.
       // Bypassing the UI here (the broken step) means doing that push too —
       // same two-step shape crm-lifecycle.test.ts uses.
-      const scopeContext = { contact_type: 'customer' };
-      const contextHash = computeScopeHash(scopeContext, ['contact_type']);
-      const INTENT = "Manage customer records on the team's behalf, above the daily team cap when approved.";
-
-      const sessionRes = await request.post(`${SP_URL}/api/auth/session`, { headers: { 'x-api-key': tom.apiKey } });
-      const { user } = await sessionRes.json() as { user: { did: string } };
-      const mandate = await spApiAttest(request, tom.apiKey, {
-        profile_id: CUSTOMERS_ID,
-        group_id: groupId,
-        domain: tom.id,
-        did: user.did,
-        bounds: { profile: CUSTOMERS_ID, read_access: 'none', export_access: 'none', write_daily_max: 2, delete_daily_max: 2, setup_daily_max: 0 },
-        scope_hash: contextHash,
-        gate_content_hashes: hashGateContent({ intent: INTENT }),
-        execution_context_hash: 'sha256:' + 'd'.repeat(64),
-        commitment_mode: 'automatic',
-      });
-      expect(mandate.above_cap).toBe(true); // write_daily_max=2 exceeds the approval cap (1)
+      await emailApprovalCap(request, { tom, lisa, andreas, groupId });
+      const mandate = await tomEmailMandate(request, tom, groupId, "Send email on the team's behalf; to several recipients at once only when approved.");
+      expect(mandate.above_cap).toBe(true); // recipient_max=3 exceeds the per-message approval cap (1)
       expect(mandate.commitment_mode).toBe('review_above_cap');
-
-      const gw = new GatewayClient(GW_MCP_URL, INTERNAL_SECRET);
-      await gw.pushGateContent(
-        { authorizationId: mandate.authorization_id as string, contextHash, context: scopeContext },
-        CUSTOMERS_ID,
-        { intent: INTENT },
-      );
     });
 
-    test("Tom's agent (real CRM connector): a first write succeeds; a second, over the team cap, should escalate to an above-cap proposal", async ({ page }) => {
-      // Signs Tom's browser in too — later steps in this chain need it, and
-      // the gateway's attestation cache resolves tool calls by the
-      // CURRENTLY signed-in session.
+    test("Tom's agent (real mail connector, test mailbox): one recipient sends; three at once escalate to an above-cap proposal", async ({ page }) => {
       await signInToGateway(page, tom.apiKey);
       await handleOnboarding(page);
-      // CRM is `personalDefault: true`, but after other specs switched
-      // accounts on the shared gateway it may not be installed for Tom —
-      // activate it explicitly (a no-op when it is already running).
-      await activateIntegration(page, 'CRM');
+      await activateIntegration(page, 'Email');
       const transport = new SSEClientTransport(new URL(`${GW_MCP_URL}/sse`));
       mcpClient = new Client({ name: 'tr5-tom-agent', version: '0.1.0' }, { capabilities: {} });
       await mcpClient.connect(transport);
-
       await expect(async () => {
         const { tools } = await mcpClient.listTools();
-        expect(tools.some(t => t.name === 'crm__create_contact')).toBe(true);
+        expect(tools.some(t => t.name === 'mail__send_message')).toBe(true);
       }).toPass({ timeout: 30_000 });
 
-      // FIXED 2026-10-15 (was a KNOWN GATEWAY/AS INTEGRATION DEFECT — see the
-      // file header): a team-promoted review_above_cap mandate no longer
-      // defers commitment to the owner's own domain at all, so the first
-      // (within-cap) write executes DIRECTLY — a real ticket, no proposal of
-      // any kind, no domain-commit step. Only the SECOND (over-cap) write
-      // produces a proposal, and it is a genuine above-cap one (pendingApprovers
-      // naming Lisa/Andreas/Tom), which only Lisa or Andreas can clear — never
-      // something Tom can commit to himself.
-      const first = await mcpClient.callTool({
-        name: 'crm__create_contact',
-        arguments: { name: 'TR5 Contact A', email: 'tr5-a@example.com', type: 'customer' },
-      });
-      expect(first.isError).not.toBe(true);
+      // Within the per-message cap (1 recipient): sent at once, no proposal of any kind.
+      const first = await mcpClient.callTool({ name: 'mail__send_message', arguments: { to: ['one@example.com'], subject: 'TR5 single', body: 'Hello.' } });
       const firstText = (first.content as Array<{ text: string }>)[0].text;
-      // No proposal at all for the within-cap write — this is the direct
-      // regression check for the fix (the old, buggy code always produced a
-      // "Proposal ID:" here, for every call, regardless of the cap).
+      expect(first.isError, firstText).not.toBe(true);
       expect(firstText).not.toMatch(/Proposal ID:/);
-      const contactA = JSON.parse(firstText.slice(firstText.indexOf('{'))) as { id: string; name: string };
-      expect(contactA.id).toBeTruthy();
-      expect(contactA.name).toBe('TR5 Contact A'); // within the team cap (1/day) — a real contact, executed immediately.
 
-      // Second write: exceeds the cumulative team cap (now at 1/1) — escalates
-      // to an above-cap proposal naming Lisa/Andreas (APPROVAL_REQUIRED),
-      // directly in the tool call's own result (no check-pending-commitments
-      // round-trip needed — there was nothing deferred to check).
-      const second = await mcpClient.callTool({
-        name: 'crm__create_contact',
-        arguments: { name: 'TR5 Contact B', email: 'tr5-b@example.com', type: 'customer' },
-      });
+      // Above it (3 recipients in one message): an above-cap proposal naming Lisa/Andreas.
+      const second = await mcpClient.callTool({ name: 'mail__send_message', arguments: { to: ['a@example.com', 'b@example.com', 'c@example.com'], subject: 'TR5 Escalated', body: 'Hello all.' } });
       const secondText = (second.content as Array<{ text: string }>)[0].text;
       expect(secondText).toMatch(/Approval required/i);
       const match = secondText.match(/Proposal ID:\s*([^\s.]+)/);
@@ -372,7 +357,7 @@ test.describe('Team roles, caps and read limits — gateway (#119)', () => {
       expect(body.requiredApprovals).toBe(1);
     });
 
-    test("Tom's agent executes the committed proposal — a real second CRM contact now exists", async () => {
+    test("Tom's agent executes the committed proposal — the email to three recipients is sent", async () => {
       const result = await mcpClient.callTool({
         name: 'check-pending-commitments',
         arguments: { proposal_id: proposalId },
@@ -380,8 +365,7 @@ test.describe('Team roles, caps and read limits — gateway (#119)', () => {
       expect(result.isError).not.toBe(true);
       const text = (result.content as Array<{ text: string }>)[0].text;
       expect(text).toMatch(/committed and executed/i);
-      expect(text).toContain('TR5 Contact B');
-      expect(text).toContain('tr5-b@example.com');
+      expect(text).toContain('TR5 Escalated');
       await mcpClient.close();
     });
 
@@ -389,26 +373,11 @@ test.describe('Team roles, caps and read limits — gateway (#119)', () => {
       // Today Tom has used his mandate's own 2 writes; a delete is over the
       // team's hard cap… so use a fresh mandate on a fresh team instead.
       const team2 = await setUpTeam(request);
-      await putProfileConfig(request, team2.andreas, team2.groupId, CUSTOMERS_ID, {
-        grantors: [team2.tom.id], approvers: [team2.lisa.id, team2.andreas.id],
-        caps: { write_daily_max: { value: 0, kind: 'approval' }, read_access: { value: 'none', kind: 'hard' } },
-      });
+      await emailApprovalCap(request, team2);
       await signInToGateway(page, team2.tom.apiKey);
       await handleOnboarding(page);
-      await activateIntegration(page, 'CRM');
-      const scopeContext = { contact_type: 'customer' };
-      const contextHash = computeScopeHash(scopeContext, ['contact_type']);
-      const intent = 'Withdraw test: every write needs a team approval.';
-      const sessionRes = await request.post(`${SP_URL}/api/auth/session`, { headers: { 'x-api-key': team2.tom.apiKey } });
-      const { user } = await sessionRes.json() as { user: { did: string } };
-      const mandate = await spApiAttest(request, team2.tom.apiKey, {
-        profile_id: CUSTOMERS_ID, group_id: team2.groupId, domain: team2.tom.id, did: user.did,
-        bounds: { profile: CUSTOMERS_ID, read_access: 'none', export_access: 'none', write_daily_max: 3, delete_daily_max: 0, setup_daily_max: 0 },
-        scope_hash: contextHash, gate_content_hashes: hashGateContent({ intent }),
-        execution_context_hash: 'sha256:' + 'd'.repeat(64), commitment_mode: 'automatic',
-      });
-      const gw = new GatewayClient(GW_MCP_URL, INTERNAL_SECRET);
-      await gw.pushGateContent({ authorizationId: mandate.authorization_id as string, contextHash, context: scopeContext }, CUSTOMERS_ID, { intent });
+      await activateIntegration(page, 'Email');
+      await tomEmailMandate(request, team2.tom, team2.groupId, 'Withdraw test: several recipients at once need a team approval.');
 
       const client = new Client({ name: 'tr5-withdraw-agent', version: '0.1.0' }, { capabilities: {} });
       await client.connect(new SSEClientTransport(new URL(`${GW_MCP_URL}/sse`)));
@@ -416,9 +385,9 @@ test.describe('Team roles, caps and read limits — gateway (#119)', () => {
       try {
         await expect(async () => {
           const { tools } = await client.listTools();
-          expect(tools.some(t => t.name === 'crm__create_contact')).toBe(true);
+          expect(tools.some(t => t.name === 'mail__send_message')).toBe(true);
         }).toPass({ timeout: 30_000 });
-        const res = await client.callTool({ name: 'crm__create_contact', arguments: { name: 'TR5 Withdrawn', email: 'tr5-w@example.com', type: 'customer' } });
+        const res = await client.callTool({ name: 'mail__send_message', arguments: { to: ['w1@example.com', 'w2@example.com'], subject: 'TR5 Withdrawn', body: 'Hello.' } });
         const t = (res.content as Array<{ text: string }>)[0].text;
         expect(t).toMatch(/Approval required/i);
         id = t.match(/Proposal ID:\s*([^\s.]+)/)![1];
@@ -559,7 +528,7 @@ test.describe('Team roles, caps and read limits — gateway (#119)', () => {
   // Runs LAST and independently (not .serial with anything) — see the file
   // header: it documents a real, reproducible gateway race-condition defect
   // and is EXPECTED TO FAIL against the current #119 code.
-  test('mandate editor: hard cap clamps, approval cap allows above with a note, hard enum is disabled', async ({ page, request }) => {
+  test('mandate editor: hard caps clamp (a daily count included, DEC-71), hard enum is disabled', async ({ page, request }) => {
     const { tom } = await setUpTeam(request);
 
     await signInToGateway(page, tom.apiKey);
@@ -620,28 +589,27 @@ test.describe('Team roles, caps and read limits — gateway (#119)', () => {
     await expect(page.getByTestId('cap-note-read_access')).toContainText(/Disabled by your team.s policy/);
     await expect(page.getByTestId('cap-note-read_access')).toContainText('none');
 
-    // ── Approval-kind cap (write_daily_max, cap=1): NOT clamped — Tom can
-    //    set it above the cap, and the field explains where it goes.
+    // ── A daily count is a hard cap too (DEC-71, write_daily_max, cap=1): clamped at the cap, never
+    //    offered as "goes to … for approval" (that note is per single action only).
     const writeInput = page.locator('#bounds-field-write_daily_max');
-    await writeInput.fill('2');
-    await expect(writeInput).toHaveValue('2');
+    await expect(writeInput).toHaveValue('1', { timeout: 10_000 });
+    const writeIncrement = writeInput.locator('xpath=following-sibling::button[contains(@class,"stepper-increment")]');
+    await expect(writeIncrement).toBeDisabled();
     const writeNote = page.getByTestId('cap-note-write_daily_max');
-    await expect(writeNote).toContainText(/goes to/);
-    await expect(writeNote).toContainText(/for approval/);
-    await expect(writeNote).toContainText('1'); // the cap value
+    await expect(writeNote).toContainText('Team limit 1');
+    await expect(writeNote).not.toContainText(/for approval/);
 
-    // Continue is NOT blocked — only a HARD violation blocks it, and nothing
-    // here is hard-violating (delete/read_access are already at their caps).
+    // Continue is NOT blocked — every capped field sits at its cap, nothing is hard-violating.
     await expect(page.locator('button:has-text("Next: Problem Statement")')).toBeEnabled();
     await page.click('button:has-text("Next: Problem Statement")');
 
     await page.waitForSelector('.intent-textarea', { timeout: 5_000 });
-    await page.fill('.intent-textarea', "Manage customer records on the team's behalf, above the daily team cap when approved.");
+    await page.fill('.intent-textarea', "Manage customer records on the team's behalf, within the team's limits.");
     await page.locator('button:has-text("Continue to Review")').click();
 
     await page.waitForURL(url => url.toString().includes('/mandates/new/sign'), { timeout: 10_000 });
     await page.locator('button', { hasText: 'Automatic' }).click();
-    await page.locator('input[placeholder*="e.g."]').fill('Team CRM ops (above cap)');
+    await page.locator('input[placeholder*="e.g."]').fill('Team CRM ops (within caps)');
     if (await page.getByTestId('duration-needed').isVisible().catch(() => false)) await page.locator('button', { hasText: /^24 hours$/ }).click();
     await page.locator('button', { hasText: /^Sign mandate/ }).last().click();
     await page.waitForURL(url => url.toString().includes('/mandates'), { timeout: 15_000 });
@@ -664,29 +632,19 @@ test.describe('Team approval from a row (UI spec §12.2)', () => {
   test('Lisa opens the team approval in place and approves it; the AS records her approval', async ({ page, request }) => {
     test.setTimeout(180_000);
     const team = await setUpTeam(request);
-    const scopeContext = { contact_type: 'customer' };
-    const scopeHash = computeScopeHash(scopeContext, ['contact_type']);
-    const intent = 'Row approval test: a write above the team cap.';
-    const sess = await request.post(`${SP_URL}/api/auth/session`, { headers: { 'x-api-key': team.tom.apiKey } });
-    const { user } = await sess.json() as { user: { did: string } };
-    const bounds = { profile: CUSTOMERS_ID, read_access: 'none', export_access: 'none', write_daily_max: 3, delete_daily_max: 0, setup_daily_max: 0 };
-    const mandate = await spApiAttest(request, team.tom.apiKey, {
-      profile_id: CUSTOMERS_ID, group_id: team.groupId, domain: team.tom.id, did: user.did,
-      bounds, bounds_hash: computeBoundsHash(bounds, ['profile', 'read_access', 'export_access', 'write_daily_max', 'delete_daily_max', 'setup_daily_max']),
-      scope_hash: scopeHash, gate_content_hashes: hashGateContent({ intent }),
-      execution_context_hash: 'sha256:' + 'd'.repeat(64), commitment_mode: 'automatic',
-    });
+    await emailApprovalCap(request, team);
+    const mandate = await tomEmailMandate(request, team.tom, team.groupId, 'Row approval test: an email to several recipients, above the team cap.', false);
     expect(mandate.status).toBe('active');
 
     const created = await request.post(`${SP_URL}/api/proposals`, {
       headers: { 'x-api-key': team.tom.apiKey },
       data: {
         authorization_id: mandate.authorization_id,
-        profile_id: CUSTOMERS_ID,
+        profile_id: EMAIL_ESC_ID,
         pending_domains: [team.tom.id],
-        tool: 'crm__create_contact',
-        tool_args: { name: 'TR5 Row Approval', email: 'tr5-row@example.com', type: 'customer' },
-        execution_context: { contact_type: 'customer', action_type: 'write' },
+        tool: 'mail__send_message',
+        tool_args: { to: ['row-a@example.com', 'row-b@example.com'], subject: 'TR5 Row Approval', body: 'Hello both.' },
+        execution_context: { recipient_count: 2, action_type: 'send' },
         pending_approvers: [team.lisa.id, team.andreas.id],
         created_by: team.tom.id,
       },
@@ -704,11 +662,11 @@ test.describe('Team approval from a row (UI spec §12.2)', () => {
     await expect(row.or(lone).first()).toBeVisible({ timeout: 30_000 });
     if (await row.count()) {
       // In the list: one sentence (manifest template), and it says others are involved.
-      await expect(row.getByTestId('approval-row-summary')).toHaveText('New contact TR5 Row Approval', { timeout: 30_000 });
+      await expect(row.getByTestId('approval-row-summary')).toContainText('TR5 Row Approval', { timeout: 30_000 });
       await expect(row).toContainText('Team approval');
     }
     const card = await openApprovalById(page, id);
-    await expect(card.getByTestId('approval-summary')).toHaveText('New contact TR5 Row Approval', { timeout: 30_000 });
+    await expect(card.getByTestId('approval-summary')).toContainText('TR5 Row Approval', { timeout: 30_000 });
     await card.locator('button:has-text("Approve")').click();
 
     await expect(async () => {
