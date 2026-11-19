@@ -9,8 +9,8 @@
  *     flagged above_cap, and carries E2EE intent (ciphertext + per-approver keys).
  *  3. INTENT SHARING: an approver can fetch the encrypted intent; an outsider
  *     (not an approver) is denied.
- *  4. TEAM APPROVAL: when the member's action would exceed the bound, the
- *     receipt escalates to 409 approval_required (routed to the approvers)
+ *  4. TEAM APPROVAL: when the member's payment exceeds the team's per-payment
+ *     cap, the ticket escalates to 409 approval_required (routed to the approvers)
  *     instead of a hard 403. A proposal is created, the approver approves it,
  *     and the proposal commits (a receipt is issued).
  *
@@ -34,7 +34,7 @@ const hasTeamRolesCaps =
 
 const SP_PORT = 15300;
 const SP_URL = `http://localhost:${SP_PORT}`;
-const PROFILE_ID = PROFILE_V07.customers;
+const PROFILE_ID = PROFILE_V07.charge;
 const PROFILES_DIR = `${process.cwd()}/../hap-profiles`;
 
 const pm = new ProcessManager();
@@ -49,11 +49,15 @@ let outsiderKey = '';
 let groupId = '';
 let authorizationId = '';
 
-// Above the cap (write_daily_max cap is 1) so the authority is flagged above_cap.
+// The team's approval cap is on a PER-PAYMENT bound (amount_max 100). A cap on a cumulative bound is
+// always hard since DEC-71 (suveren-as #142), so above-cap escalation lives on per-transaction bounds.
+// The mandate's own per-payment bound (500) is above the cap, so it is flagged above_cap.
 const BOUNDS = {
-  profile: PROFILE_ID, read_access: 'unlimited', export_access: 'none',
-  write_daily_max: 2, delete_daily_max: 1, setup_daily_max: 0,
+  profile: PROFILE_ID, amount_max: 500, amount_daily_max: 5000, amount_monthly_max: 50_000, transaction_count_daily_max: 50,
 };
+const SCOPE = { currency: 'EUR', action_type: 'charge' };
+const SCOPE_KEYS = ['currency', 'action_type'];
+const EXEC_HASH = hashExecutionContext({ action_type: 'charge', amount: BOUNDS.amount_max, currency: 'EUR' });
 const INTENT = {
   intent_ciphertext: 'BASE64_CIPHERTEXT_e2e==',
   // encrypted_keys is keyed by approver userId — filled in once admin is registered.
@@ -71,13 +75,14 @@ async function api(method: string, path: string, apiKey: string, body?: unknown)
   return { status: res.status, body: json as Record<string, unknown> };
 }
 
-const writeReceipt = () =>
+const charge = (amount: number) =>
   sp.postTicket(agentKey, {
     authorizationId,
     profileId: PROFILE_ID,
-    action: 'crm__create_contact',
-    actionType: 'write',
-    executionContext: { action_type: 'write' },
+    action: 'charge',
+    actionType: 'charge',
+    amount,
+    executionContext: { amount, currency: 'EUR', action_type: 'charge' },
   });
 
 beforeAll(async () => {
@@ -100,7 +105,7 @@ beforeAll(async () => {
   groupId = grp.group.id;
   await sp.joinGroup(agentKey, grp.inviteCode, adminKey);
 
-  // Admin configures the profile: cap write_daily_max at 1, with the admin AND
+  // Admin configures the profile: an approval cap of 100 per payment, with the admin AND
   // the agent as approvers.
   //
   // The agent is in the list because in a team group the AS now refuses an
@@ -112,8 +117,8 @@ beforeAll(async () => {
   // which is what the rest of this file exercises.
   await sp.setProfileConfig(adminKey, groupId, PROFILE_ID, {
     approvers: [adminId, agentId],
-    caps: { write_daily_max: 1 },
-  });
+    caps: { amount_max: { value: 100, kind: 'approval' } },
+  } as never);
 
   // The agent's authorization shares its intent with the admin (approver).
   INTENT.encrypted_keys = { [adminId]: { ct: 'CT_FOR_ADMIN==', enc: 'ENC_FOR_ADMIN==' } };
@@ -136,12 +141,12 @@ describe('Above-cap authorization with shared intent', () => {
       group_id: groupId,
       bounds: BOUNDS,
       // bounds_hash omitted → AS computes it
-      scope_hash: computeScopeHash({}, []),
+      scope_hash: computeScopeHash(SCOPE, SCOPE_KEYS),
       domain: agentId, // team: resolved domain is the member's userId
       did: agentDid,
       commitment_mode: 'automatic',
-      gate_content_hashes: hashGateContent({ intent: "Manage customer records on the team's behalf." }),
-      execution_context_hash: hashExecutionContext({ action_type: 'write' }),
+      gate_content_hashes: hashGateContent({ intent: "Take payments on the team's behalf." }),
+      execution_context_hash: EXEC_HASH,
       ...INTENT,
     });
 
@@ -179,12 +184,12 @@ describe('Intent disclosure — C2 binding', () => {
       profile_hash: profileHashFor(PROFILE_ID, PROFILES_DIR),
       group_id: groupId,
       bounds: BOUNDS,
-      scope_hash: computeScopeHash({}, []),
+      scope_hash: computeScopeHash(SCOPE, SCOPE_KEYS),
       domain: agentId,
       did: agentDid,
       commitment_mode: 'automatic',
-      gate_content_hashes: hashGateContent({ intent: "Manage customer records on the team's behalf." }),
-      execution_context_hash: hashExecutionContext({ action_type: 'write' }),
+      gate_content_hashes: hashGateContent({ intent: "Take payments on the team's behalf." }),
+      execution_context_hash: EXEC_HASH,
       ...INTENT,
       ...overrides,
     });
@@ -207,33 +212,17 @@ describe('Intent disclosure — C2 binding', () => {
 // ── 3. Team approval: escalate → approve → commit ─────────────────────────────
 
 describe('Team approval (above-cap escalation)', () => {
-  it('allows actions up to the bound, then escalates to approval_required', async () => {
-    // The team's configured cap is write_daily_max: 1 (the mandate's OWN bound
-    // is 2 — the outer, hard ceiling). TR5/TR6 made the
-    // above-cap check dispatch through checkBound itself, so this CUMULATIVE
-    // team cap now actually governs starting from the second write — it did
-    // not before (content/0.7/review.md's "emails per day" example: a
-    // cumulative team cap used to be checked only per-transaction, so the
-    // first two writes both cleared the per-transaction check and only the
-    // THIRD write — exceeding the mandate's own bound of 2 — ever escalated).
-    // First write stays within the team's cap (1).
-    expect((await writeReceipt()).status).toBe(201);
-    // Before TR5/TR6 the cumulative team cap was not checked, so the second
-    // write still passed and only the third (past the mandate's own bound of
-    // 2) escalated.
-    if (!hasTeamRolesCaps) expect((await writeReceipt()).status).toBe(201);
-
-    // Second write exceeds the CUMULATIVE team cap (1). Because the authority
-    // is above-cap AND the profile has approvers, it escalates to 409 (not a
-    // hard 403).
-    const escalated = await writeReceipt();
+  it('a payment within the team cap runs; one above it escalates to approval_required', async () => {
+    // Within the team's per-payment cap (100): a ticket at once.
+    expect((await charge(50)).status).toBe(201);
+    // Above the cap (250 > 100) but within the mandate's own bound (500): the authority is above-cap
+    // and the profile has approvers, so it escalates to 409 (not a hard 403).
+    const escalated = await charge(250);
     expect(escalated.status).toBe(409);
     const errors = escalated.body.errors as Array<Record<string, unknown>>;
     expect(errors[0].code).toBe('APPROVAL_REQUIRED');
-    expect(errors[0].field).toBe('write_daily_max');
-    // The escalation routes to EXACTLY the configured approver set — both
-    // entries, in configured order. (It was [adminId] before the agent had to
-    // be a configured approver in order to grant at all.)
+    expect(errors[0].field).toBe('amount_max');
+    // The escalation routes to EXACTLY the configured approver set, in configured order.
     expect(errors[0].approvers).toEqual([adminId, agentId]);
   });
 
@@ -242,9 +231,9 @@ describe('Team approval (above-cap escalation)', () => {
     const created = await api('POST', '/api/proposals', agentKey, {
       authorization_id: authorizationId,
       profile_id: PROFILE_ID,
-      tool: 'crm__create_contact',
-      tool_args: { name: 'Escalated Contact' },
-      execution_context: { action_type: 'write' },
+      tool: 'mollie__CreatePaymentLink',
+      tool_args: { amount: { value: '250.00', currency: 'EUR' }, description: 'Escalated payment' },
+      execution_context: { amount: 250, currency: 'EUR', action_type: 'charge' },
       pending_approvers: [adminId],
     });
     expect(created.status).toBe(201);
@@ -261,9 +250,9 @@ describe('Team approval (above-cap escalation)', () => {
     const created = await api('POST', '/api/proposals', agentKey, {
       authorization_id: authorizationId,
       profile_id: PROFILE_ID,
-      tool: 'crm__create_contact',
-      tool_args: { name: 'Another Contact' },
-      execution_context: { action_type: 'write' },
+      tool: 'mollie__CreatePaymentLink',
+      tool_args: { amount: { value: '260.00', currency: 'EUR' }, description: 'Another payment' },
+      execution_context: { amount: 260, currency: 'EUR', action_type: 'charge' },
       pending_approvers: [adminId],
     });
     const proposalId = (created.body.proposal as { id: string }).id;

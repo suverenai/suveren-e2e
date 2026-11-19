@@ -27,9 +27,11 @@
  *      enforced as hard.
  *   4. An approval-kind cap promotes an 'automatic' request to a signed
  *      'review_above_cap' mandate.
- *   5. At ticket time, a CUMULATIVE bound (send_daily_max / write_daily_max
- *      — "emails per day") triggers APPROVAL_REQUIRED, not just a
- *      per-transaction one.
+ *   5. A cap on a CUMULATIVE bound (a daily count or total) is always hard
+ *      (DEC-71, suveren-as #142): signing above it is refused, and team
+ *      settings refuse an approval-kind cap on it (CAP_KIND_NOT_SUPPORTED).
+ *      Above-cap approval runs per single action: every escalation scenario
+ *      here uses a per-transaction bound (charge, purchase, sales, calendar).
  *   6. A proposal commits only after the configured number of DISTINCT
  *      approvals (N-of-M, tested at N=2 with two different approvers).
  *   7. The proposer's own approval is refused (APPROVER_IS_PROPOSER) and
@@ -71,8 +73,14 @@ const SP_URL = `http://localhost:${SP_PORT}`;
 const PROFILES_DIR = join(process.cwd(), '..', 'hap-profiles');
 
 const EMAIL_ID = PROFILE_V07.email; // email@0.8 — hard enum + hard gatekeeper + approval cumulative
-const CUSTOMERS_ID = PROFILE_V07.customers; // customers@0.9 — proposer-overlap + legacy-config
-const RECORDS_ID = PROFILE_V07.records; // records@0.6 — no-approvers-hard + impossible-set + personal mode
+const RECORDS_ID = PROFILE_V07.records; // records@0.6 — personal mode (owner-chosen review_above_cap)
+// DEC-71 (suveren-as #142): a team cap on a CUMULATIVE bound is always hard, so every above-cap
+// approval scenario uses a PER-TRANSACTION bound: charge amount_max, purchase spend_max, sales value_max,
+// calendar booking_duration_max (each its own (group, profile) config).
+const CHARGE_ID = PROFILE_V07.charge; // per-payment approval cap: escalation + N-of-2
+const PURCHASE_ID = PROFILE_V07.purchase; // per-purchase approval cap: proposer exclusion
+const SALES_ID = PROFILE_V07.sales; // per-quote value cap: no-approvers-hard + impossible set
+const CALENDAR_ID = PROFILE_V07.calendar; // bare per-booking cap: migrated (pre-TR5) config
 
 const pm = new ProcessManager();
 const sp = new SPClient(SP_URL);
@@ -153,7 +161,7 @@ describe.skipIf(!hasTeamRolesCaps)('Grantor/approver roles + hard caps (email@0.
       caps: {
         read_access: { value: 'none', kind: 'hard' },
         read_max_age_days: { value: 30, kind: 'approval' }, // gatekeeper-enforced → always hard regardless
-        send_daily_max: { value: 2, kind: 'approval' },
+        send_daily_max: { value: 2, kind: 'hard' }, // a daily count can only be hard (DEC-71)
       },
     });
     expect(res.status).toBe(200);
@@ -200,9 +208,20 @@ describe.skipIf(!hasTeamRolesCaps)('Grantor/approver roles + hard caps (email@0.
     expect(err.field).toBe('read_max_age_days');
   });
 
-  let authorizationIdA = '';
+  it('a grantor who is not an approver CAN sign within the caps', async () => {
+    const res = await api('POST', '/api/as/mandate', grantor.apiKey, {
+      ...EMAIL_BASE,
+      authorization_id: mintAuthorizationId(),
+      supported_versions: ['0.7'],
+      group_id: teamGroupId,
+      did: grantor.did,
+      bounds: { profile: EMAIL_ID, read_access: 'none', read_max_age_days: 30, send_daily_max: 1, setup_daily_max: 0 },
+    });
+    expect(res.status).toBe(201);
+    expect(res.body.above_cap).toBeFalsy();
+  });
 
-  it('a grantor who is not an approver CAN sign; an approval-kind cap promotes automatic → signed review_above_cap', async () => {
+  it('a daily cap is hard: above it signing is refused (422 cap_exceeded), although the team has approvers (DEC-71)', async () => {
     const res = await api('POST', '/api/as/mandate', grantor.apiKey, {
       ...EMAIL_BASE,
       authorization_id: mintAuthorizationId(),
@@ -211,141 +230,147 @@ describe.skipIf(!hasTeamRolesCaps)('Grantor/approver roles + hard caps (email@0.
       did: grantor.did,
       bounds: { profile: EMAIL_ID, read_access: 'none', read_max_age_days: 30, send_daily_max: 5, setup_daily_max: 0 },
     });
-    expect(res.status).toBe(201);
-    expect(res.body.above_cap).toBe(true);
-    expect(res.body.commitment_mode).toBe('review_above_cap');
-    authorizationIdA = res.body.authorization_id as string;
-    expect(authorizationIdA).toBeTruthy();
+    expect(res.status).toBe(422);
+    const err = (res.body.errors as Array<Record<string, unknown>>)[0];
+    expect(err.code).toBe('cap_exceeded');
+    expect(err.field).toBe('send_daily_max');
   });
 
-  // ── 2. Ticket escalation (cumulative) + N-of-2 approval ──────────────────
-
-  describe('ticket escalation + N-of-2 distinct approvals', () => {
-    const sendTicket = () =>
-      sp.postTicket(grantor.apiKey, {
-        authorizationId: authorizationIdA,
-        profileId: EMAIL_ID,
-        action: 'mail__send_message',
-        actionType: 'send',
-        executionContext: { action_type: 'send' },
-      });
-
-    it('stays within the team cap (2/day) for the first two sends', async () => {
-      expect(authorizationIdA).toBeTruthy();
-      expect((await sendTicket()).status).toBe(201);
-      expect((await sendTicket()).status).toBe(201);
+  it('team settings refuse an approval-kind cap on the daily count (400 CAP_KIND_NOT_SUPPORTED)', async () => {
+    const res = await putProfileConfig(grantor.apiKey, teamGroupId, EMAIL_ID, {
+      approvers: [approverA.id, approverB.id], grantors: [grantor.id], approvals: 2,
+      caps: { send_daily_max: { value: 2, kind: 'approval' } },
     });
-
-    let proposalId = '';
-
-    it('the third send exceeds the CUMULATIVE team cap → 409 APPROVAL_REQUIRED (not just a per-transaction bound)', async () => {
-      const res = await sendTicket();
-      expect(res.status).toBe(409);
-      const err = (res.body.errors as Array<Record<string, unknown>>)[0];
-      expect(err.code).toBe('APPROVAL_REQUIRED');
-      expect(err.field).toBe('send_daily_max');
-      expect(err.approvers).toEqual([approverA.id, approverB.id]);
-    });
-
-    it('a proposal routed to both approvers does NOT commit after only one approval (test 1 of N=2)', async () => {
-      const created = await api('POST', '/api/proposals', grantor.apiKey, {
-        authorization_id: authorizationIdA,
-        profile_id: EMAIL_ID,
-        tool: 'mail__send_message',
-        tool_args: { to: 'customer@example.com' },
-        execution_context: { action_type: 'send' },
-        pending_approvers: [approverA.id, approverB.id],
-      });
-      expect(created.status).toBe(201);
-      proposalId = (created.body.proposal as { id: string }).id;
-      expect(proposalId).toBeTruthy();
-
-      const res = await api('POST', `/api/proposals/${proposalId}/approve`, approverA.apiKey);
-      expect(res.status).toBe(200);
-      expect(res.body.status).toBe('pending'); // 1 of 2 — not enough yet
-      expect(res.body.approvedCount).toBe(1);
-      expect(res.body.requiredApprovals).toBe(2);
-      expect(res.body.remainingApprovers).toEqual([approverB.id]);
-    });
-
-    it('the SECOND distinct approval commits it (test 2 of N=2)', async () => {
-      const res = await api('POST', `/api/proposals/${proposalId}/approve`, approverB.apiKey);
-      expect(res.status).toBe(200);
-      expect(res.body.status).toBe('committed');
-      expect(res.body.approvedCount).toBe(2);
-    });
-
-    it('the ticket replayed with the committed proposalId now executes (201)', async () => {
-      const res = await sp.postTicket(grantor.apiKey, {
-        authorizationId: authorizationIdA,
-        profileId: EMAIL_ID,
-        action: 'mail__send_message',
-        actionType: 'send',
-        executionContext: { action_type: 'send' },
-        proposalId,
-        // The matched committed proposal's content check: a legacy (non-encrypted)
-        // caller matches by the SAME toolArgs the proposal was created with.
-        toolArgs: { to: 'customer@example.com' },
-      });
-      expect(res.status).toBe(201);
-    });
+    expect(res.status).toBe(400);
+    expect(res.body.code).toBe('CAP_KIND_NOT_SUPPORTED');
   });
 });
 
-// ── 3. Proposer exclusion: APPROVER_IS_PROPOSER, never counted (customers@0.9, overlap) ─
+// ── 2. Above-cap promotion, ticket escalation + N-of-2 approval (charge@0.6, per-payment cap) ──
 
-describe.skipIf(!hasTeamRolesCaps)('Proposer exclusion — the proposer cannot approve their own above-cap action (customers@0.9)', () => {
-  let authorizationIdB = '';
+describe.skipIf(!hasTeamRolesCaps)('Above-cap approval per payment + N-of-2 distinct approvals (charge@0.6)', () => {
+  const SCOPE = computeScopeHash({ currency: 'EUR', action_type: 'charge' }, ['currency', 'action_type']);
+  let authorizationIdA = '';
+  const chargeTicket = (amount: number, extra: Record<string, unknown> = {}) =>
+    sp.postTicket(grantor.apiKey, {
+      authorizationId: authorizationIdA, profileId: CHARGE_ID, action: 'charge', actionType: 'charge', amount,
+      executionContext: { amount, currency: 'EUR', action_type: 'charge' }, ...extra,
+    });
+  const TOOL_ARGS = { amount: { value: '250.00', currency: 'EUR' }, description: 'Escalated payment' };
 
   beforeAll(async () => {
-    // The GRANTOR is also one of the two configured approvers here — the
-    // overlap case the rule exists for. approvals=1 keeps it solvable once
-    // the proposer is excluded (one eligible approver, approverA, remains).
-    const cfg = await putProfileConfig(grantor.apiKey, teamGroupId, CUSTOMERS_ID, {
+    const cfg = await putProfileConfig(grantor.apiKey, teamGroupId, CHARGE_ID, {
+      approvers: [approverA.id, approverB.id], grantors: [grantor.id], approvals: 2,
+      caps: { amount_max: { value: 100, kind: 'approval' } },
+    });
+    expect(cfg.status).toBe(200);
+  });
+
+  it('an approval-kind cap on a per-payment bound promotes automatic → signed review_above_cap', async () => {
+    const res = await api('POST', '/api/as/mandate', grantor.apiKey, {
+      authorization_id: mintAuthorizationId(),
+      supported_versions: ['0.7'],
+      profile_id: CHARGE_ID,
+      profile_hash: profileHashFor(CHARGE_ID, PROFILES_DIR),
+      group_id: teamGroupId,
+      domain: 'ignored-for-teams',
+      scope_hash: SCOPE,
+      did: grantor.did,
+      commitment_mode: 'automatic',
+      gate_content_hashes: hashGateContent({ intent: "Take payments on the team's behalf." }),
+      execution_context_hash: hashExecutionContext({ action_type: 'charge', amount: 500, currency: 'EUR' }),
+      bounds: { profile: CHARGE_ID, amount_max: 500, amount_daily_max: 5000, amount_monthly_max: 50_000, transaction_count_daily_max: 50 },
+    });
+    expect(res.status, JSON.stringify(res.body)).toBe(201);
+    expect(res.body.above_cap).toBe(true);
+    expect(res.body.commitment_mode).toBe('review_above_cap');
+    authorizationIdA = res.body.authorization_id as string;
+  });
+
+  it('a payment within the team cap runs; one above it → 409 APPROVAL_REQUIRED naming both approvers', async () => {
+    expect((await chargeTicket(50)).status).toBe(201);
+    const res = await chargeTicket(250);
+    expect(res.status).toBe(409);
+    const err = (res.body.errors as Array<Record<string, unknown>>)[0];
+    expect(err.code).toBe('APPROVAL_REQUIRED');
+    expect(err.field).toBe('amount_max');
+    expect(err.approvers).toEqual([approverA.id, approverB.id]);
+  });
+
+  let proposalId = '';
+
+  it('a proposal routed to both approvers does NOT commit after only one approval (test 1 of N=2)', async () => {
+    const created = await api('POST', '/api/proposals', grantor.apiKey, {
+      authorization_id: authorizationIdA, profile_id: CHARGE_ID,
+      tool: 'mollie__CreatePaymentLink', tool_args: TOOL_ARGS,
+      execution_context: { amount: 250, currency: 'EUR', action_type: 'charge' },
+      pending_approvers: [approverA.id, approverB.id],
+    });
+    expect(created.status, JSON.stringify(created.body)).toBe(201);
+    proposalId = (created.body.proposal as { id: string }).id;
+    const res = await api('POST', `/api/proposals/${proposalId}/approve`, approverA.apiKey);
+    expect(res.status).toBe(200);
+    expect(res.body.status).toBe('pending');
+    expect(res.body.approvedCount).toBe(1);
+    expect(res.body.requiredApprovals).toBe(2);
+    expect(res.body.remainingApprovers).toEqual([approverB.id]);
+  });
+
+  it('the SECOND distinct approval commits it (test 2 of N=2)', async () => {
+    const res = await api('POST', `/api/proposals/${proposalId}/approve`, approverB.apiKey);
+    expect(res.status).toBe(200);
+    expect(res.body.status).toBe('committed');
+    expect(res.body.approvedCount).toBe(2);
+  });
+
+  it('the ticket replayed with the committed proposalId now executes (201)', async () => {
+    const res = await chargeTicket(250, { action: 'mollie__CreatePaymentLink', proposalId, toolArgs: TOOL_ARGS });
+    expect(res.status, JSON.stringify(res.body)).toBe(201);
+  });
+});
+
+// ── 3. Proposer exclusion: APPROVER_IS_PROPOSER, never counted (purchase@0.7, per-purchase cap, overlap) ─
+
+describe.skipIf(!hasTeamRolesCaps)('Proposer exclusion — the proposer cannot approve their own above-cap action (purchase@0.7)', () => {
+  let authorizationIdB = '';
+  const purchase = (spend: number) => sp.postTicket(grantor.apiKey, {
+    authorizationId: authorizationIdB, profileId: PURCHASE_ID, action: 'purchase', actionType: 'purchase',
+    executionContext: { spend, currency: 'EUR', category: 'office', action_type: 'purchase' },
+  });
+
+  beforeAll(async () => {
+    // The GRANTOR is also one of the two configured approvers here — the overlap case the rule exists
+    // for. approvals=1 keeps it solvable once the proposer is excluded (approverA remains).
+    const cfg = await putProfileConfig(grantor.apiKey, teamGroupId, PURCHASE_ID, {
       approvers: [grantor.id, approverA.id],
       grantors: [grantor.id],
       approvals: 1,
-      caps: { write_daily_max: { value: 1, kind: 'approval' } },
+      caps: { spend_max: { value: 100, kind: 'approval' } },
     });
     expect(cfg.status).toBe(200);
 
     const res = await api('POST', '/api/as/mandate', grantor.apiKey, {
       authorization_id: mintAuthorizationId(),
       supported_versions: ['0.7'],
-      profile_id: CUSTOMERS_ID,
-      profile_hash: profileHashFor(CUSTOMERS_ID, PROFILES_DIR),
+      profile_id: PURCHASE_ID,
+      profile_hash: profileHashFor(PURCHASE_ID, PROFILES_DIR),
       group_id: teamGroupId,
       domain: 'ignored-for-teams',
       scope_hash: computeScopeHash({}, []),
       did: grantor.did,
       commitment_mode: 'automatic',
-      gate_content_hashes: hashGateContent({ intent: "Manage customer records on the team's behalf." }),
-      execution_context_hash: hashExecutionContext({ action_type: 'write' }),
-      bounds: { profile: CUSTOMERS_ID, read_access: 'unlimited', export_access: 'none', write_daily_max: 3, delete_daily_max: 0, setup_daily_max: 0 },
+      gate_content_hashes: hashGateContent({ intent: "Buy office supplies on the team's behalf." }),
+      execution_context_hash: hashExecutionContext({ action_type: 'purchase' }),
+      bounds: { profile: PURCHASE_ID, spend_max: 500, spend_daily_max: 5000, spend_monthly_max: 50_000, transaction_count_daily_max: 50 },
     });
-    expect(res.status).toBe(201);
+    expect(res.status, JSON.stringify(res.body)).toBe(201);
     expect(res.body.above_cap).toBe(true);
     authorizationIdB = res.body.authorization_id as string;
   });
 
   it('exceeding the cap escalates with BOTH configured approvers named, proposer included', async () => {
-    // write_daily_max cap = 1 — the first write stays within it.
-    const first = await sp.postTicket(grantor.apiKey, {
-      authorizationId: authorizationIdB,
-      profileId: CUSTOMERS_ID,
-      action: 'crm__create_contact',
-      actionType: 'write',
-      executionContext: { action_type: 'write' },
-    });
-    expect(first.status).toBe(201);
-
-    const res = await sp.postTicket(grantor.apiKey, {
-      authorizationId: authorizationIdB,
-      profileId: CUSTOMERS_ID,
-      action: 'crm__create_contact',
-      actionType: 'write',
-      executionContext: { action_type: 'write' },
-    });
+    expect((await purchase(50)).status).toBe(201); // within the per-purchase cap
+    const res = await purchase(250);
     expect(res.status).toBe(409);
     const err = (res.body.errors as Array<Record<string, unknown>>)[0];
     expect(err.code).toBe('APPROVAL_REQUIRED');
@@ -355,22 +380,20 @@ describe.skipIf(!hasTeamRolesCaps)('Proposer exclusion — the proposer cannot a
   it('the proposer (grantor) cannot approve their own proposal: 403 APPROVER_IS_PROPOSER', async () => {
     const created = await api('POST', '/api/proposals', grantor.apiKey, {
       authorization_id: authorizationIdB,
-      profile_id: CUSTOMERS_ID,
-      tool: 'crm__create_contact',
-      tool_args: { name: 'Escalated Contact' },
-      execution_context: { action_type: 'write' },
+      profile_id: PURCHASE_ID,
+      tool: 'purchase__order',
+      tool_args: { item: 'Escalated purchase', spend: 250 },
+      execution_context: { spend: 250, currency: 'EUR', category: 'office', action_type: 'purchase' },
       pending_approvers: [grantor.id, approverA.id],
     });
-    expect(created.status).toBe(201);
+    expect(created.status, JSON.stringify(created.body)).toBe(201);
     const proposalId = (created.body.proposal as { id: string }).id;
 
     const res = await api('POST', `/api/proposals/${proposalId}/approve`, grantor.apiKey);
     expect(res.status).toBe(403);
     expect((res.body as { errors?: Array<Record<string, unknown>> }).errors?.[0]?.code).toBe('APPROVER_IS_PROPOSER');
 
-    // Never counted: the lone non-proposer approver (approverA) alone is
-    // enough to commit (approvals=1), proving the refused attempt above did
-    // not consume the one required approval.
+    // Never counted: approverA alone is enough to commit (approvals=1).
     const approved = await api('POST', `/api/proposals/${proposalId}/approve`, approverA.apiKey);
     expect(approved.status).toBe(200);
     expect(approved.body.status).toBe('committed');
@@ -378,83 +401,59 @@ describe.skipIf(!hasTeamRolesCaps)('Proposer exclusion — the proposer cannot a
   });
 });
 
-// ── 4. No approvers → every cap is hard; an impossible approver set refuses the TICKET, no dead proposal (records@0.6) ─
+// ── 4. No approvers → every cap is hard; an impossible approver set refuses the TICKET, no dead proposal (sales@0.4) ─
 
-describe.skipIf(!hasTeamRolesCaps)('No-approvers hard caps + impossible approver set (records@0.6)', () => {
+describe.skipIf(!hasTeamRolesCaps)('No-approvers hard caps + impossible approver set (sales@0.4)', () => {
+  const SALES_BOUNDS = {
+    profile: SALES_ID, read_access: 'unlimited', value_max: 5000, discount_max: 10,
+    order_value_daily_max: 50_000, quote_daily_max: 20, send_daily_max: 20, order_daily_max: 20, setup_daily_max: 0,
+  };
+  const mandate = () => api('POST', '/api/as/mandate', grantor.apiKey, {
+    authorization_id: mintAuthorizationId(),
+    supported_versions: ['0.7'],
+    profile_id: SALES_ID,
+    profile_hash: profileHashFor(SALES_ID, PROFILES_DIR),
+    group_id: teamGroupId,
+    domain: 'ignored-for-teams',
+    scope_hash: computeScopeHash({}, []),
+    did: grantor.did,
+    commitment_mode: 'automatic',
+    gate_content_hashes: hashGateContent({ intent: 'Make quotes.' }),
+    execution_context_hash: hashExecutionContext({ action_type: 'quote' }),
+    bounds: SALES_BOUNDS,
+  });
+
   it('with NO approvers at all, an "approval"-kind cap is still enforced as hard (422 cap_exceeded)', async () => {
-    const cfg = await putProfileConfig(grantor.apiKey, teamGroupId, RECORDS_ID, {
+    const cfg = await putProfileConfig(grantor.apiKey, teamGroupId, SALES_ID, {
       approvers: [],
       grantors: [grantor.id],
-      caps: { write_daily_max: { value: 1, kind: 'approval' } }, // stored kind is irrelevant with no approvers
+      caps: { value_max: { value: 1000, kind: 'approval' } }, // stored kind is irrelevant with no approvers
     });
     expect(cfg.status).toBe(200);
-
-    const res = await api('POST', '/api/as/mandate', grantor.apiKey, {
-      authorization_id: mintAuthorizationId(),
-      supported_versions: ['0.7'],
-      profile_id: RECORDS_ID,
-      profile_hash: profileHashFor(RECORDS_ID, PROFILES_DIR),
-      group_id: teamGroupId,
-      domain: 'ignored-for-teams',
-      scope_hash: computeScopeHash({}, []),
-      did: grantor.did,
-      commitment_mode: 'automatic',
-      gate_content_hashes: hashGateContent({ intent: 'Manage records.' }),
-      execution_context_hash: hashExecutionContext({ action_type: 'write' }),
-      bounds: { profile: RECORDS_ID, read_access: 'unlimited', write_daily_max: 3, delete_access: 'none', archive_access: 'none' },
-    });
+    const res = await mandate();
     expect(res.status).toBe(422);
     expect((res.body.errors as Array<Record<string, unknown>>)[0].code).toBe('cap_exceeded');
   });
 
-  let authorizationIdC = '';
-
   it('reconfigured with 2 approvers (one is the grantor) needing 2 distinct approvals → ticket refuses APPROVAL_IMPOSSIBLE, no proposal', async () => {
-    const cfg = await putProfileConfig(grantor.apiKey, teamGroupId, RECORDS_ID, {
+    const cfg = await putProfileConfig(grantor.apiKey, teamGroupId, SALES_ID, {
       approvers: [grantor.id, approverA.id],
       grantors: [grantor.id],
       approvals: 2, // excluding the proposer leaves only approverA (1) — short of 2
-      caps: { write_daily_max: { value: 1, kind: 'approval' } },
+      caps: { value_max: { value: 1000, kind: 'approval' } },
     });
     expect(cfg.status).toBe(200);
-
-    const mandate = await api('POST', '/api/as/mandate', grantor.apiKey, {
-      authorization_id: mintAuthorizationId(),
-      supported_versions: ['0.7'],
-      profile_id: RECORDS_ID,
-      profile_hash: profileHashFor(RECORDS_ID, PROFILES_DIR),
-      group_id: teamGroupId,
-      domain: 'ignored-for-teams',
-      scope_hash: computeScopeHash({}, []),
-      did: grantor.did,
-      commitment_mode: 'automatic',
-      gate_content_hashes: hashGateContent({ intent: 'Manage records.' }),
-      execution_context_hash: hashExecutionContext({ action_type: 'write' }),
-      bounds: { profile: RECORDS_ID, read_access: 'unlimited', write_daily_max: 3, delete_access: 'none', archive_access: 'none' },
+    const m = await mandate();
+    expect(m.status, JSON.stringify(m.body)).toBe(201);
+    expect(m.body.above_cap).toBe(true);
+    const authorizationIdC = m.body.authorization_id as string;
+    const quote = (value: number) => sp.postTicket(grantor.apiKey, {
+      authorizationId: authorizationIdC, profileId: SALES_ID, action: 'erp__create_quote', actionType: 'quote',
+      executionContext: { value, discount_pct: 0, currency: 'EUR', action_type: 'quote' },
     });
-    expect(mandate.status).toBe(201);
-    expect(mandate.body.above_cap).toBe(true);
-    authorizationIdC = mandate.body.authorization_id as string;
-
-    // First write stays within the team cap (1/day).
-    const first = await sp.postTicket(grantor.apiKey, {
-      authorizationId: authorizationIdC,
-      profileId: RECORDS_ID,
-      action: 'create_record',
-      actionType: 'write',
-      executionContext: { action_type: 'write' },
-    });
-    expect(first.status).toBe(201);
-
-    // Second write exceeds it — and the only non-proposer approver (1) can
-    // never reach the required 2, so the AS refuses outright.
-    const second = await sp.postTicket(grantor.apiKey, {
-      authorizationId: authorizationIdC,
-      profileId: RECORDS_ID,
-      action: 'create_record',
-      actionType: 'write',
-      executionContext: { action_type: 'write' },
-    });
+    expect((await quote(500)).status).toBe(201); // within the per-quote cap
+    // Above it — and the only non-proposer approver (1) can never reach the required 2: refused outright.
+    const second = await quote(2000);
     expect(second.status).toBe(403);
     expect((second.body.errors as Array<Record<string, unknown>>)[0].code).toBe('APPROVAL_IMPOSSIBLE');
   });
@@ -508,60 +507,44 @@ describe.skipIf(!hasTeamRolesCaps)('Personal mode — owner-chosen review_above_
   });
 });
 
-// ── 6. A migrated (pre-TR5) team config keeps granting; approvals defaults to 1 (customers@0.9) ─
+// ── 6. A migrated (pre-TR5) team config keeps granting; approvals defaults to 1 (calendar@0.6, bare per-booking cap) ─
 
 describe.skipIf(!hasTeamRolesCaps)('Migrated team config (approvers only, no grantors/approvals field) — migration 012', () => {
   it('a config written the OLD way (bare numeric cap, approvers doubling as grantors) still lets an approver grant, and commits after exactly 1 approval', async () => {
-    // Deliberately the pre-TR5 shape: no `grantors`, no `approvals`, and a
-    // bare number for the cap (not { value, kind }) — exactly what
-    // migration 012 leaves alone (grantors falls back to approvers on read).
-    // Uses customers@0.9's delete_daily_max/'delete' — a cumulative field +
-    // actionType untouched by any earlier test in this file, so its daily
-    // count starts genuinely at zero (cumulative consumption is tracked per
-    // domain+profile+actionType and persists across mandates on purpose —
-    // reusing write_daily_max/'write' here would inherit the Proposer
-    // Exclusion section's leftover count instead of proving this rule).
-    const cfg = await putProfileConfig(grantor.apiKey, teamGroupId, CUSTOMERS_ID, {
+    // The pre-TR5 shape: no `grantors`, no `approvals`, a bare number for the cap. A bare cap on a
+    // PER-TRANSACTION bound keeps the legacy default 'approval' (on a cumulative bound it is now
+    // stored hard, DEC-71 — so this uses the per-booking duration).
+    const cfg = await putProfileConfig(grantor.apiKey, teamGroupId, CALENDAR_ID, {
       approvers: [grantor.id, approverA.id],
-      caps: { delete_daily_max: 1 },
+      caps: { booking_duration_max: 60 },
     });
     expect(cfg.status).toBe(200);
 
     const mandate = await api('POST', '/api/as/mandate', grantor.apiKey, {
       authorization_id: mintAuthorizationId(),
       supported_versions: ['0.7'],
-      profile_id: CUSTOMERS_ID,
-      profile_hash: profileHashFor(CUSTOMERS_ID, PROFILES_DIR),
+      profile_id: CALENDAR_ID,
+      profile_hash: profileHashFor(CALENDAR_ID, PROFILES_DIR),
       group_id: teamGroupId,
       domain: 'ignored-for-teams',
       scope_hash: computeScopeHash({}, []),
       did: grantor.did,
       commitment_mode: 'automatic',
-      gate_content_hashes: hashGateContent({ intent: 'Legacy-config customers authority.' }),
-      execution_context_hash: hashExecutionContext({ action_type: 'delete' }),
-      bounds: { profile: CUSTOMERS_ID, read_access: 'unlimited', export_access: 'none', write_daily_max: 0, delete_daily_max: 3, setup_daily_max: 0 },
+      gate_content_hashes: hashGateContent({ intent: 'Legacy-config calendar authority.' }),
+      execution_context_hash: hashExecutionContext({ action_type: 'booking' }),
+      bounds: { profile: CALENDAR_ID, booking_daily_max: 10, booking_duration_max: 240, lookahead_days_max: 30 },
     });
     // grantors falls back to approvers → the approver-that-is-also-a-grantor can sign.
-    expect(mandate.status).toBe(201);
+    expect(mandate.status, JSON.stringify(mandate.body)).toBe(201);
     expect(mandate.body.above_cap).toBe(true);
     const authorizationIdLegacy = mandate.body.authorization_id as string;
-
-    const first = await sp.postTicket(grantor.apiKey, {
-      authorizationId: authorizationIdLegacy,
-      profileId: CUSTOMERS_ID,
-      action: 'crm__delete_contact',
-      actionType: 'delete',
-      executionContext: { action_type: 'delete' },
+    const book = (duration: number) => sp.postTicket(grantor.apiKey, {
+      authorizationId: authorizationIdLegacy, profileId: CALENDAR_ID, action: 'calendar__create_event', actionType: 'booking',
+      executionContext: { duration, lookahead: 1, action_type: 'booking' },
     });
-    expect(first.status).toBe(201);
 
-    const escalated = await sp.postTicket(grantor.apiKey, {
-      authorizationId: authorizationIdLegacy,
-      profileId: CUSTOMERS_ID,
-      action: 'crm__delete_contact',
-      actionType: 'delete',
-      executionContext: { action_type: 'delete' },
-    });
+    expect((await book(30)).status).toBe(201);
+    const escalated = await book(120);
     expect(escalated.status).toBe(409);
     const err = (escalated.body.errors as Array<Record<string, unknown>>)[0];
     expect(err.code).toBe('APPROVAL_REQUIRED');
@@ -569,13 +552,13 @@ describe.skipIf(!hasTeamRolesCaps)('Migrated team config (approvers only, no gra
 
     const created = await api('POST', '/api/proposals', grantor.apiKey, {
       authorization_id: authorizationIdLegacy,
-      profile_id: CUSTOMERS_ID,
-      tool: 'crm__delete_contact',
-      tool_args: { id: 'escalated-contact' },
-      execution_context: { action_type: 'delete' },
+      profile_id: CALENDAR_ID,
+      tool: 'calendar__create_event',
+      tool_args: { summary: 'Escalated meeting', duration: 120 },
+      execution_context: { duration: 120, lookahead: 1, action_type: 'booking' },
       pending_approvers: [grantor.id, approverA.id],
     });
-    expect(created.status).toBe(201);
+    expect(created.status, JSON.stringify(created.body)).toBe(201);
     const proposalId = (created.body.proposal as { id: string }).id;
 
     // approvals defaults to 1 — a SINGLE distinct (non-proposer) approval commits it.
