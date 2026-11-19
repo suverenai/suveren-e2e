@@ -18,6 +18,7 @@ import { profileHashFor } from '../src/helpers/profiles';
 import { assertPortFree, stopTracked, trackProcess } from '../src/helpers/process-registry';
 import { typeTitle } from '../src/helpers/give-page';
 import { e2ePort, worldDbName, PORT_OFFSET } from '../src/helpers/ports.js';
+import { npmLimits } from '../src/helpers/gateway-stack.js';
 import pg from 'pg';
 
 /**
@@ -298,6 +299,7 @@ async function startServersInner(): Promise<void> {
       SUVEREN_MANIFESTS_DIR: join(GW_DIR, 'content', 'integrations'),
       SUVEREN_INTEGRATIONS_DIR: join(dataDir, 'integrations'),
       SUVEREN_DATA_DIR: dataDir,
+      ...npmLimits(),
       SUVEREN_INTERNAL_SECRET: INTERNAL_SECRET,
       // Its own control plane. Without this the MCP server falls back to the
       // default 3402 — on a developer machine that is the running dev gateway,
@@ -323,6 +325,7 @@ async function startServersInner(): Promise<void> {
       SUVEREN_AS_URL: SP_URL,
       SUVEREN_MCP_INTERNAL_URL: `http://127.0.0.1:${GW_MCP_PORT}`,
       SUVEREN_DATA_DIR: dataDir,
+      ...npmLimits(),
       SUVEREN_INTERNAL_SECRET: INTERNAL_SECRET,
       HAP_UI_DIST: join(GW_DIR, 'apps/ui/dist'), // still HAP_-prefixed in v0.4
       ...simulationEnv(),
