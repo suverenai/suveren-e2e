@@ -9,6 +9,7 @@ import { AS_DIR, resolveNextBin } from './as-dir';
 import { localProfilesForAs } from './local-profiles';
 import { ControlPlaneClient, newSecret, startControlPlane, startMcpServer, type StackOptions } from './gateway-stack';
 import { registerGatewaySecret } from './gateway-client';
+import { assertPortFree, isRunning, stopTracked, trackProcess } from './process-registry';
 
 // src/helpers/ → src → hap-e2e → HAP repo root
 const ROOT = join(import.meta.dirname, '..', '..', '..');
@@ -21,9 +22,25 @@ const PROFILES_DIR = process.env.HAP_E2E_PROFILES_DIR ?? join(ROOT, 'hap-profile
 interface ManagedProcess {
   name: string;
   proc: ChildProcess;
+  /** Last stderr/stdout lines, for the message when it dies before it is ready. */
+  tail: string[];
 }
 
+/** Every ProcessManager of this test process. A suite that builds its stack in
+ *  a helper which throws half way never hands the manager to its afterAll; the
+ *  vitest setup file (vitest-setup.ts) stops these after every test file. */
+const allManagers = new Set<ProcessManager>();
+
 export class ProcessManager {
+  /** Stop everything every ProcessManager in this process started. */
+  static async killEverything(): Promise<void> {
+    for (const pm of [...allManagers]) await pm.killAll();
+  }
+
+  constructor() {
+    allManagers.add(this);
+  }
+
   private processes: ManagedProcess[] = [];
   private dataDir: string | null = null;
   /**
@@ -125,6 +142,7 @@ export class ProcessManager {
     } = {},
   ): Promise<ChildProcess> {
     console.error(`[E2E] Starting Authority Server on port ${port}...`);
+    await assertPortFree(port, `the Authority Server${opts.name ? ` "${opts.name}"` : ''}`);
 
     const storageEnv = await this.provisionAsStorage();
     const localProfiles = opts.cwd ? null : localProfilesForAs(PROFILES_DIR);
@@ -165,10 +183,10 @@ export class ProcessManager {
       stdio: ['pipe', 'pipe', 'pipe'],
     });
 
-    this.processes.push({ name: opts.name ?? 'as', proc });
-    this.pipeOutput(proc, 'AS');
+    const entry = this.register(opts.name ?? 'as', proc, `next start -p ${port}`);
+    this.pipeOutput(proc, 'AS', entry);
 
-    await this.waitForHealth(`http://localhost:${port}/api/as/pubkey`, 60_000);
+    await this.readyOrDied(entry, `http://localhost:${port}/api/as/pubkey`, 60_000, port);
     console.error(`[E2E] Authority Server ready on port ${port}.`);
     return proc;
   }
@@ -328,27 +346,69 @@ export class ProcessManager {
     name: string,
     command: string,
     args: string[],
-    opts: { cwd: string; env: NodeJS.ProcessEnv; healthUrl?: string; timeoutMs?: number },
+    opts: {
+      cwd: string;
+      env: NodeJS.ProcessEnv;
+      healthUrl?: string;
+      timeoutMs?: number;
+      /** Fixed port the process will listen on: checked free BEFORE spawning. */
+      port?: number;
+    },
   ): Promise<ChildProcess> {
     console.error(`[E2E] Starting ${name}: ${command} ${args.join(' ')}`);
+    if (opts.port != null) await assertPortFree(opts.port, name);
     const proc = spawn(command, args, {
       cwd: opts.cwd,
       env: opts.env,
       detached: true,
       stdio: ['pipe', 'pipe', 'pipe'],
     });
-    this.processes.push({ name, proc });
-    this.pipeOutput(proc, name.toUpperCase());
+    const entry = this.register(name, proc, `${command} ${args.join(' ')}`);
+    this.pipeOutput(proc, name.toUpperCase(), entry);
     if (opts.healthUrl) {
-      await Promise.race([
-        this.waitForHealth(opts.healthUrl, opts.timeoutMs ?? 30_000),
-        new Promise<never>((_, reject) =>
-          proc.once('exit', (code) => reject(new Error(`${name} exited (code ${code}) before ${opts.healthUrl} answered`))),
-        ),
-      ]);
+      await this.readyOrDied(entry, opts.healthUrl, opts.timeoutMs ?? 30_000, opts.port);
       console.error(`[E2E] ${name} ready.`);
     }
     return proc;
+  }
+
+  private register(name: string, proc: ChildProcess, cmd: string): ManagedProcess {
+    const entry: ManagedProcess = { name, proc, tail: [] };
+    this.processes.push(entry);
+    trackProcess(proc, name, cmd);
+    return entry;
+  }
+
+  /**
+   * Wait for `healthUrl` — but a process that exits first is a start failure,
+   * reported as such. Health alone is not proof: when an old process holds the
+   * port, the new one dies with EADDRINUSE while the old one answers.
+   */
+  private async readyOrDied(entry: ManagedProcess, healthUrl: string, timeoutMs: number, port?: number): Promise<void> {
+    const { name, proc } = entry;
+    const abort = new AbortController();
+    const died = new Promise<never>((_, reject) => {
+      const fail = (code: number | null, sig: NodeJS.Signals | null) => {
+        const out = entry.tail.join('\n');
+        const busy = /EADDRINUSE/.test(out) || (port != null && /address already in use/i.test(out));
+        reject(new Error(
+          `${name} exited (${sig ?? `code ${code}`}) before ${healthUrl} answered` +
+          (busy ? ` — port ${port ?? '?'} is in use by another process` : '') +
+          (out ? `\nLast output:\n${out}` : ''),
+        ));
+      };
+      if (!isRunning(proc)) fail(proc.exitCode, proc.signalCode);
+      else proc.once('exit', fail);
+    });
+    died.catch(() => {}); // settled by the race below, or ignored once ready
+    try {
+      await Promise.race([this.waitForHealth(healthUrl, timeoutMs, abort.signal), died]);
+      // Answered — but make sure the answer came from OUR process.
+      await sleep(100);
+      if (!isRunning(proc)) await died;
+    } finally {
+      abort.abort();
+    }
   }
 
   /**
@@ -380,12 +440,13 @@ export class ProcessManager {
   /**
    * Poll a URL until it returns 200 (or timeout).
    */
-  async waitForHealth(url: string, timeoutMs: number): Promise<void> {
+  async waitForHealth(url: string, timeoutMs: number, signal?: AbortSignal): Promise<void> {
     const start = Date.now();
     const interval = 1_000;
     while (Date.now() - start < timeoutMs) {
+      if (signal?.aborted) return;
       try {
-        const res = await fetch(url);
+        const res = await fetch(url, { signal: AbortSignal.timeout(5_000) });
         if (res.ok) return;
       } catch {
         // not ready yet
@@ -410,32 +471,12 @@ export class ProcessManager {
     const { proc } = entry;
     console.error(`[E2E] Stopping ${name} (pid ${proc.pid})...`);
 
-    // Kill the process GROUP, not just the process we spawned. We run the
-    // `next` CLI directly (see startSP), but Next itself can fork a worker;
-    // signalling only the top process could leave that worker serving, and a
-    // test that believed the service was down would quietly assert nothing —
-    // which is exactly what happened on CI while passing locally, back when
-    // this ran through an `npx` wrapper that had the same failure mode.
-    const signalGroup = (sig: NodeJS.Signals) => {
-      try {
-        if (proc.pid) process.kill(-proc.pid, sig);
-      } catch {
-        try { proc.kill(sig); } catch { /* already gone */ }
-      }
-    };
-
-    if (proc.exitCode == null) {
-      signalGroup('SIGTERM');
-      await Promise.race([
-        new Promise<void>(resolve => proc.on('exit', () => resolve())),
-        sleep(5_000),
-      ]);
-      if (proc.exitCode == null) signalGroup('SIGKILL');
-      await Promise.race([
-        new Promise<void>(resolve => proc.on('exit', () => resolve())),
-        sleep(2_000),
-      ]);
-    }
+    // Stop the process GROUP, not just the process we spawned: Next can fork a
+    // worker, and signalling only the leader could leave it serving — a test
+    // that believed the service was down would quietly assert nothing (it did,
+    // on CI). stopTracked waits until the whole group is gone and SIGKILLs
+    // what is left.
+    await stopTracked(proc);
 
     // The authoritative check: the process table is a proxy, the port is the
     // thing under test. Poll until the service actually stops answering.
@@ -465,29 +506,14 @@ export class ProcessManager {
    * Kill all managed processes and clean up temp dir.
    */
   async killAll(): Promise<void> {
-    for (const { name, proc } of this.processes) {
-      if (proc.exitCode != null) continue;
-      console.error(`[E2E] Stopping ${name} (pid ${proc.pid})...`);
-      // Signal the group where we have one (see stopProcess) so a forked
-      // worker can't outlive the process we thought we killed.
-      const sig = (s: NodeJS.Signals) => {
-        try {
-          if (proc.pid) process.kill(-proc.pid, s);
-        } catch {
-          try { proc.kill(s); } catch { /* already gone */ }
-        }
-      };
-      sig('SIGTERM');
-      await Promise.race([
-        new Promise<void>((resolve) => proc.on('exit', () => resolve())),
-        sleep(3_000),
-      ]);
-      if (proc.exitCode == null) {
-        console.error(`[E2E] Force-killing ${name}...`);
-        sig('SIGKILL');
-      }
-    }
+    // Take the list first: killAll can be called twice at once (the suite's
+    // afterAll and the setup file's), and the second call must find it empty.
+    const entries = this.processes;
     this.processes = [];
+    for (const { name, proc } of entries) {
+      console.error(`[E2E] Stopping ${name} (pid ${proc.pid})...`);
+      await stopTracked(proc, 3_000);
+    }
 
     if (this.dataDir) {
       try {
@@ -501,17 +527,18 @@ export class ProcessManager {
     await this.dropAsStorage();
   }
 
-  private pipeOutput(proc: ChildProcess, tag: string): void {
-    proc.stdout?.on('data', (chunk: Buffer) => {
+  private pipeOutput(proc: ChildProcess, tag: string, entry?: ManagedProcess): void {
+    const onData = (chunk: Buffer) => {
       for (const line of chunk.toString().split('\n').filter(Boolean)) {
         console.error(`[${tag}] ${line}`);
+        if (entry) {
+          entry.tail.push(line);
+          if (entry.tail.length > 15) entry.tail.shift();
+        }
       }
-    });
-    proc.stderr?.on('data', (chunk: Buffer) => {
-      for (const line of chunk.toString().split('\n').filter(Boolean)) {
-        console.error(`[${tag}] ${line}`);
-      }
-    });
+    };
+    proc.stdout?.on('data', onData);
+    proc.stderr?.on('data', onData);
   }
 }
 

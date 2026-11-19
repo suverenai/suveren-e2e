@@ -3,6 +3,7 @@
  * All requests go to loopback — gateway enforces loopback-only access.
  */
 import { fetchResilient } from './http.js';
+import { portHolder } from './process-registry.js';
 
 /**
  * The CP↔MCP shared secret of every gateway `ProcessManager.startGateway`
@@ -37,7 +38,7 @@ export class GatewayClient {
     path: string,
     body?: unknown,
   ): Promise<Response> {
-    return fetchResilient(`${this.baseUrl}${path}`, {
+    const res = await fetchResilient(`${this.baseUrl}${path}`, {
       method,
       headers: {
         'Content-Type': 'application/json',
@@ -45,6 +46,21 @@ export class GatewayClient {
       },
       body: body != null ? JSON.stringify(body) : undefined,
     });
+    if (res.status === 403 && !this.internalSecret && internalSecretHeaders(this.baseUrl)['X-Internal-Secret']) {
+      // The secret we sent is the one of the gateway this run started. A 403
+      // "Invalid internal secret" therefore means the process answering on this
+      // port is NOT that gateway — typically a leftover holding the port.
+      const text = await res.clone().text().catch(() => '');
+      if (/invalid internal secret/i.test(text)) {
+        const port = new URL(this.baseUrl).port;
+        const holder = portHolder(Number(port));
+        console.error(
+          `[E2E] ${method} ${path} -> 403 Invalid internal secret on port ${port}. The gateway this run started ` +
+          `there has a different secret, so another process is probably answering${holder ? `: ${holder}` : ''}.`,
+        );
+      }
+    }
+    return res;
   }
 
   // ── Configuration ───────────────────────────────────────
