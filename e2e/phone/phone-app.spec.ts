@@ -25,15 +25,13 @@
  */
 import { test, expect, type Browser, type BrowserContext, type CDPSession, type Page } from '@playwright/test';
 import type pg from 'pg';
-import {
-  buildDeviceRecord, buildEntry, deriveRootKey, ed25519PublicKey, encodeCoseEc2, keyIdOf, parseRecoveryCode, signEntry,
-} from '@humanagencyp/hap-core/device-keys';
+import { buildDeviceRecord, buildEntry, ed25519PublicKey, encodeCoseEc2, keyIdOf, signEntry } from '@humanagencyp/hap-core/device-keys';
 import {
   asKeyHex, chainOf, clearMailboxes, codeOf, computerAnswersJoin, computerWithChain, connectDb, enrolmentCode, headOf, http,
-  identityCodeOf, mailboxRow, newJoiner, newNodePasskey, newPairing, newPerson, newRoot, nodeAssertion, nowSec, openMailbox,
-  pairingQr, phoneGenesisWith, qrMatrix, readBox, show, signinBody, stackFromEnv, until, verifiedChain, waitForMessage,
-  webauthnCheckKey, b64uEncode, newDevice, entryHash, randomBytes,
-  type Person, type PhoneStack, type Root,
+  identityCodeOf, mailboxRow, newJoiner, newPairing, newPerson, newRoot, nowSec, openMailbox,
+  pairingQr, qrMatrix, readBox, show, signinBody, stackFromEnv, until, verifiedChain, waitForMessage,
+  b64uEncode, newDevice, entryHash, randomBytes,
+  type Computer, type PhoneStack, type Root,
 } from '../../src/helpers/phone-app';
 
 const unavailable = process.env.HAP_E2E_PHONE_UNAVAILABLE;
@@ -104,36 +102,44 @@ async function scan(page: Page, text: string): Promise<void> {
   await page.getByRole('button', { name: 'Scan the code' }).click();
 }
 
-/** Set up this phone with an enrolment code, through every screen, up to and including "I wrote it down". Returns the recovery code shown. */
-async function registerThrough(phone: Phone, code: string, label: string): Promise<string> {
-  const { page } = phone;
-  await page.goto(stack.appUrl);
-  await page.getByRole('button', { name: 'Set up my account on this phone' }).click();
-  await page.locator('#setup-code').fill(code);
-  await page.getByRole('button', { name: 'Continue' }).click();
-  await page.locator('#phone-name').fill(label);
-  await page.getByRole('button', { name: 'Continue' }).click();
-  const recovery = ((await page.getByTestId('recovery-code').textContent()) ?? '').trim();
-  expect(recovery.length).toBeGreaterThan(10);
-  await page.getByRole('button', { name: 'Continue' }).click();
-  await page.getByRole('checkbox').check();
-  await page.getByRole('button', { name: 'Continue' }).click();
-  return recovery;
-}
-
 const READY = 'It is now one of your devices.';
 
-async function rootOf(recovery: string): Promise<Root> {
-  return deriveRootKey(await parseRecoveryCode(recovery));
+/** The computer opens a mailbox and holds its QR in front of the phone. */
+async function offerQr(comp: Awaited<ReturnType<typeof computerWithChain>>, o: { expiresAt?: number } = {}) {
+  const pairing = await newPairing();
+  const head = await headOf(comp.entries[0]);
+  const expiresAt = o.expiresAt ?? nowSec() + 600;
+  const qr = pairingQr(pairing, { asUrl: stack.asUrl, asKey: await asKeyHex(stack), expiresAt, admitter: { root_did: comp.root.did, head, key_id: comp.dev.record.key_id } });
+  return { pairing, qr, expiresAt };
 }
 
-/** A phone that created its own identity: the person, the root derived from the recovery code the app showed, and the page. */
-async function registeredPhone(browser: Browser, label: string): Promise<Phone & { person: Person; root: Root }> {
+async function startJoin(phone: Phone, qr: string): Promise<void> {
+  await phone.page.goto(stack.appUrl);
+  await phone.page.getByRole('button', { name: 'Add this phone to my account' }).click();
+  await scan(phone.page, qr);
+}
+
+/**
+ * A phone in an account, the only way a phone gets one (DEC-83: phone-first setup is off): the test-computer, which holds the
+ * chain and a check key, admits it through the app's own "Add this phone to my account" screens. Returns the phone, the account's
+ * person (the computer's) and the root.
+ */
+async function joinedPhone(browser: Browser, phoneLabel: string, computerLabel: string): Promise<Phone & { person: Computer; root: Root }> {
+  const comp = await computerWithChain(stack, db, computerLabel);
+  const { pairing, qr } = await offerQr(comp);
+  expect((await openMailbox(stack, comp, pairing)).status).toBe(201);
   const phone = await newPhone(browser, { passkeys: true });
-  const person = await newPerson(stack, 'Phone owner');
-  const recovery = await registerThrough(phone, await enrolmentCode(stack, db, person), label);
+  await startJoin(phone, qr);
+  await phone.page.getByRole('button', { name: 'Add this phone to it' }).click({ timeout: 20_000 });
+  await phone.page.locator('#join-name').fill(phoneLabel);
+  await phone.page.getByRole('button', { name: 'Continue' }).click();
+  const answered = await computerAnswersJoin(stack, comp, pairing);
+  expect(answered.matches).toBe(true);
+  await expect(phone.page.getByTestId('compare-code')).toHaveText(answered.code, { timeout: 20_000 });
+  const res = await answered.confirm();
+  expect(res.status, show(res)).toBe(201);
   await expect(phone.page.getByText(READY)).toBeVisible({ timeout: 20_000 });
-  return { ...phone, person, root: await rootOf(recovery) };
+  return { ...phone, person: comp, root: comp.root };
 }
 
 /** From the "app closed" screen to the signed-in app: the passkey's touch, then the Devices tab. */
@@ -147,95 +153,34 @@ async function openDevices(page: Page): Promise<void> {
 const deviceNames = (page: Page) => page.getByTestId('device-row').locator('.ap-device-name').allTextContents();
 
 // ═══════════════════════════════════════════════════════════════════════════════════════════════
-// Registration on the phone (genesis with an enrolment code and a passkey)
+// No phone-first setup (DEC-83)
 // ═══════════════════════════════════════════════════════════════════════════════════════════════
 
-test.describe('registration on the phone', () => {
+test.describe('phone-first setup is off', () => {
   test.skip(chromiumOnly, NO_VIRTUAL_AUTHENTICATOR);
 
-  test('the app registers; the app shows the identity code the chain has', async ({ browser }) => {
+  test('the start screen offers only adding the phone to an account', async ({ browser }) => {
     const phone = await newPhone(browser, { passkeys: true });
-    const person = await newPerson(stack, 'Phone owner');
-    const recovery = await registerThrough(phone, await enrolmentCode(stack, db, person), 'My test phone');
-    await expect(phone.page.getByText(READY)).toBeVisible({ timeout: 20_000 });
-
-    // The Authority Server holds a one-entry chain whose only device is this phone, with a passkey as its check key.
-    const root = await rootOf(recovery);
-    const { entries } = await chainOf(stack, person, root.did);
-    expect(entries).toHaveLength(1);
-    expect(entries[0].device).toMatchObject({ kind: 'approve-app', label: 'My test phone' });
-    expect(entries[0].device?.check).toMatchObject({ type: 'webauthn', rp_id: 'localhost' });
-    expect((await db.query(`select did, root_did from users where id = $1`, [person.userId])).rows[0]).toEqual({ did: root.did, root_did: root.did });
-
-    // The identity code: derived here from the recovery code, and from the root DID in the served chain; the app shows the same.
-    const expected = await identityCodeOf(root.did);
-    expect(expected).toBe(await identityCodeOf(entries[0].root_did));
-    await phone.page.getByRole('button', { name: 'Continue' }).click();
-    await phone.page.getByRole('button', { name: 'Open with a touch' }).click();
-    await phone.page.getByRole('button', { name: 'Devices', exact: true }).click();
-    await expect(phone.page.getByTestId('identity-code')).toHaveText(expected, { timeout: 15_000 });
-    expect(await deviceNames(phone.page)).toEqual(['My test phone']);
-    // The recovery code never reached the server: not in the chain, not in the account row.
-    const dump = JSON.stringify(entries) + JSON.stringify((await db.query(`select * from users where id = $1`, [person.userId])).rows);
-    expect(dump).not.toContain(recovery.replace(/\s+/g, ''));
+    await phone.page.goto(stack.appUrl);
+    await expect(phone.page.getByRole('button', { name: 'Add this phone to my account' })).toBeVisible({ timeout: 20_000 });
+    await expect(phone.page.getByRole('button', { name: 'Set up my account on this phone' })).toHaveCount(0);
+    await expect(phone.page.locator('#setup-code')).toHaveCount(0);
+    // One way in: exactly one button on the start screen.
+    await expect(phone.page.getByRole('button')).toHaveCount(1);
     await phone.context.close();
   });
 
-  test('a second use of the enrolment code is refused and the app says so', async ({ browser }) => {
-    const owner = await newPerson(stack, 'Code owner');
-    const code = await enrolmentCode(stack, db, owner);
-
-    const first = await newPhone(browser, { passkeys: true });
-    const recovery = await registerThrough(first, code, 'First phone');
-    await expect(first.page.getByText(READY)).toBeVisible({ timeout: 20_000 });
-    const root = await rootOf(recovery);
-
-    // A second phone is given the same code (it was shown twice, or copied).
-    const second = await newPhone(browser, { passkeys: true });
-    await registerThrough(second, code, 'Second phone');
-    await expect(second.page.getByText('This code was already used. Go back to suveren.ai and get a new one.')).toBeVisible({ timeout: 20_000 });
-    // Nothing was stored on the second phone: it offers "start again", not the app.
-    await expect(second.page.getByRole('button', { name: 'Start again' })).toBeVisible();
-    // The account holds the first phone only.
-    const { entries } = await chainOf(stack, owner, root.did);
-    expect(entries).toHaveLength(1);
-    expect(entries[0].device?.label).toBe('First phone');
-    await first.context.close();
-    await second.context.close();
-  });
-
-  test('a genesis without a passkey registration is refused, and the code still works afterwards', async () => {
-    const person = await newPerson(stack, 'No passkey');
+  test('an approve-app genesis posted directly is refused with PHONE_GENESIS_OFF', async ({ browser }) => {
+    // Everything else about the request is genuine: a real passkey made in a real browser at the app's own address, the challenge
+    // of this device key, a valid entry with the phone's check. Only the switch (DEC-83) stands in the way.
+    const page0 = await newPhone(browser, { passkeys: true });
+    await page0.page.goto(`${stack.appUrl}/__blank`);
+    const person = await newPerson(stack, 'Phone first');
     const code = await enrolmentCode(stack, db, person);
     const root = await newRoot();
-    const pk = await newNodePasskey();
-    const { entry } = await phoneGenesisWith(
-      root, 'Hand-made phone', webauthnCheckKey('localhost', pk.credId, pk.x, pk.y),
-      (h) => nodeAssertion(pk, 'localhost', stack.appUrl, h),
-    );
-    const none = await http(stack.asUrl, 'POST', '/api/devices/chain', { body: { entry, enrolment_code: code } });
-    expect(none.status, show(none)).toBe(400);
-    expect(codeOf(none)).toBe('PASSKEY_REQUIRED');
-    const empty = await http(stack.asUrl, 'POST', '/api/devices/chain', { body: { entry, enrolment_code: code, passkey: {} } });
-    expect(empty.status, show(empty)).toBe(400);
-    expect((await db.query(`select root_did from users where id = $1`, [person.userId])).rows[0].root_did).toBeNull();
-    const used = await db.query(`select used_at from enrolment_codes where user_id = $1`, [person.userId]);
-    expect(used.rows[0].used_at).toBeNull(); // refused before the code was spent
-  });
-
-  test('a passkey registration from another address than the app is refused', async ({ browser }) => {
-    // A real browser, a real authenticator, a look-alike page on the same host and another port: the registration is genuine,
-    // but its clientDataJSON names an origin the Authority Server was not told is the app.
-    const lookalike = await newPhone(browser, { passkeys: true });
-    await lookalike.page.goto(`${stack.lookalikeUrl}/__blank`);
-    const person = await newPerson(stack, 'Lookalike');
-    const code = await enrolmentCode(stack, db, person);
-    const root = await newRoot();
-    // The credential's challenge names the device key id, and the entry names the credential: so the key is made first, then the
-    // credential at the look-alike (with that key id in its challenge), then the entry with the credential as its check key.
     const seed = randomBytes(32);
     const keyId = await keyIdOf(await ed25519PublicKey(seed));
-    const made = await lookalike.page.evaluate(async (keyIdText) => {
+    const made = await page0.page.evaluate(async (keyIdText) => {
       const enc = new TextEncoder();
       const label = enc.encode('suveren-passkey-register-v1');
       const id = enc.encode(keyIdText);
@@ -254,19 +199,17 @@ test.describe('registration on the phone', () => {
         client_data_json: b64u(r.clientDataJSON), attestation_object: b64u(r.attestationObject),
       };
     }, keyId);
-    // spki(91) -> raw point -> COSE, as the app does
     const spki = Uint8Array.from(made.spki);
     const pub = b64uEncode(encodeCoseEc2(spki.slice(27, 59), spki.slice(59, 91)));
     const check = { type: 'webauthn' as const, rp_id: 'localhost', cred_id: made.cred_id, pub };
     const signPub = await ed25519PublicKey(seed);
-    const record = await buildDeviceRecord({ sign_pub: b64uEncode(signPub), read_pub: b64uEncode(randomBytes(32)), kind: 'approve-app', label: 'Lookalike phone', keystore: 'platform', check }, signPub);
+    const record = await buildDeviceRecord({ sign_pub: b64uEncode(signPub), read_pub: b64uEncode(randomBytes(32)), kind: 'approve-app', label: 'Phone first', keystore: 'platform', check }, signPub);
     const entry = buildEntry({ root_did: root.did, seq: 0, prev: null, op: 'genesis', created_at: nowSec(), signer: 'root', device: record });
     const hash = await entryHash(entry);
     entry.sigs = [await signEntry(entry, 'root', root.privateSeed), await signEntry(entry, record.key_id, seed)];
-    const proof = await lookalike.page.evaluate(async ({ credId, h }) => {
+    const proof = await page0.page.evaluate(async ({ credId, h }) => {
       const dec = (s: string) => Uint8Array.from(atob(s.replace(/-/g, '+').replace(/_/g, '/')), (c) => c.charCodeAt(0));
-      const hex = h.slice('sha256:'.length);
-      const challenge = Uint8Array.from(hex.match(/../g)!.map((x) => parseInt(x, 16)));
+      const challenge = Uint8Array.from(h.slice('sha256:'.length).match(/../g)!.map((x) => parseInt(x, 16)));
       const b64u = (b: ArrayBuffer) => btoa(String.fromCharCode(...new Uint8Array(b))).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
       const a = (await navigator.credentials.get({ publicKey: {
         challenge, rpId: 'localhost', allowCredentials: [{ type: 'public-key', id: dec(credId) }], userVerification: 'required',
@@ -279,10 +222,16 @@ test.describe('registration on the phone', () => {
     const res = await http(stack.asUrl, 'POST', '/api/devices/chain', {
       body: { entry, enrolment_code: code, passkey: { cred_id: made.cred_id, pub, rp_id: 'localhost', client_data_json: made.client_data_json, attestation_object: made.attestation_object } },
     });
-    expect(res.status, show(res)).toBe(400);
-    expect(codeOf(res)).toBe('PASSKEY_INVALID');
+    expect(res.status, show(res)).toBe(409);
+    expect(codeOf(res)).toBe('PHONE_GENESIS_OFF');
     expect((await db.query(`select root_did from users where id = $1`, [person.userId])).rows[0].root_did).toBeNull();
-    await lookalike.context.close();
+    await page0.context.close();
+  });
+
+  test('a computer-made genesis (gateway kind, no passkey) is still accepted', async () => {
+    // The switch is about phones only: the computer's own start of an account is the path every phone now follows.
+    const comp = await computerWithChain(stack, db, 'Office computer');
+    expect((await chainOf(stack, comp, comp.root.did)).entries).toHaveLength(1);
   });
 });
 
@@ -292,21 +241,6 @@ test.describe('registration on the phone', () => {
 
 test.describe('a computer admits the phone', () => {
   test.skip(chromiumOnly, NO_VIRTUAL_AUTHENTICATOR);
-
-  /** The computer opens a mailbox and holds its QR in front of the phone. */
-  async function offerQr(comp: Awaited<ReturnType<typeof computerWithChain>>, o: { expiresAt?: number } = {}) {
-    const pairing = await newPairing();
-    const head = await headOf(comp.entries[0]);
-    const expiresAt = o.expiresAt ?? nowSec() + 600;
-    const qr = pairingQr(pairing, { asUrl: stack.asUrl, asKey: await asKeyHex(stack), expiresAt, admitter: { root_did: comp.root.did, head, key_id: comp.dev.record.key_id } });
-    return { pairing, qr, expiresAt };
-  }
-
-  async function startJoin(phone: Phone, qr: string): Promise<void> {
-    await phone.page.goto(stack.appUrl);
-    await phone.page.getByRole('button', { name: 'Add this phone to my account' }).click();
-    await scan(phone.page, qr);
-  }
 
   test('a phone joining a chain made on a computer keeps the root DID; both show the same identity and comparison codes', async ({ browser }) => {
     const comp = await computerWithChain(stack, db, 'Office computer');
@@ -436,9 +370,9 @@ test.describe('the phone admits a computer', () => {
   test.skip(chromiumOnly, NO_VIRTUAL_AUTHENTICATOR);
   test.describe.configure({ mode: 'serial' });
 
-  let phone: Awaited<ReturnType<typeof registeredPhone>>;
+  let phone: Awaited<ReturnType<typeof joinedPhone>>;
   const PHONE_LABEL = 'Admitting phone';
-  test.beforeAll(async ({ browser }) => { phone = await registeredPhone(browser, PHONE_LABEL); });
+  test.beforeAll(async ({ browser }) => { phone = await joinedPhone(browser, PHONE_LABEL, 'Admit host computer'); });
   test.afterAll(async () => { await phone?.context.close(); });
   // A person may hold five open pairings; every case here opens one.
   test.afterEach(async () => { await clearMailboxes(db, phone.person.userId); });
