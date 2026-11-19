@@ -402,7 +402,7 @@ describe.skipIf(!available)('team trust: who is a colleague (real Authority Serv
 
 describe.skipIf(!available)('team trust: flag off', () => {
   beforeAll(async () => {
-    await pm.startSP(AS_OFF_PORT, { name: 'as-team-off' });
+    await pm.startSP(AS_OFF_PORT, { name: 'as-team-off', env: { SUVEREN_DEVICE_KEYS: '' } }); // explicitly off, also when the run itself has the switch on
   }, 180_000);
   afterAll(async () => { await pm.killAll(); });
 
