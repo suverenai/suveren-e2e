@@ -156,12 +156,15 @@ jobs:
     env:
       SUVEREN_DB_URL: postgres://postgres:e2e@localhost:5432/suveren_as
       SUVEREN_SEED_DEV_USERS: '1'
-      # Read by the Authority Server and the gateway the suite spawns (the
-      # harness passes its whole environment on). Set only for the "on" leg;
-      # an unset variable is the default behaviour.
-      SUVEREN_DEVICE_KEYS: ${{ matrix.device_keys == 'on' && 'on' || '' }}
 
     steps:
+      # Read by the Authority Server and the gateway the suite spawns (the
+      # harness passes its whole environment on). Exported only for the "on"
+      # leg, so the "off" leg runs with the variable truly unset, as today.
+      - name: Device keys on
+        if: matrix.device_keys == 'on'
+        run: echo "SUVEREN_DEVICE_KEYS=on" >> "$GITHUB_ENV"
+
       # The harness resolves siblings from the repo's PARENT directory
       # (process-manager.ts: ROOT = hap-e2e/../), so every repo is checked out
       # alongside hap-e2e rather than inside it.
