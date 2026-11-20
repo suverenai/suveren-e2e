@@ -116,13 +116,14 @@ async function offerQr(comp: Awaited<ReturnType<typeof computerWithChain>>, o: {
 
 async function startJoin(phone: Phone, qr: string): Promise<void> {
   await phone.page.goto(stack.appUrl);
-  await phone.page.getByRole('button', { name: 'Add this phone to my account' }).click();
+  // DEC-83 (gateway 1de2ba3): with phone-first setup off the app opens straight on "Add this phone to your account".
+  await expect(phone.page.getByRole('heading', { name: 'Add this phone to your account' })).toBeVisible({ timeout: 20_000 });
   await scan(phone.page, qr);
 }
 
 /**
  * A phone in an account, the only way a phone gets one (DEC-83: phone-first setup is off): the test-computer, which holds the
- * chain and a check key, admits it through the app's own "Add this phone to my account" screens. Returns the phone, the account's
+ * chain and a check key, admits it through the app's own "Add this phone to your account" screens. Returns the phone, the account's
  * person (the computer's) and the root.
  */
 async function joinedPhone(browser: Browser, phoneLabel: string, computerLabel: string): Promise<Phone & { person: Computer; root: Root }> {
@@ -163,11 +164,14 @@ test.describe('phone-first setup is off', () => {
   test('the start screen offers only adding the phone to an account', async ({ browser }) => {
     const phone = await newPhone(browser, { passkeys: true });
     await phone.page.goto(stack.appUrl);
-    await expect(phone.page.getByRole('button', { name: 'Add this phone to my account' })).toBeVisible({ timeout: 20_000 });
+    // DEC-83 (gateway 1de2ba3): no choice screen; the app opens straight on adding the phone.
+    await expect(phone.page.getByRole('heading', { name: 'Add this phone to your account' })).toBeVisible({ timeout: 20_000 });
     await expect(phone.page.getByRole('button', { name: 'Set up my account on this phone' })).toHaveCount(0);
     await expect(phone.page.locator('#setup-code')).toHaveCount(0);
-    // One way in: exactly one button on the start screen.
-    await expect(phone.page.getByRole('button')).toHaveCount(1);
+    // One way in: besides the day/dark switch (◑), the only button is "Scan the code".
+    await expect(phone.page.getByRole('button', { name: 'Scan the code' })).toBeVisible();
+    await expect(phone.page.getByRole('button')).toHaveCount(2);
+    await expect(phone.page.getByRole('button', { name: '◑' })).toHaveCount(1);
     await phone.context.close();
   });
 
