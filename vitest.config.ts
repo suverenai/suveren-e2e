@@ -25,9 +25,12 @@ export default defineConfig({
     // Builds the gateway and the Authority Server once for the whole run,
     // instead of once per suite. See src/helpers/global-setup.ts.
     globalSetup: './src/helpers/global-setup.ts',
+    // After every file: stop whatever the file's ProcessManagers still run.
+    setupFiles: ['./src/helpers/vitest-setup.ts'],
     testTimeout: 60_000,
     hookTimeout: 120_000,
-    sequence: { concurrent: false },
+    // 'stack': after-hooks run in reverse order, so the setup file's afterAll runs last.
+    sequence: { concurrent: false, hooks: 'stack' },
     fileParallelism: false,
     env: loadDotenv(),
     exclude: ['e2e/**', 'node_modules/**'],

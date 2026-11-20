@@ -1,11 +1,13 @@
 import { writeFileSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { beginRun } from '../src/helpers/process-registry';
 import { startServers, ensureUsersRegistered, ALICE, BOB, SP_URL } from './fixtures';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
 export default async function globalSetup() {
+  beginRun();
   await startServers();
   // Force fresh registration — the AS is in-memory and was just started, so any
   // keys cached in .test-users.json from a prior session are invalid.

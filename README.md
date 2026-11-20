@@ -300,6 +300,24 @@ connector raising its Node floor.
 Other repos run their own unit suites on push (`ci.yml` / `test.yml`); none of
 them can see cross-repo drift, which is what this one is for.
 
+## Running the full suite on any branch
+
+The full job can be dispatched against any `suveren-as` branch and any
+`suveren-gateway` branch, with the device-keys switch off, on, or both. `both`
+runs two parallel legs and uploads logs per leg (`e2e-logs-device-keys-off`,
+`e2e-logs-device-keys-on`):
+
+```
+gh workflow run e2e.yml -f as_ref=<branch> -f gateway_ref=<branch> -f device_keys=both
+```
+
+Defaults are `main`, `main` and `off`. Dispatches for different refs run side
+by side; the same refs dispatched again replace the earlier run. The Authority
+Server applies its migrations when it starts, so a branch with new migrations
+needs nothing extra. `workflow_dispatch` runs the workflow file from the
+default branch, so a change to this file takes effect for dispatch only after
+it is merged to `main`.
+
 ## Credential-gated suites
 
 **Decision (2026-08-26): no provider credentials in CI.** These suites detect

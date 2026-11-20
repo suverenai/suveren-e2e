@@ -124,6 +124,9 @@ describe.skipIf(!available)('simulation mode hides a paused-connector mandate fr
         SUVEREN_INTEGRATIONS_DIR: join(dataDir, 'integrations'),
         SUVEREN_DATA_DIR: dataDir,
         SUVEREN_SIMULATION: '1',
+        // This suite starts the MCP server ALONE (no control plane, no internal secret). With device keys on, a gateway that cannot ask its
+        // control plane whether it has a chain refuses everything (fail closed, correct); this suite is not about device keys.
+        SUVEREN_DEVICE_KEYS: 'off',
       },
       healthUrl: `${GW_URL}/health`,
       timeoutMs: 30_000,
