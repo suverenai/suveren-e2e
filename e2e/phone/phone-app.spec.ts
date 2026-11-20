@@ -291,7 +291,8 @@ test.describe('a computer admits the phone', () => {
     expect((await chainOf(stack, comp, comp.root.did)).entries).toHaveLength(2);
 
     // 6. The phone's own screens: the same identity code, both devices.
-    await phone.page.getByRole('button', { name: 'Continue' }).click();
+    // Since D3 the join's done screen offers to replace the recovery code first (DEC-85: an offer with "Later").
+    await phone.page.getByRole('button', { name: 'Later' }).click();
     await phone.page.getByRole('button', { name: 'Open with a touch' }).click();
     await phone.page.getByRole('tab', { name: 'Devices', exact: true }).click();
     await expect(phone.page.getByTestId('identity-code')).toHaveText(await identityCodeOf(comp.root.did), { timeout: 15_000 });
