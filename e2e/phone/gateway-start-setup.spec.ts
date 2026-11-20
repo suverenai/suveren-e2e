@@ -191,6 +191,19 @@ test('DEC-93 + DEC-91: a new gateway starts at Connect without an account key, t
   await expect(code).toBeVisible();
   const codeText = (await code.innerText()).trim();
   expect(codeText.length, 'a recovery code is shown').toBeGreaterThan(10);
+  // DEC-88: the code wraps only between its groups (after a hyphen), never inside one: every line but the last ends in "-".
+  const lines = await code.evaluate((el) => {
+    const t = el.firstChild as Text; const r = document.createRange(); const out: string[] = []; let cur = ''; let top: number | null = null;
+    for (let i = 0; i < t.length; i++) {
+      r.setStart(t, i); r.setEnd(t, i + 1);
+      const y = Math.round(r.getBoundingClientRect().top);
+      if (top !== null && y !== top) { out.push(cur); cur = ''; }
+      top = y; cur += t.data[i];
+    }
+    out.push(cur);
+    return out;
+  });
+  for (const l of lines.slice(0, -1)) expect(l.trim(), `the code broke inside a group: ${JSON.stringify(lines)}`).toMatch(/-$/);
   const cont = page.getByRole('button', { name: 'Continue', exact: true });
   await expect(cont, 'Continue only after the tick').toBeDisabled();
   await shot(page, info, 'a-code-before-tick');
