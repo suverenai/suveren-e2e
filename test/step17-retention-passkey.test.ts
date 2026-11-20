@@ -18,6 +18,9 @@
  *   - a registration approved without the device's check is refused; a start from an email-link session is
  *     refused; an email-link session cannot change team settings.
  *
+ * The AS runs from `next build`, which inlines NODE_ENV as "production": the http://localhost dashboard address needs
+ * the AS's runtime opt-in SUVEREN_ALLOW_HTTP_LOCAL_ORIGINS=1.
+ *
  * Skips (as the other device-key suites do) unless SUVEREN_DB_URL is set and the AS under test has the step 17
  * routes (suveren-as feat/retention-passkey-as).
  */
@@ -239,7 +242,7 @@ describe.skipIf(!available)('step 17, switch on (real Authority Server, real Chr
 
   beforeAll(async () => {
     clock = shiftedClock(0);
-    await pm.startSP(AS_PORT, { name: 'as-step17', env: { SUVEREN_DEVICE_KEYS: 'on', SUVEREN_DASHBOARD_ORIGIN: AS_URL, ...clock.env } });
+    await pm.startSP(AS_PORT, { name: 'as-step17', env: { SUVEREN_DEVICE_KEYS: 'on', SUVEREN_DASHBOARD_ORIGIN: AS_URL, SUVEREN_ALLOW_HTTP_LOCAL_ORIGINS: '1', ...clock.env } });
     db = new pg.Client({ connectionString: pm.asDatabaseUrl()! });
     await db.connect();
     browser = await chromium.launch({ headless: true, args: ['--disable-blink-features=AutomationControlled'] });
@@ -391,7 +394,7 @@ describe.skipIf(!available)('step 17, switch off: nothing is deleted, no passkey
   let db: pg.Client;
 
   beforeAll(async () => {
-    await pm.startSP(AS_OFF_PORT, { name: 'as-step17-off', env: { SUVEREN_DEVICE_KEYS: '', SUVEREN_DASHBOARD_ORIGIN: AS_OFF_URL } });
+    await pm.startSP(AS_OFF_PORT, { name: 'as-step17-off', env: { SUVEREN_DEVICE_KEYS: '', SUVEREN_DASHBOARD_ORIGIN: AS_OFF_URL, SUVEREN_ALLOW_HTTP_LOCAL_ORIGINS: '1' } });
     db = new pg.Client({ connectionString: pm.asDatabaseUrl()! });
     await db.connect();
   }, 240_000);
