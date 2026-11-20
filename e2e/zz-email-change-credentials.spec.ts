@@ -22,6 +22,10 @@ test('Email: Change Credentials opens the saved Gmail settings for editing', asy
   await page.waitForURL('**/integrations');
   const card = page.locator('.card', { has: page.locator('.card-title', { hasText: cardTitlePattern('Email') }) }).first();
   await card.waitFor({ state: 'visible', timeout: 15_000 });
+  // Wait until the card has read its saved credentials. Before that answer it is closed, and the same render
+  // that shows this line also opens it by itself (a half set-up card opens until the person chooses). A click
+  // that lands between "looked closed" and that render toggled the card shut again (CI run 44684355997).
+  await expect(card.locator('summary')).toContainText('Credentials saved — connect your account', { timeout: 15_000 });
   if (!(await card.getByRole('button', { name: 'Change Credentials' }).isVisible().catch(() => false))) await card.locator('.card-title').click();
   await expect(card.getByRole('button', { name: /^Connect Email/ })).toBeVisible({ timeout: 30_000 });
 
