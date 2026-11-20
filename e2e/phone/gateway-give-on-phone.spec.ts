@@ -113,7 +113,7 @@ async function phoneSession(p: Person, recoveryCode: string, phone: Phone): Prom
 }
 
 /** The phone grants the one prepared give it has not granted yet, over exactly what it opened. Returns what it opened. */
-async function phoneGrantsNext(p: Person, recoveryCode: string, phone: Phone, readPriv: Uint8Array, done: Set<string>, what: string): Promise<Record<string, any>> {
+async function phoneGrantsNext(p: Person, recoveryCode: string, phone: Phone, readPriv: Uint8Array, done: Set<string>, what: string, tamper?: (m: Record<string, any>) => Record<string, any>): Promise<Record<string, any>> {
   const token = await phoneSession(p, recoveryCode, phone);
   const c = await until(`${what} reaches the phone`, async () => {
     const r = await http(stack.asUrl, 'GET', '/api/mandates/prepared', { token });
@@ -134,11 +134,11 @@ async function phoneGrantsNext(p: Person, recoveryCode: string, phone: Phone, re
   const grant = buildGrant({
     op: 'grant', owner_did: root.did, key_id: phone.record.key_id, chain_seq: state.head.seq, chain_head: state.head.hash,
     mandate_id: c.mandate_id, mandate_version: c.mandate_version, granted_at: nowSec(), nonce: b64uEncode(crypto.getRandomValues(new Uint8Array(16))),
-  }, members);
+  }, tamper ? tamper(members as Record<string, any>) as typeof members : members);
   const stored = await http(stack.asUrl, 'POST', `/api/mandates/${encodeURIComponent(c.mandate_id)}/grants`, {
     token, body: { grant, sig: await signObject(grant, phone.seed), check: await assertion(phone, await objectHash(grant)) },
   });
-  expect(stored.status, show(stored)).toBe(201);
+  if (!tamper) expect(stored.status, show(stored)).toBe(201);
   done.add(c.mandate_id);
   return c;
 }
@@ -154,7 +154,13 @@ async function callTool(agent: Client, name: string, args: Record<string, unknow
   return { text: content.map((x) => x.text ?? '').join('\n'), isError: r.isError === true };
 }
 
-test('a computer without Touch ID: the give page sends the mandate to the phone, waits, and shows "Signed" once the phone gave it', async ({ page }) => {
+test('a computer without Touch ID: the give page sends the mandate to the phone, waits, and shows "Signed" once the phone gave it', async ({ page }, testInfo) => {
+  /** A screenshot of each step of the card path, kept with the run (test-results and the HTML report). */
+  const shot = async (name: string) => {
+    const path = testInfo.outputPath(`${name}.png`);
+    await page.screenshot({ path, fullPage: true });
+    await testInfo.attach(name, { path, contentType: 'image/png' });
+  };
   test.setTimeout(360_000);
   const p = await newPerson(stack, 'Give on phone');
   const { headers } = await setUpGateway(p);
@@ -267,6 +273,38 @@ test('a computer without Touch ID: the give page sends the mandate to the phone,
       const r = await callTool(agent, 'list-authorizations', {});
       return /delegation@/.test(r.text) ? true : undefined;
     }, 60_000);
+    const cardOf = (id: string) => page.locator(`[data-testid="approval-card"][data-proposal-id="${id}"]`);
+    const openCard = async (id: string) => {
+      const card = cardOf(id);
+      // The panel opens by itself when the setting is on; otherwise the card is on the Approvals page.
+      if (!(await card.isVisible({ timeout: 15_000 }).catch(() => false))) await goInPage(page, '/approvals');
+      await expect(card).toBeVisible({ timeout: 60_000 });
+      return card;
+    };
+
+    // 3. FAILURE first: a give the phone grants over OTHER values. The card shows the refusal (or keeps waiting), never "Signed".
+    const bad = await callTool(agent, 'setup__create_mandate', {
+      profile: 'records', limits: { read_access: 'unlimited', write_daily_max: 10, delete_access: 'none', archive_access: 'none' },
+      intent: 'Keep a few notes.', mode: 'review', duration_hours: 24, title: 'Few notes',
+    });
+    const badId = /Proposal ID: (\S+?)\./.exec(bad.text)?.[1];
+    expect(badId, bad.text).toBeTruthy();
+    const badCard = await openCard(badId!);
+    await shot('f1-card-before');
+    const badUrl = page.url();
+    await badCard.getByTestId('btn-approve').click();
+    await expect(badCard.getByTestId('give-phone-waiting')).toBeVisible({ timeout: 60_000 });
+    expect(page.url()).toBe(badUrl);
+    await phoneGrantsNext(p, sb.recoveryCode, phone, read.priv, granted, 'the give to refuse', (m) => ({ ...m, bounds_hash: `sha256:${'0'.repeat(64)}` }));
+    await expect.poll(async () => (await badCard.getByTestId('give-phone-refused').isVisible()) || (await badCard.getByTestId('give-phone-waiting').isVisible()), { timeout: 30_000 }).toBe(true);
+    await page.waitForTimeout(8_000);
+    await shot('f2-card-after-wrong-grant');
+    await expect(badCard.getByTestId('give-phone-given')).toHaveCount(0);
+    await expect(badCard.getByText('Signed')).toHaveCount(0);
+    if (await badCard.getByTestId('give-phone-stop').isVisible().catch(() => false)) await badCard.getByTestId('give-phone-stop').click();
+
+    // 4. SUCCESS: the AI proposes; the person presses "Give this mandate" ON THE CARD. The give runs in place: same URL, no edit form,
+    //    the give's own footer on the card. This computer has no check key (CI has no native helper), so it goes to the phone (DEC-90).
     const proposed = await callTool(agent, 'setup__create_mandate', {
       profile: 'records', limits: { read_access: 'unlimited', write_daily_max: 50, delete_access: 'none', archive_access: 'none' },
       intent: 'Keep the notes of the quotes.', mode: 'review', duration_hours: 24, title: 'Notes',
@@ -274,23 +312,23 @@ test('a computer without Touch ID: the give page sends the mandate to the phone,
     expect(proposed.isError, proposed.text).toBe(false);
     const proposalId = /Proposal ID: (\S+?)\./.exec(proposed.text)?.[1];
     expect(proposalId, proposed.text).toBeTruthy();
+    const card = await openCard(proposalId!);
+    await shot('s1-card-before');
+    const urlBefore = page.url();
+    await card.getByTestId('btn-approve').click();
+    await expect(card.getByTestId('give-phone-waiting')).toBeVisible({ timeout: 60_000 });
+    await shot('s2-card-waiting-for-phone');
+    expect(page.url(), 'the give runs on the card, no navigation').toBe(urlBefore);
+    await expect(page.locator('input[placeholder*="e.g."]'), 'no edit form').toHaveCount(0);
 
-    // 3. The person presses "Give this mandate" on the card: the give page opens from the proposal and starts the give at once
-    //    (one mechanism with giving it yourself). This computer has no check key, so the give goes to the phone (DEC-90).
-    const approve = page.getByTestId('btn-approve').first();
-    // The panel opens by itself when the setting is on; otherwise the card is on the Approvals page.
-    if (!(await approve.isVisible({ timeout: 15_000 }).catch(() => false))) await goInPage(page, '/approvals');
-    await expect(approve).toBeVisible({ timeout: 60_000 });
-    await approve.click();
-    await expect(page.getByTestId('give-phone-waiting')).toBeVisible({ timeout: 60_000 });
-
-    // 4. The phone grants exactly what the AI proposed and the page showed.
+    // 5. The phone grants exactly what the AI proposed and the card showed.
     const opened2 = await phoneGrantsNext(p, sb.recoveryCode, phone, read.priv, granted, 'the AI-proposed give');
-    // What the phone grants is exactly what the AI proposed and the person approved.
     expect(opened2.give.bounds.write_daily_max).toBe(50);
     expect(opened2.intent).toBe('Keep the notes of the quotes.');
+    await expect(card.getByTestId('give-phone-given')).toBeVisible({ timeout: 60_000 });
+    await shot('s3-card-given');
+    expect(page.url()).toBe(urlBefore);
 
-    await expect(page.getByTestId('give-phone-given')).toBeVisible({ timeout: 60_000 });
     // The proposal is closed as replaced by the person's own mandate (never executed as a second one), and nothing was refused.
     const closed = await until('the proposal is closed', async () => {
       const r = await callTool(agent, 'check-pending-commitments', { proposal_id: proposalId });
@@ -298,7 +336,10 @@ test('a computer without Touch ID: the give page sends the mandate to the phone,
     }, 60_000);
     expect(closed.text).not.toMatch(/nothing was approved under that fingerprint|setup refused to run it/);
 
-    // 5. The mandate is live for the AI (the MCP server lists only mandates whose owner's grant it verified).
+    // 6. The mandate is listed under Mandates and live for the AI (the MCP server lists only mandates whose owner's grant it verified).
+    await goInPage(page, '/mandates');
+    await expect(page.getByText('Notes').first()).toBeVisible({ timeout: 30_000 });
+    await shot('s4-mandates-list');
     await until('the Records mandate is live for the AI', async () => {
       const r = await callTool(agent, 'list-authorizations', {});
       return /records@/.test(r.text) ? true : undefined;
