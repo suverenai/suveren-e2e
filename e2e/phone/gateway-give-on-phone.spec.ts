@@ -12,8 +12,9 @@
  *   - The phone joins the chain by a root-signed `add` written straight into the throwaway database (the same seam as
  *     test/stage-c-every-device.test.ts): the real path is the recovery code plus an emailed link, which a gateway without a
  *     check key needs; the entry itself is a valid one (root, the phone's signature and its passkey check over the entry hash).
- *   - The give page is opened with the wizard's hand-over (sessionStorage `agentAuth` / `agentGate`) set by the test; the wizard
- *     itself is covered by the default browser suite.
+ *   - The give page is opened with the wizard's hand-over (sessionStorage `agentAuth` / `agentGate`) set by the test, by an
+ *     in-app navigation (a reload would lock the page again: its session token lives in the page); the wizard itself is
+ *     covered by the default browser suite.
  *
  * Not covered: a connector's tool call under the phone-given mandate (this gateway runs no connector); the mandate is shown as
  * live in the gateway's own list, which the MCP server fills only with mandates whose owner's grant it verified.
@@ -137,7 +138,9 @@ test('a computer without Touch ID: the give page sends the mandate to the phone,
     auth: { profileId, groupId: personal!.id, groupName: personal!.name ?? null, domain: 'owner', isPersonal: true },
     gate: { bounds, context: { currency: 'EUR' }, gateContent: { intent: 'Quotes wait two days.' }, ttlConfig: { max: 86400 } },
   });
-  await page.goto(`${gw}/mandates/new/sign`);
+  // In-app navigation, not a reload: the page session's header token lives in the page's memory, so a reload locks it again.
+  await page.evaluate(() => { window.history.pushState({}, '', '/mandates/new/sign'); window.dispatchEvent(new PopStateEvent('popstate')); });
+  await page.waitForURL((u) => u.toString().includes('/mandates/new/sign'), { timeout: 10_000 });
   await page.locator('input[placeholder*="e.g."]').fill('Quotes');
   if (await page.getByTestId('duration-needed').isVisible().catch(() => false)) await page.locator('button', { hasText: /^24 hours$/ }).click();
 
