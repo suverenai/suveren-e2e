@@ -123,9 +123,13 @@ test.describe('turn on Touch ID for approvals on a computer set up without it (r
     await shot(mail, '3-link-continued');
 
     // Back on the page the computer opened: it now shows what the change does and the six digits, then Confirm.
+    // The Authority Server answers Confirm with a 302 to the computer's loopback address. Nothing listens there in this test
+    // (the computer is played here), so the request itself is read; page.route does not see the target of a redirect.
     let callback: URL | null = null;
-    await page.route(`http://127.0.0.1:${PORT}/**`, async (r) => { callback = new URL(r.request().url()); await r.fulfill({ status: 200, body: 'ok' }); });
-    await page.route(`http://localhost:${PORT}/**`, async (r) => { callback = new URL(r.request().url()); await r.fulfill({ status: 200, body: 'ok' }); });
+    page.on('request', (r) => {
+      const u = new URL(r.url());
+      if ((u.hostname === '127.0.0.1' || u.hostname === 'localhost') && u.port === String(PORT)) callback = u;
+    });
     await page.goto(pageUrl);
     await expect(page.getByText('This turns on Touch ID on')).toBeVisible();
     await expect(page.locator('strong', { hasText: 'Office Mac' })).toBeVisible();
@@ -135,7 +139,6 @@ test.describe('turn on Touch ID for approvals on a computer set up without it (r
     await shot(page, '4-confirm-page');
     await page.getByRole('button', { name: 'Confirm the recovery' }).click();
     await until('the loopback redirect', async () => callback ?? undefined, 20_000);
-    await shot(page, '5-after-confirm');
     expect(callback!.pathname).toBe('/recover/callback');
     expect(callback!.searchParams.get('state')).toBe(state);
     const code = callback!.searchParams.get('code')!;
