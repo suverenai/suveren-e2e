@@ -138,11 +138,18 @@ export default async function globalSetup(): Promise<() => Promise<void>> {
     gwDir = mkdtempSync(join(tmpdir(), 'hap-e2e-phone-gw-'));
     const stack: StackOptions = {
       dataDir: gwDir, ports: { cp: GW_CP_PORT, mcp: GW_MCP_PORT }, secret: gwSecret, asUrl,
-      extraEnv: { SUVEREN_DEVICE_KEYS: 'on', SUVEREN_DISABLE_AUTO_INTEGRATIONS: '1' },
+      extraEnv: {
+        SUVEREN_DEVICE_KEYS: 'on', SUVEREN_DISABLE_AUTO_INTEGRATIONS: '1',
+        // The macOS job only (touch-id.spec.ts): the unlock helper's DEBUG build with its software backend, so the Touch ID
+        // path runs in a real browser on a runner with no Secure Enclave (DESIGN.md section 9; never shipped).
+        ...(process.env.HAP_E2E_HELPER_APP ? { SUVEREN_HELPER_APP: process.env.HAP_E2E_HELPER_APP, SUVEREN_HELPER_ARGS: '--backend software --allow-any-caller' } : {}),
+      },
     };
     await startControlPlane(pm, stack, 'gw-phone-cp');
     await startMcpServer(pm, stack, 'gw-phone-mcp');
     process.env.HAP_E2E_PHONE_GW_URL = `http://localhost:${GW_CP_PORT}`;
+    process.env.HAP_E2E_PHONE_GW_SECRET = gwSecret;
+    process.env.HAP_E2E_PHONE_GW_DATA_DIR = gwDir;
     delete process.env.HAP_E2E_PHONE_GW_UNAVAILABLE;
   } else {
     const reason = `the gateway at ${GW_DIR} is not built (apps/control-plane/dist, apps/mcp-server/dist)`;

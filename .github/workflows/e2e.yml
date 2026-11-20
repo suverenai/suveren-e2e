@@ -330,3 +330,90 @@ jobs:
             hap-e2e/playwright-report/**
           if-no-files-found: ignore
           retention-days: 7
+
+  # The Touch ID path in a real browser (device keys on): the gateway starts the unlock helper's DEBUG build with its
+  # software backend (DESIGN.md section 9; never shipped) — GitHub's macOS runners are virtual machines without a Secure
+  # Enclave, and the release helper refuses to run without one. Everything else is the real code: the gateway's helper
+  # start (hash check, protocol), the check key, the Touch ID unlock wrap, the gateway page, the Authority Server.
+  # No Docker on macOS runners, so Postgres comes from Homebrew.
+  touchid:
+    name: Touch ID journeys (macOS, debug helper)
+    if: (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && github.event.inputs.device_keys != 'off'
+    runs-on: macos-14
+    timeout-minutes: 60
+    env:
+      SUVEREN_DB_URL: postgres://postgres:e2e@localhost:5432/suveren_as
+      SUVEREN_SEED_DEV_USERS: '1'
+      SUVEREN_DEVICE_KEYS: 'on'
+    steps:
+      - name: Postgres (Homebrew)
+        run: |
+          brew install postgresql@16
+          PG=$(brew --prefix postgresql@16)/bin
+          "$PG/initdb" -D "$RUNNER_TEMP/pg" -U postgres --auth=trust >/dev/null
+          "$PG/pg_ctl" -D "$RUNNER_TEMP/pg" -o "-p 5432 -k $RUNNER_TEMP" -l "$RUNNER_TEMP/pg.log" start
+          "$PG/psql" -h localhost -U postgres -c "alter user postgres password 'e2e'" -c "create database suveren_as"
+      - name: Check out hap-e2e
+        uses: actions/checkout@v6
+        with:
+          path: hap-e2e
+      - name: Check out suveren-gateway
+        uses: actions/checkout@v6
+        with:
+          repository: suverenai/suveren-gateway
+          path: suveren-gateway
+          ref: ${{ github.event.inputs.gateway_ref || 'main' }}
+      - name: Check out suveren-as
+        uses: actions/checkout@v6
+        with:
+          repository: suverenai/suveren-as
+          path: suveren-as
+          token: ${{ secrets.HAP_CI_TOKEN }}
+          ref: ${{ github.event.inputs.as_ref || 'main' }}
+      - name: Check out hap-profiles
+        uses: actions/checkout@v6
+        with:
+          repository: humanagencyprotocol/hap-profiles
+          path: hap-profiles
+      - name: Check out hap-records-mcp
+        uses: actions/checkout@v6
+        with:
+          repository: humanagencyprotocol/hap-records-mcp
+          path: hap-records-mcp
+      - uses: pnpm/action-setup@v6
+        with:
+          version: 9
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 22
+      - name: Install and build — gateway
+        working-directory: suveren-gateway
+        run: pnpm install --frozen-lockfile && pnpm -r build
+      - name: Build — unlock helper (DEBUG, software backend)
+        working-directory: suveren-gateway/packages/unlock-helper/macos
+        run: CONFIG=debug ./build-app.sh "$RUNNER_TEMP/helper" && echo "HAP_E2E_HELPER_APP=$RUNNER_TEMP/helper/Suveren.app" >> "$GITHUB_ENV"
+      - name: Install — Authority Server
+        working-directory: suveren-as
+        run: npm ci
+      - name: Install and build — records MCP
+        working-directory: hap-records-mcp
+        run: npm ci && npm run build
+      - name: Install — e2e
+        working-directory: hap-e2e
+        run: npm ci && npx playwright install chromium
+      - name: Run Touch ID journeys
+        working-directory: hap-e2e
+        env:
+          HAP_E2E_PHONE_STRICT: '1'
+          PLAYWRIGHT_HTML_REPORT: playwright-report/touchid
+        run: npx playwright test -c playwright.phone.config.ts touch-id --project=chromium --output test-results/touchid --reporter=list,html
+      - name: Upload Touch ID results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: e2e-touchid-macos
+          path: |
+            hap-e2e/test-results/touchid/**
+            hap-e2e/playwright-report/touchid/**
+          if-no-files-found: ignore
+          retention-days: 7
