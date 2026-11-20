@@ -39,6 +39,9 @@ const LOOKALIKE_PORT = Number(process.env.HAP_E2E_PHONE_LOOKALIKE_PORT ?? 19942)
 // against the phone ("Give on your phone", DEC-90). The default browser suite's gateway is not touched.
 const GW_CP_PORT = Number(process.env.HAP_E2E_PHONE_GW_CP_PORT ?? 19943);
 const GW_MCP_PORT = Number(process.env.HAP_E2E_PHONE_GW_MCP_PORT ?? 19944);
+// A second chain gateway: a gateway is claimed by the first person who sets it up, so a spec that needs its own gets this one.
+const GW2_CP_PORT = Number(process.env.HAP_E2E_PHONE_GW2_CP_PORT ?? 19945);
+const GW2_MCP_PORT = Number(process.env.HAP_E2E_PHONE_GW2_MCP_PORT ?? 19946);
 
 const MIME: Record<string, string> = {
   '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.css': 'text/css; charset=utf-8',
@@ -135,6 +138,7 @@ export default async function globalSetup(): Promise<() => Promise<void>> {
   // The chain gateway: only when the gateway checkout is built (the CI job builds it for the main suite first). Without it, the
   // cases that need it skip with that reason; in CI (strict) that is a failure, not a skip.
   let gwDir: string | null = null;
+  let gw2Dir: string | null = null;
   const gwSecret = newSecret();
   if (existsSync(join(GW_DIR, 'apps', 'control-plane', 'dist', 'index.mjs')) && existsSync(join(GW_DIR, 'apps', 'mcp-server', 'dist', 'http.mjs'))) {
     gwDir = mkdtempSync(join(tmpdir(), 'hap-e2e-phone-gw-'));
@@ -145,6 +149,11 @@ export default async function globalSetup(): Promise<() => Promise<void>> {
     await startControlPlane(pm, stack, 'gw-phone-cp');
     await startMcpServer(pm, stack, 'gw-phone-mcp');
     process.env.HAP_E2E_PHONE_GW_URL = `http://localhost:${GW_CP_PORT}`;
+    gw2Dir = mkdtempSync(join(tmpdir(), 'hap-e2e-phone-gw2-'));
+    const stack2: StackOptions = { ...stack, dataDir: gw2Dir, ports: { cp: GW2_CP_PORT, mcp: GW2_MCP_PORT }, secret: newSecret() };
+    await startControlPlane(pm, stack2, 'gw2-phone-cp');
+    await startMcpServer(pm, stack2, 'gw2-phone-mcp');
+    process.env.HAP_E2E_PHONE_GW2_URL = `http://localhost:${GW2_CP_PORT}`;
     delete process.env.HAP_E2E_PHONE_GW_UNAVAILABLE;
   } else {
     const reason = `the gateway at ${GW_DIR} is not built (apps/control-plane/dist, apps/mcp-server/dist)`;
@@ -169,6 +178,7 @@ export default async function globalSetup(): Promise<() => Promise<void>> {
     }
     await pm.killAll();
     if (gwDir) rmSync(gwDir, { recursive: true, force: true });
+    if (gw2Dir) rmSync(gw2Dir, { recursive: true, force: true });
     rmSync(outDir, { recursive: true, force: true });
     rmSync(asLog, { force: true });
   };

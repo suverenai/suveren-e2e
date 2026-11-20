@@ -32,7 +32,8 @@ test.beforeAll(async () => {
   if (unavailable) return;
   stack = stackFromEnv();
   db = await connectDb(stack);
-  gw = process.env.HAP_E2E_PHONE_GW_URL!;
+  // Its own gateway (the suite's second): a gateway is claimed by the first person who sets it up.
+  gw = process.env.HAP_E2E_PHONE_GW2_URL!;
 });
 test.afterAll(async () => { await db?.end().catch(() => undefined); });
 
