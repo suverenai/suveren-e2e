@@ -27,16 +27,24 @@ import { test, expect, type Browser, type BrowserContext, type CDPSession, type 
 import type pg from 'pg';
 import { buildDeviceRecord, buildEntry, deriveRootKey, ed25519PublicKey, encodeCoseEc2, generateRecoveryCode, keyIdOf, rootKeyFromRecoveryCode, signEntry } from '@humanagencyp/hap-core/device-keys';
 import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
+import { randomUUID } from 'node:crypto';
+import {
+  computeBoundsHash, computeExecutionContextHash, computeIntentHash, computeProfileHash, computeScopeHash, encryptProposalContent, type MandatePayload,
+} from '@humanagencyp/hap-core';
+import { buildReceipt, grantHash, signObject, verifyGrant, type MandateGrant } from '@humanagencyp/hap-core/device-keys';
+import { grantMembersOf, newMandateId } from '../../src/helpers/mandate-grant';
 import {
   asKeyHex, chainOf, clearMailboxes, codeOf, computerAnswersJoin, computerWithChain, connectDb, enrolmentCode, headOf, http,
   identityCodeOf, mailboxRow, newJoiner, newPairing, newPerson, newRoot, nowSec, openMailbox,
   pairingQr, qrMatrix, readBox, show, signinBody, stackFromEnv, until, verifiedChain, waitForMessage,
-  b64uEncode, newDevice, entryHash, randomBytes, checkOver,
+  b64uEncode, b64uDecode, newDevice, entryHash, randomBytes, checkOver, sessionFor,
   type Computer, type PhoneStack, type Root,
 } from '../../src/helpers/phone-app';
 import { buildChangeRequest, verifyPhoneAnswer } from '../../src/helpers/change-request';
 
 const unavailable = process.env.HAP_E2E_PHONE_UNAVAILABLE;
+const PROFILES_DIR = process.env.HAP_E2E_PROFILES_DIR ?? join(import.meta.dirname, '..', '..', '..', 'hap-profiles');
 test.skip(!!unavailable, `phone suite not available: ${unavailable}`);
 
 const NO_VIRTUAL_AUTHENTICATOR = 'WebKit has no virtual authenticator (no WebAuthn CDP domain), so a passkey cannot be made or used in an automated run. Covered by Chromium; by hand on a real iPhone.';
@@ -778,6 +786,196 @@ test.describe('the phone admits a computer', () => {
 // ═══════════════════════════════════════════════════════════════════════════════════════════════
 // WebKit: what is possible
 // ═══════════════════════════════════════════════════════════════════════════════════════════════
+
+test.describe('stage D3: give a mandate on the phone (plan 4.4 Transport, DEC-86)', () => {
+  test.skip(chromiumOnly, NO_VIRTUAL_AUTHENTICATOR);
+
+  test('a computer prepares a give for the phone; the phone shows exactly that and gives it with one touch; the Authority Server stores a grant that verifies with exactly those members; "Signed" once the computer\'s receipt verifies', async ({ browser }) => {
+    const phone = await joinedPhone(browser, 'Giving Phone', 'Office Mac');
+    const comp = phone.person;
+    // The phone joined: the chain moved; the computer signs in again at the new head (as a gateway does).
+    const chain = await chainOf(stack, comp, comp.root.did);
+    const state = await verifiedChain(stack, comp, comp.root.did);
+    const token = await sessionFor(stack, comp.root, comp.dev, chain.head);
+    const phoneKey = Object.values(state.devices).find((d) => d.label === 'Giving Phone')!.key_id;
+
+    // What the computer prepares (the gateway's `sendToPhone`): the mandate the AS will sign, its plaintext, sealed to every device.
+    const profile = JSON.parse(readFileSync(join(PROFILES_DIR, 'sales', '0.4.profile.json'), 'utf8'));
+    const bounds = { profile: profile.id, read_access: 'unlimited', value_max: 1000, discount_max: 10, order_value_daily_max: 5000, quote_daily_max: 10, send_daily_max: 10, order_daily_max: 0, setup_daily_max: 0 };
+    const scope = { currency: 'EUR' };
+    const intent = 'Follow up quotes that wait two days.';
+    const groups = await http(stack.asUrl, 'GET', '/api/groups', { apiKey: comp.apiKey });
+    const groupId = (groups.json.groups as Array<{ id: string; isPersonal?: boolean }>).find((g) => g.isPersonal)!.id;
+    const mandateId = newMandateId();
+    const authorizationId = `authz_${randomUUID()}`;
+    const payload = {
+      mandate_id: mandateId, version: '0.8', profile_id: profile.id, profile_hash: computeProfileHash(profile), bounds_hash: computeBoundsHash(bounds as never, profile),
+      scope_hash: computeScopeHash(scope as never, profile), execution_context_hash: computeExecutionContextHash(profile), issuer: 'did:key:z',
+      mandate_owners: [{ did: comp.root.did }], gate_content_hashes: { intent: computeIntentHash(intent) }, commitment_mode: 'review',
+      issued_at: nowSec(), expires_at: nowSec() + 3600,
+    } as unknown as MandatePayload;
+    const place = { authorization_id: authorizationId, group_id: groupId, replaces: null, chain_dids: [comp.root.did] };
+    const content = { v: 2, mandate_id: mandateId, mandate_version: 1, scope, intent, give: { op: 'grant', profile, bounds, payload, place, title: 'Quotes', prepared_at: nowSec() } };
+    const readers = Object.values(state.devices).filter((d) => d.removed_seq === null).map((d) => ({ did: d.key_id, publicKey: b64uDecode(d.read_pub) }));
+    const sealed = await encryptProposalContent(content, readers);
+    const prep = await http(stack.asUrl, 'POST', '/api/mandates/prepared', { token, body: { mandate_id: mandateId, mandate_version: 1, ciphertext: sealed.content.ciphertext, device_keys: sealed.content.encrypted_keys } });
+    expect(prep.status, show(prep)).toBe(201);
+
+    // The phone: opened with a touch, the give opens full screen by itself (DEC-86), with what the computer prepared.
+    await phone.page.goto(stack.appUrl);
+    await phone.page.getByRole('button', { name: 'Open with a touch' }).click();
+    const card = phone.page.getByTestId('give-card');
+    await expect(card).toBeVisible({ timeout: 20_000 });
+    await expect(card.getByTestId('give-title')).toHaveText('Give the mandate for Quotes');
+    await expect(card.getByTestId('give-from')).toContainText('Prepared on Office Mac');
+    await expect(card.getByTestId('give-intent')).toHaveText(intent);
+    await expect(card.getByTestId('mandate-summary')).toBeVisible();
+    await card.getByTestId('btn-give').click();
+    // No computer answers yet: the one not-received state (problem first, Check again).
+    await expect(phone.page.getByTestId('decision-unknown')).toBeVisible({ timeout: 30_000 });
+
+    // At the Authority Server: one grant, by the phone, WITH its check, whose members are exactly the ones rebuilt from the mandate.
+    const grants = await http(stack.asUrl, 'GET', `/api/mandates/${encodeURIComponent(mandateId)}/grants`, { token });
+    expect(grants.status, show(grants)).toBe(200);
+    const rows = grants.json.grants as Array<{ op: string; grant: MandateGrant; sig: string; check: unknown }>;
+    expect(rows).toHaveLength(1);
+    expect(rows[0].op).toBe('grant');
+    expect(rows[0].grant.key_id).toBe(phoneKey);
+    expect(rows[0].check).toBeTruthy();
+    const members = grantMembersOf(payload, { authorizationId, groupId, replaces: null, chainDids: [comp.root.did] });
+    await verifyGrant({ grant: rows[0].grant, sig: rows[0].sig, check: rows[0].check as never }, { chain: await verifiedChain(stack, comp, comp.root.did), mandateFields: members, expect: { ops: ['grant'], mandate_id: mandateId, mandate_version: 1 } });
+
+    // The computer received it: its signed receipt; Check again on the phone then shows the gateway's own result.
+    const now = await chainOf(stack, comp, comp.root.did);
+    const receipt = buildReceipt({ mandate_id: mandateId, mandate_version: 1, grant_hash: await grantHash(rows[0].grant), key_id: comp.dev.record.key_id, chain_seq: now.head.seq, chain_head: now.head.hash, received_at: nowSec() });
+    const rec = await http(stack.asUrl, 'POST', `/api/mandates/${encodeURIComponent(mandateId)}/receipts`, { token, body: { receipt, sig: await signObject(receipt, comp.dev.seed) } });
+    expect([200, 201], show(rec)).toContain(rec.status);
+    await phone.page.getByTestId('result-check').click();
+    await expect(phone.page.getByTestId('decision-stamp')).toContainText('Signed', { timeout: 20_000 });
+    await phone.context.close();
+  });
+
+  test('a give whose limits differ from what the mandate names is not offered: no button, nothing signed', async ({ browser }) => {
+    const phone = await joinedPhone(browser, 'Careful Phone', 'Other Mac');
+    const comp = phone.person;
+    const chain = await chainOf(stack, comp, comp.root.did);
+    const state = await verifiedChain(stack, comp, comp.root.did);
+    const token = await sessionFor(stack, comp.root, comp.dev, chain.head);
+    const profile = JSON.parse(readFileSync(join(PROFILES_DIR, 'sales', '0.4.profile.json'), 'utf8'));
+    const bounds = { profile: profile.id, read_access: 'unlimited', value_max: 1000, discount_max: 10, order_value_daily_max: 5000, quote_daily_max: 10, send_daily_max: 10, order_daily_max: 0, setup_daily_max: 0 };
+    const mandateId = newMandateId();
+    const payload = {
+      mandate_id: mandateId, version: '0.8', profile_id: profile.id, profile_hash: computeProfileHash(profile), bounds_hash: computeBoundsHash(bounds as never, profile),
+      scope_hash: computeScopeHash({ currency: 'EUR' } as never, profile), execution_context_hash: computeExecutionContextHash(profile), issuer: 'did:key:z',
+      mandate_owners: [{ did: comp.root.did }], gate_content_hashes: { intent: computeIntentHash('x') }, commitment_mode: 'review', issued_at: nowSec(), expires_at: nowSec() + 3600,
+    };
+    // shown: 99,999 per offer; hashed: 1,000
+    const content = { v: 2, mandate_id: mandateId, mandate_version: 1, scope: { currency: 'EUR' }, intent: 'x', give: { op: 'grant', profile, bounds: { ...bounds, value_max: 99999 }, payload, place: { authorization_id: `authz_${randomUUID()}`, group_id: 'g', replaces: null, chain_dids: [comp.root.did] }, title: 'Lie', prepared_at: nowSec() } };
+    const readers = Object.values(state.devices).filter((d) => d.removed_seq === null).map((d) => ({ did: d.key_id, publicKey: b64uDecode(d.read_pub) }));
+    const sealed = await encryptProposalContent(content, readers);
+    expect((await http(stack.asUrl, 'POST', '/api/mandates/prepared', { token, body: { mandate_id: mandateId, mandate_version: 1, ciphertext: sealed.content.ciphertext, device_keys: sealed.content.encrypted_keys } })).status).toBe(201);
+    await phone.page.goto(stack.appUrl);
+    await phone.page.getByRole('button', { name: 'Open with a touch' }).click();
+    await expect(phone.page.getByRole('tab', { name: 'Requests' }).or(phone.page.getByRole('button', { name: 'Requests', exact: true })).first()).toBeVisible({ timeout: 20_000 });
+    await phone.page.waitForTimeout(3000);
+    await expect(phone.page.getByTestId('give-card')).toHaveCount(0);
+    await expect(phone.page.getByTestId('give-row')).toHaveCount(0);
+    const grants = await http(stack.asUrl, 'GET', `/api/mandates/${encodeURIComponent(mandateId)}/grants`, { token });
+    expect(grants.json.grants ?? []).toHaveLength(0);
+    await phone.context.close();
+  });
+});
+
+test.describe('stage D3: change a mandate on the phone (mockup B1, DEC-90)', () => {
+  test.skip(chromiumOnly, NO_VIRTUAL_AUTHENTICATOR);
+
+  /** A computer of the person prepares a give (or a change) for the phone, sealed to every device: the gateway's `sendToPhone`. */
+  async function seal(comp: any, token: string, state: any, content: Record<string, unknown>, version: number) {
+    const readers = Object.values(state.devices as Record<string, any>).filter((d) => d.removed_seq === null).map((d) => ({ did: d.key_id, publicKey: b64uDecode(d.read_pub) }));
+    const sealed = await encryptProposalContent(content, readers);
+    const prep = await http(stack.asUrl, 'POST', '/api/mandates/prepared', { token, body: { mandate_id: content.mandate_id, mandate_version: version, ciphertext: sealed.content.ciphertext, device_keys: sealed.content.encrypted_keys } });
+    expect(prep.status, show(prep)).toBe(201);
+  }
+
+  async function givenV1(browser: any, label: string, comp_label: string) {
+    const phone = await joinedPhone(browser, label, comp_label);
+    const comp = phone.person;
+    const chain = await chainOf(stack, comp, comp.root.did);
+    const state = await verifiedChain(stack, comp, comp.root.did);
+    const token = await sessionFor(stack, comp.root, comp.dev, chain.head);
+    const profile = JSON.parse(readFileSync(join(PROFILES_DIR, 'sales', '0.4.profile.json'), 'utf8'));
+    const bounds = { profile: profile.id, read_access: 'unlimited', value_max: 1000, discount_max: 10, order_value_daily_max: 5000, quote_daily_max: 10, send_daily_max: 10, order_daily_max: 0, setup_daily_max: 0 };
+    const scope = { currency: 'EUR' };
+    const intent = 'Follow up quotes that wait two days.';
+    const groups = await http(stack.asUrl, 'GET', '/api/groups', { apiKey: comp.apiKey });
+    const groupId = (groups.json.groups as Array<{ id: string; isPersonal?: boolean }>).find((g) => g.isPersonal)!.id;
+    const mandateId = newMandateId();
+    const authz1 = `authz_${randomUUID()}`;
+    const mk = (b: Record<string, unknown>, expires: number) => ({
+      mandate_id: mandateId, version: '0.8', profile_id: profile.id, profile_hash: computeProfileHash(profile), bounds_hash: computeBoundsHash(b as never, profile),
+      scope_hash: computeScopeHash(scope as never, profile), execution_context_hash: computeExecutionContextHash(profile), issuer: 'did:key:z',
+      mandate_owners: [{ did: comp.root.did }], gate_content_hashes: { intent: computeIntentHash(intent) }, commitment_mode: 'review',
+      issued_at: nowSec(), expires_at: expires,
+    } as unknown as MandatePayload);
+    const p1 = mk(bounds, nowSec() + 3600);
+    await seal(comp, token, state, { v: 2, mandate_id: mandateId, mandate_version: 1, scope, intent, give: { op: 'grant', profile, bounds, payload: p1, place: { authorization_id: authz1, group_id: groupId, replaces: null, chain_dids: [comp.root.did] }, title: 'Quotes', prepared_at: nowSec() } }, 1);
+    await phone.page.goto(stack.appUrl);
+    await phone.page.getByRole('button', { name: 'Open with a touch' }).click();
+    const card = phone.page.getByTestId('give-card');
+    await expect(card.getByTestId('give-title')).toHaveText('Give the mandate for Quotes', { timeout: 20_000 });
+    await card.getByTestId('btn-give').click();
+    await expect(phone.page.getByTestId('decision-unknown')).toBeVisible({ timeout: 30_000 });
+    return { phone, comp, token, state, profile, bounds, scope, intent, groupId, mandateId, authz1, mk, p1 };
+  }
+
+  test('the phone shows the change with the old value crossed out, checked against version 1\'s grant, and grants version 2 with one touch', async ({ browser }) => {
+    const v = await givenV1(browser, 'Changing Phone', 'Office Mac');
+    const bounds2 = { ...v.bounds, value_max: 3000 };
+    const p2 = v.mk(bounds2, (v.p1 as any).expires_at);
+    const authz2 = `authz_${randomUUID()}`;
+    const previous = { profile: v.profile, bounds: v.bounds, scope: v.scope, intent: v.intent, expires_at: (v.p1 as any).expires_at, mandate_version: 1 };
+    await seal(v.comp, v.token, v.state, { v: 2, mandate_id: v.mandateId, mandate_version: 2, scope: v.scope, intent: v.intent, give: { op: 'change', profile: v.profile, bounds: bounds2, payload: p2, place: { authorization_id: authz2, group_id: v.groupId, replaces: v.authz1, chain_dids: [v.comp.root.did] }, title: 'Quotes', prepared_at: nowSec(), previous } }, 2);
+
+    await v.phone.page.reload();
+    await v.phone.page.getByRole('button', { name: 'Open with a touch' }).click();
+    const card = v.phone.page.getByTestId('give-card');
+    await expect(card.getByTestId('give-title')).toHaveText('Change the mandate for Quotes', { timeout: 20_000 });
+    // the gateway's change rows: the old value crossed out, then the new one
+    const row = card.locator('[data-testid="change-row"]').filter({ hasText: '3' }).first();
+    await expect(row).toBeVisible();
+    const old = row.locator('.mc-old');
+    await expect(old).toBeVisible();
+    expect(await old.evaluate((el) => getComputedStyle(el).textDecorationLine)).toContain('line-through');
+    await card.getByTestId('btn-give').click();
+    await expect(v.phone.page.getByTestId('decision-unknown')).toBeVisible({ timeout: 30_000 });
+
+    const grants = await http(stack.asUrl, 'GET', `/api/mandates/${encodeURIComponent(v.mandateId)}/grants`, { token: v.token });
+    const rows = grants.json.grants as Array<{ op: string; mandate_version: number; grant: MandateGrant; sig: string; check: unknown }>;
+    const second = rows.find((r) => r.mandate_version === 2)!;
+    expect(second.op).toBe('change');
+    expect(second.check).toBeTruthy();
+    const members = grantMembersOf(p2, { authorizationId: authz2, groupId: v.groupId, replaces: v.authz1, chainDids: [v.comp.root.did] });
+    await verifyGrant({ grant: second.grant, sig: second.sig, check: second.check as never }, { chain: await verifiedChain(stack, v.comp, v.comp.root.did), mandateFields: members, expect: { ops: ['change'], mandate_id: v.mandateId, mandate_version: 2 } });
+    await v.phone.context.close();
+  });
+
+  test('a change whose "old" values differ from what version 1 granted is not shown: no card, nothing signed', async ({ browser }) => {
+    const v = await givenV1(browser, 'Wary Phone', 'Other Mac');
+    const bounds2 = { ...v.bounds, value_max: 3000 };
+    const p2 = v.mk(bounds2, (v.p1 as any).expires_at);
+    // shown as "before": 50 per offer; version 1 granted 1,000
+    const previous = { profile: v.profile, bounds: { ...v.bounds, value_max: 50 }, scope: v.scope, intent: v.intent, expires_at: (v.p1 as any).expires_at, mandate_version: 1 };
+    await seal(v.comp, v.token, v.state, { v: 2, mandate_id: v.mandateId, mandate_version: 2, scope: v.scope, intent: v.intent, give: { op: 'change', profile: v.profile, bounds: bounds2, payload: p2, place: { authorization_id: `authz_${randomUUID()}`, group_id: v.groupId, replaces: v.authz1, chain_dids: [v.comp.root.did] }, title: 'Quotes', prepared_at: nowSec(), previous } }, 2);
+    await v.phone.page.reload();
+    await v.phone.page.getByRole('button', { name: 'Open with a touch' }).click();
+    await expect(v.phone.page.getByRole('tab', { name: 'Requests' }).or(v.phone.page.getByRole('button', { name: 'Requests', exact: true })).first()).toBeVisible({ timeout: 20_000 });
+    await v.phone.page.waitForTimeout(3000);
+    await expect(v.phone.page.getByTestId('give-card')).toHaveCount(0);
+    const grants = await http(stack.asUrl, 'GET', `/api/mandates/${encodeURIComponent(v.mandateId)}/grants`, { token: v.token });
+    expect((grants.json.grants as Array<{ mandate_version: number }>).filter((r) => r.mandate_version === 2)).toHaveLength(0);
+    await v.phone.context.close();
+  });
+});
 
 test.describe('WebKit', () => {
   test.skip(({ browserName }) => browserName !== 'webkit', 'the Chromium run covers this with a passkey');
