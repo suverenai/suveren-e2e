@@ -249,7 +249,10 @@ describe.skipIf(!available)('ERP Local in production (real AS + gateway + erp-mc
       expect(vat.result.body.structured.vies).toMatchObject({ status: 'valid', name: 'KUNDE GMBH' });
       expect(check(card.checks, 'vat-format').status).toBe('pass');
       expect(check(card.checks, 'vies')).toMatchObject({ status: 'pass', blocking: true });
-      expect(check(card.checks, 'vies').detail).toContain(`checked ${TODAY_VIENNA}`);
+      // The gateway shows the check's day on its own computer (this one): not UTC, and not a hard-coded Vienna day
+      // (a run at 23:57 UTC read 'checked 2026-11-20' against an expected '2026-11-21').
+      const checkedDay = new Intl.DateTimeFormat('en-CA', { year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date());
+      expect(check(card.checks, 'vies').detail).toContain(`checked ${checkedDay}`);
       expect(check(card.checks, 'vat-duplicate').status).toBe('pass');
       expect(check(card.checks, 'crm-duplicate').status).toBe('pass');
       expect(await customersByUid(C1.uid)).toHaveLength(0);
