@@ -662,6 +662,16 @@ describe.skipIf(!available)('step 8: encrypt to every device, re-wrap, card cont
     const early = await internal(C, '/decrypt-content', await wireFor(p1.id, devC.record.key_id, P));
     expect(early.status, show(early)).toBeGreaterThanOrEqual(400);
 
+    // What the re-wrap reads: the AS lists the owner's open proposals to a device session of the owner, each with that
+    // device's OWN wrap (and no other). Checked here with device B's session, the one this test holds.
+    for (const q of ['creator=me', 'domain=owner']) {
+      const listed = await as('GET', `/api/proposals?${q}`, { token: tokenB });
+      expect(listed.status, `${q}: ${show(listed)}`).toBe(200);
+      const open = (listed.json.proposals as any[]).filter((x) => x.id === p1.id || x.id === p2.id);
+      expect(open.map((x) => x.id).sort(), `${q}: ${show(listed)}`).toEqual([p1.id, p2.id].sort());
+      for (const x of open) expect(Object.keys(x.content?.device_keys ?? {}), `${q}: ${JSON.stringify(x.content ? Object.keys(x.content) : x.content)} status=${x.status}`).toEqual([devB.record.key_id]);
+    }
+
     // A, which can open the content key, wraps it for the devices of the chain it verified, and hands the wraps to the AS.
     const run = await internal(A, '/rewrap-proposals', {});
     expect(run.status, show(run)).toBe(200);
