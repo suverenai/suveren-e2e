@@ -5,7 +5,7 @@ export default defineConfig({
   testDir: './e2e',
   // Production gateway: the specs that use the practice CRM/ERP/mailbox run in
   // playwright.simulation.config.ts (a gateway is simulation OR production).
-  testIgnore: SIMULATION_SPECS,
+  testIgnore: [...SIMULATION_SPECS, '**/phone/**'], // the phone app suite has its own config
   timeout: 60_000,
   retries: 0,
   workers: 1, // Sequential — shared server state

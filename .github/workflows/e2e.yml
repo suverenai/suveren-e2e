@@ -40,6 +40,8 @@ on:
         description: 'Device-keys switch (SUVEREN_DEVICE_KEYS) for the Authority Server and the gateway: off, on, or both (two parallel legs).'
         required: false
         type: choice
+        # Quoted: bare on/off are YAML booleans, and GitHub then refused
+        # device_keys=on as "not in the list of allowed values".
         options: ['off', 'on', 'both']
         default: 'off'
 
@@ -298,6 +300,25 @@ jobs:
       - name: Run browser journeys (simulation gateway)
         working-directory: hap-e2e
         run: npx playwright test -c playwright.simulation.config.ts
+
+      # The phone approval app (device-keys step 11) against the real Authority
+      # Server, switch on only: with the switch off every phone route answers
+      # 404 by design. Its own global setup starts the Authority Server and
+      # serves the built app; no gateway. WebKit runs the cases it can (it has
+      # no virtual authenticator). STRICT: a missing route or app fails the
+      # step instead of skipping the whole suite.
+      # Runs even when an earlier step failed: it has its own stack and ports,
+      # so a vitest failure does not hide the phone result.
+      - name: Run phone app journeys
+        if: matrix.device_keys == 'on' && !cancelled()
+        working-directory: hap-e2e
+        env:
+          HAP_E2E_PHONE_STRICT: '1'
+          # Its own report folder, so the browser journeys' report is kept.
+          PLAYWRIGHT_HTML_REPORT: playwright-report/phone
+        run: |
+          npx playwright install --with-deps webkit
+          npx playwright test -c playwright.phone.config.ts --output test-results/phone --reporter=list,html
 
       - name: Upload logs
         if: always()
