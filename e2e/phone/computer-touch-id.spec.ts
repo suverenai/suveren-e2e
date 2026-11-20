@@ -157,6 +157,23 @@ test.describe('turn on Touch ID for approvals on a computer set up without it (r
     await context.close();
   });
 
+  test('a root-signed set that would REPLACE a computer\'s Touch ID key is never staged and nothing is mailed', async () => {
+    const p = await newPerson(stack, 'Owner with Touch ID');
+    const code = await enrolmentCode(stack, db, p);
+    const root = await newRoot();
+    const dev = await newDevice('Keyed Mac'); // set up WITH a check key
+    const g = await genesisEntry(root, dev);
+    expect((await http(stack.asUrl, 'POST', '/api/devices/chain', { body: { entry: g, enrolment_code: code } })).status).toBe(201);
+    const before = mailLines().length;
+    const key = await newPlatformKey();
+    const replace = await rootSet(root, g, dev.record.key_id, key.check, key.priv);
+    const r = await http(stack.asUrl, 'POST', '/api/devices/recovery/handoffs', {
+      body: { entry: replace, code_challenge: createHash('sha256').update('v', 'ascii').digest('base64url'), port: PORT, state_hash: createHash('sha256').update('s', 'utf8').digest('base64url') },
+    });
+    expect([r.status, r.json?.errors?.[0]?.code ?? r.json?.code]).toEqual([400, 'BAD_OP']);
+    expect(mailLines().slice(before).filter((l) => l.includes('/recover/link?token='))).toHaveLength(0);
+  });
+
   test('a root-signed set that would CLEAR a check key is never staged and nothing is mailed', async () => {
     const { root, dev, g } = await computerWithoutTouchId('Spare Mac');
     const before = mailLines().length;
