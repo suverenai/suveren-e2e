@@ -160,7 +160,19 @@ describe('Context Privacy', () => {
       });
 
       const responseBody = await rawResponse.json() as Record<string, unknown>;
-      const responseJson = JSON.stringify(responseBody);
+      // The blob is opaque base64 (contains a signature): a raw substring check on it
+      // can match 'USD' by chance. Check plaintext fields as text, the blob structurally.
+      const { blob: _blob, ...plainFields } = responseBody;
+      const responseJson = JSON.stringify(plainFields);
+      const stringValues = (v: unknown): string[] =>
+        typeof v === 'string' ? [v]
+          : Array.isArray(v) ? v.flatMap(stringValues)
+          : v && typeof v === 'object' ? Object.values(v).flatMap(stringValues)
+          : [];
+      const keysOf = (v: unknown): string[] =>
+        Array.isArray(v) ? v.flatMap(keysOf)
+          : v && typeof v === 'object' ? Object.entries(v).flatMap(([k, x]) => [k, ...keysOf(x)])
+          : [];
 
       // scope_hash MUST be present in the response
       expect(responseBody.scope_hash).toBe(contextHash);
@@ -169,6 +181,7 @@ describe('Context Privacy', () => {
       expect(responseJson).not.toContain('"currency"');
       expect(responseJson).not.toContain('"action_type"');
       expect(responseJson).not.toContain('USD');
+      expect(responseBody.blob).toBeTruthy();
 
       // The blob is the signed mandate — it should contain only the hash
       expect(responseBody.blob).toBeTruthy();
@@ -178,6 +191,11 @@ describe('Context Privacy', () => {
       expect(decoded).toContain('scope_hash');
       expect(decoded).not.toContain('"currency"');
       expect(decoded).not.toContain('"action_type"');
+      // Structured check: no scope key and no scope value as a field of the decoded mandate
+      const parsed: unknown = JSON.parse(decoded);
+      expect(keysOf(parsed)).not.toContain('currency');
+      expect(keysOf(parsed)).not.toContain('action_type');
+      expect(stringValues(parsed)).not.toContain(CONTEXT.currency);
     });
   });
 
