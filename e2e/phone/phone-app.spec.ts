@@ -764,11 +764,11 @@ test.describe('stage D3: give a mandate on the phone (plan 4.4 Transport, DEC-86
     const mandateId = newMandateId();
     const payload = {
       mandate_id: mandateId, version: '0.8', profile_id: profile.id, profile_hash: computeProfileHash(profile), bounds_hash: computeBoundsHash(bounds as never, profile),
-      scope_hash: computeScopeHash({} as never, profile), execution_context_hash: computeExecutionContextHash(profile), issuer: 'did:key:z',
+      scope_hash: computeScopeHash({ currency: 'EUR' } as never, profile), execution_context_hash: computeExecutionContextHash(profile), issuer: 'did:key:z',
       mandate_owners: [{ did: comp.root.did }], gate_content_hashes: { intent: computeIntentHash('x') }, commitment_mode: 'review', issued_at: nowSec(), expires_at: nowSec() + 3600,
     };
     // shown: 99,999 per offer; hashed: 1,000
-    const content = { v: 2, mandate_id: mandateId, mandate_version: 1, scope: {}, intent: 'x', give: { op: 'grant', profile, bounds: { ...bounds, value_max: 99999 }, payload, place: { authorization_id: `authz_${randomUUID()}`, group_id: 'g', replaces: null, chain_dids: [comp.root.did] }, title: 'Lie', prepared_at: nowSec() } };
+    const content = { v: 2, mandate_id: mandateId, mandate_version: 1, scope: { currency: 'EUR' }, intent: 'x', give: { op: 'grant', profile, bounds: { ...bounds, value_max: 99999 }, payload, place: { authorization_id: `authz_${randomUUID()}`, group_id: 'g', replaces: null, chain_dids: [comp.root.did] }, title: 'Lie', prepared_at: nowSec() } };
     const readers = Object.values(state.devices).filter((d) => d.removed_seq === null).map((d) => ({ did: d.key_id, publicKey: b64uDecode(d.read_pub) }));
     const sealed = await encryptProposalContent(content, readers);
     expect((await http(stack.asUrl, 'POST', '/api/mandates/prepared', { token, body: { mandate_id: mandateId, mandate_version: 1, ciphertext: sealed.content.ciphertext, device_keys: sealed.content.encrypted_keys } })).status).toBe(201);
