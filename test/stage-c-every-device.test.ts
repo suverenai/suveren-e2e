@@ -664,8 +664,15 @@ describe.skipIf(!available)('step 8: encrypt to every device, re-wrap, card cont
 
     // What the re-wrap reads: the AS lists the owner's open proposals to a device session of the owner, each with that
     // device's OWN wrap (and no other). Checked here with device B's session, the one this test holds.
+    const facts = JSON.stringify((await db.query(
+      `select p.id, p.status, p.created_by, p.expires_at, a.group_id, (select array_agg(m.group_id || ':' || coalesce(m.status, 'active')) from group_members m where m.user_id = $3) as p_groups
+       from proposals p left join authorizations a on a.authorization_id = p.authorization_id where p.id in ($1, $2)`,
+      [p1.id, p2.id, P.id],
+    )).rows) + ` P=${P.id} team=${teamId} now=${now()}`;
     for (const q of ['creator=me', 'domain=owner']) {
       const listed = await as('GET', `/api/proposals?${q}`, { token: tokenB });
+      expect(listed.status, `${q}: ${show(listed)} ${facts}`).toBe(200);
+      expect((listed.json.proposals as any[]).map((x) => x.id).filter((id) => id === p1.id || id === p2.id).sort(), `${q}: ${show(listed)} ${facts}`).toEqual([p1.id, p2.id].sort());
       expect(listed.status, `${q}: ${show(listed)}`).toBe(200);
       const open = (listed.json.proposals as any[]).filter((x) => x.id === p1.id || x.id === p2.id);
       expect(open.map((x) => x.id).sort(), `${q}: ${show(listed)}`).toEqual([p1.id, p2.id].sort());
