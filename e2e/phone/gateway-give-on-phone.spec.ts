@@ -18,7 +18,9 @@
  * Not covered: a connector's tool call under the phone-given mandate (this gateway runs no connector); the mandate is shown as
  * live in the gateway's own list, which the MCP server fills only with mandates whose owner's grant it verified.
  */
-import { test, expect } from '@playwright/test';
+import { test, expect, type Page } from '@playwright/test';
+import { Client } from '@modelcontextprotocol/sdk/client/index.js';
+import { SSEClientTransport } from '@modelcontextprotocol/sdk/client/sse.js';
 import type pg from 'pg';
 import { readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
@@ -35,6 +37,7 @@ test.skip(({ browserName }) => browserName !== 'chromium', 'the gateway page is 
 
 const PROFILES_DIR = process.env.HAP_E2E_PROFILES_DIR ?? join(import.meta.dirname, '..', '..', '..', 'hap-profiles');
 const PASSWORD = 'correct horse battery staple 42';
+const MCP_URL = `http://localhost:${process.env.HAP_E2E_PHONE_GW_MCP_PORT ?? 19944}`;
 
 /** The newest sales profile on disk (what the gateway and the Authority Server load). */
 function salesProfileId(): string {
@@ -43,6 +46,13 @@ function salesProfileId(): string {
   versions.sort((a, b) => a.localeCompare(b, undefined, { numeric: true }));
   const v = versions.at(-1)!;
   return JSON.parse(readFileSync(join(dir, `${v}.profile.json`), 'utf8')).id as string;
+}
+
+function newestProfileId(area: string): string {
+  const dir = join(PROFILES_DIR, area);
+  const versions = readdirSync(dir).filter((f) => f.endsWith('.profile.json')).map((f) => f.replace('.profile.json', ''));
+  versions.sort((a, b) => a.localeCompare(b, undefined, { numeric: true }));
+  return JSON.parse(readFileSync(join(dir, `${versions.at(-1)!}.profile.json`), 'utf8')).id as string;
 }
 
 let stack: PhoneStack;
@@ -102,8 +112,50 @@ async function phoneSession(p: Person, recoveryCode: string, phone: Phone): Prom
   return s.json.token as string;
 }
 
+/** The phone grants the one prepared give it has not granted yet, over exactly what it opened. Returns what it opened. */
+async function phoneGrantsNext(p: Person, recoveryCode: string, phone: Phone, readPriv: Uint8Array, done: Set<string>, what: string): Promise<Record<string, any>> {
+  const token = await phoneSession(p, recoveryCode, phone);
+  const c = await until(`${what} reaches the phone`, async () => {
+    const r = await http(stack.asUrl, 'GET', '/api/mandates/prepared', { token });
+    for (const row of (r.json?.prepared ?? []) as Array<Record<string, any>>) {
+      const opened = await decryptProposalContent(
+        { ciphertext: row.ciphertext, encrypted_keys: { [phone.record.key_id]: row.device_key }, readers: [phone.record.key_id], unreadable: [] },
+        phone.record.key_id, readPriv,
+      );
+      const args = opened.arguments as Record<string, any>;
+      if (!done.has(args.mandate_id)) return args;
+    }
+    return undefined;
+  }, 60_000);
+  expect(c.give.op).toBe('grant');
+  const members = grantMembersOf(c.give.payload as MandatePayload, { authorizationId: c.give.place.authorization_id, groupId: c.give.place.group_id, replaces: c.give.place.replaces, chainDids: c.give.place.chain_dids });
+  const root = await rootKeyFromRecoveryCode(recoveryCode);
+  const state = await verifyChain({ expectedRootDid: root.did, entries: await chainEntries(p.userId) });
+  const grant = buildGrant({
+    op: 'grant', owner_did: root.did, key_id: phone.record.key_id, chain_seq: state.head.seq, chain_head: state.head.hash,
+    mandate_id: c.mandate_id, mandate_version: c.mandate_version, granted_at: nowSec(), nonce: b64uEncode(crypto.getRandomValues(new Uint8Array(16))),
+  }, members);
+  const stored = await http(stack.asUrl, 'POST', `/api/mandates/${encodeURIComponent(c.mandate_id)}/grants`, {
+    token, body: { grant, sig: await signObject(grant, phone.seed), check: await assertion(phone, await objectHash(grant)) },
+  });
+  expect(stored.status, show(stored)).toBe(201);
+  done.add(c.mandate_id);
+  return c;
+}
+
+/** Go to a page of the gateway WITHOUT a reload: the page session lives in the page's memory (a reload would lock it). */
+async function goInPage(page: Page, path: string): Promise<void> {
+  await page.evaluate((to) => { window.history.pushState({}, '', to); window.dispatchEvent(new PopStateEvent('popstate')); }, path);
+}
+
+async function callTool(agent: Client, name: string, args: Record<string, unknown>): Promise<{ text: string; isError: boolean }> {
+  const r = await agent.callTool({ name, arguments: args }, undefined, { timeout: 120_000 });
+  const content = (r.content ?? []) as Array<{ type: string; text?: string }>;
+  return { text: content.map((x) => x.text ?? '').join('\n'), isError: r.isError === true };
+}
+
 test('a computer without Touch ID: the give page sends the mandate to the phone, waits, and shows "Signed" once the phone gave it', async ({ page }) => {
-  test.setTimeout(180_000);
+  test.setTimeout(360_000);
   const p = await newPerson(stack, 'Give on phone');
   const { headers } = await setUpGateway(p);
 
@@ -183,4 +235,71 @@ test('a computer without Touch ID: the give page sends the mandate to the phone,
   await page.getByTestId('give-phone-done').click();
   await page.waitForURL((u) => u.toString().includes('/mandates'), { timeout: 15_000 });
   await expect(page.getByText('Quotes').first()).toBeVisible({ timeout: 30_000 });
+
+  // ── An AI-PROPOSED mandate on the same gateway (found on the dev lane 2026-11-20: every one was refused at execution with
+  // "nothing was approved under that fingerprint", because the executor's ticket_id was hashed into the approval fingerprint).
+  // Same person, same gateway, same phone: one chain gateway per run.
+  const granted = new Set<string>([c.mandate_id]);
+  // 1. The Setup mandate the AI needs: given on the page, granted on the phone (the path above).
+  const delegation = newestProfileId('delegation');
+  await page.evaluate(({ auth, gate }) => {
+    sessionStorage.setItem('agentAuth', JSON.stringify(auth));
+    sessionStorage.setItem('agentGate', JSON.stringify(gate));
+  }, {
+    auth: { profileId: delegation, groupId: personal!.id, groupName: personal!.name ?? null, domain: 'owner', isPersonal: true },
+    gate: { bounds: { profile: delegation, read_access: 'unlimited', brief_daily_max: 5, mandate_daily_max: 30 }, context: { allowed_profiles: 'records', allowed_modes: 'review' }, gateContent: { intent: 'The AI prepares the mandates its work needs.' }, ttlConfig: { max: 86400 } },
+  });
+  await goInPage(page, '/mandates/new/sign');
+  await page.locator('input[placeholder*="e.g."]').fill('Setup');
+  if (await page.getByTestId('duration-needed').isVisible().catch(() => false)) await page.locator('button', { hasText: /^24 hours$/ }).click();
+  await expect(page.getByTestId('give-phone-send')).toBeEnabled({ timeout: 30_000 });
+  await page.getByTestId('give-phone-send').click();
+  await expect(page.getByTestId('give-phone-waiting')).toBeVisible({ timeout: 30_000 });
+  await phoneGrantsNext(p, sb.recoveryCode, phone, read.priv, granted, 'the Setup give');
+  await expect(page.getByTestId('give-phone-given')).toBeVisible({ timeout: 60_000 });
+  await page.getByTestId('give-phone-done').click();
+
+  // 2. The AI, over the gateway's own MCP endpoint, proposes a Records mandate.
+  const agent = new Client({ name: 'ai-proposed-mandate', version: '1.0.0' }, { capabilities: {} });
+  await agent.connect(new SSEClientTransport(new URL(`${MCP_URL}/sse`)));
+  try {
+    await until('the Setup mandate is live for the AI', async () => {
+      const r = await callTool(agent, 'list-authorizations', {});
+      return /delegation@/.test(r.text) ? true : undefined;
+    }, 60_000);
+    const proposed = await callTool(agent, 'setup__create_mandate', {
+      profile: 'records', limits: { read_access: 'unlimited', write_daily_max: 50, delete_access: 'none', archive_access: 'none' },
+      intent: 'Keep the notes of the quotes.', mode: 'review', duration_hours: 24, title: 'Notes',
+    });
+    expect(proposed.isError, proposed.text).toBe(false);
+    const proposalId = /Proposal ID: (\S+?)\./.exec(proposed.text)?.[1];
+    expect(proposalId, proposed.text).toBeTruthy();
+
+    // 3. The person approves it on the card (the gateway signs the decision with this computer's device key).
+    const approve = page.getByTestId('btn-approve').first();
+    // The panel opens by itself when the setting is on; otherwise the card is on the Approvals page.
+    if (!(await approve.isVisible({ timeout: 15_000 }).catch(() => false))) await goInPage(page, '/approvals');
+    await expect(approve).toBeVisible({ timeout: 60_000 });
+    await approve.click();
+
+    // 4. Execution names the approved fingerprint; this computer has no check key, so the grant goes to the phone (DEC-90).
+    const executed = await until('the approved proposal runs', async () => {
+      const r = await callTool(agent, 'check-pending-commitments', { proposal_id: proposalId });
+      return /pending|awaiting/i.test(r.text) && !/phone/i.test(r.text) ? undefined : r;
+    }, 60_000);
+    expect(executed.text).not.toMatch(/nothing was approved under that fingerprint/);
+    expect(executed.text).not.toMatch(/setup refused to run it/);
+    const opened2 = await phoneGrantsNext(p, sb.recoveryCode, phone, read.priv, granted, 'the AI-proposed give');
+    // What the phone grants is exactly what the AI proposed and the person approved.
+    expect(opened2.give.bounds.write_daily_max).toBe(50);
+    expect(opened2.intent).toBe('Keep the notes of the quotes.');
+
+    // 5. The mandate is live for the AI (the MCP server lists only mandates whose owner's grant it verified).
+    await until('the Records mandate is live for the AI', async () => {
+      const r = await callTool(agent, 'list-authorizations', {});
+      return /records@/.test(r.text) ? true : undefined;
+    }, 90_000);
+  } finally {
+    await agent.close().catch(() => undefined);
+  }
 });
