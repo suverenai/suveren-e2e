@@ -110,7 +110,9 @@ export default async function globalSetup(): Promise<() => Promise<void>> {
   });
 
   const pm = new ProcessManager();
-  const asProc = await pm.startSP(AS_PORT, { name: 'as-phone', env: { SUVEREN_DEVICE_KEYS: 'on', SUVEREN_APP_ORIGIN: appUrl } });
+  // The dashboard's own address is the Authority Server's (step 17: a dashboard passkey is made there); http on localhost needs the
+  // explicit test opt-in of a built AS (never honoured on Vercel production).
+  const asProc = await pm.startSP(AS_PORT, { name: 'as-phone', env: { SUVEREN_DEVICE_KEYS: 'on', SUVEREN_APP_ORIGIN: appUrl, SUVEREN_DASHBOARD_ORIGIN: asUrl, SUVEREN_ALLOW_HTTP_LOCAL_ORIGINS: '1' } });
   // The Authority Server's console mailer prints every email (EMAIL_TRANSPORT unset: lib/email ConsoleProvider). The cases run
   // in other processes, so its output is also written to a file they read: the recovery hand-off's link reaches the "phone"
   // the way an email would, by its text (stage D3, replacing the recovery code). The whole output, as it comes: the mailer
