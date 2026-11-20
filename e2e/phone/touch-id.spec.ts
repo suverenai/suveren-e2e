@@ -137,9 +137,20 @@ test('Touch ID on the gateway page: set-up, unlock, give, the card in place, an 
   try {
     await until('the Setup mandate is live for the AI', async () => (/delegation@/.test((await callTool(agent, 'list-authorizations', {})).text) ? true : undefined), 60_000);
     const openCard = async (id: string) => {
-      const card = page.locator(`[data-testid="approval-card"][data-proposal-id="${id}"]`);
-      if (!(await card.isVisible({ timeout: 15_000 }).catch(() => false))) await goInPage(page, '/approvals');
-      await expect(card).toBeVisible({ timeout: 60_000 });
+      // The panel may open by itself and slide over the list; the same card also exists hidden in the list behind it.
+      const card = page.locator(`[data-testid="approval-card"][data-proposal-id="${id}"]`).filter({ visible: true });
+      for (let k = 0; k < 20 && !(await card.isVisible({ timeout: 2_000 }).catch(() => false)); k++) {
+        const next = page.getByTestId('approval-next');
+        if (await next.isVisible().catch(() => false)) {
+          if (await next.isEnabled().catch(() => false)) { await next.click(); continue; }
+          await page.getByTestId('approval-later').click().catch(() => undefined);
+        }
+        await goInPage(page, '/approvals');
+        await page.waitForTimeout(1_500);
+        const row = page.locator(`[data-testid="approval-row"][data-proposal-id="${id}"] button`).first();
+        if (!(await card.isVisible().catch(() => false)) && (await row.isVisible({ timeout: 3_000 }).catch(() => false))) await row.click({ timeout: 5_000 }).catch(() => undefined);
+      }
+      await expect(card).toBeVisible({ timeout: 30_000 });
       return card;
     };
 
@@ -154,7 +165,8 @@ test('Touch ID on the gateway page: set-up, unlock, give, the card in place, an 
     await shot('t5-card-mandate');
     const urlBefore = page.url();
     await card.getByTestId('btn-approve').click();
-    await expect(card.getByTestId('give-touch-given')).toBeVisible({ timeout: 60_000 });
+    // After the give the card shows "Signed" and the panel moves on (the proposal is closed as replaced): wait for either.
+    await expect.poll(async () => (await card.getByTestId('give-touch-given').isVisible().catch(() => false)) || !(await card.isVisible().catch(() => false)), { timeout: 60_000 }).toBe(true);
     await shot('t6-card-given-with-touch');
     expect(page.url(), 'the give runs on the card').toBe(urlBefore);
     await until('the Records mandate is live for the AI', async () => (/records@/.test((await callTool(agent, 'list-authorizations', {})).text) ? true : undefined), 90_000);
