@@ -195,7 +195,8 @@ test('a computer without Touch ID: the give page sends the mandate to the phone,
     auth: { profileId, groupId: personal!.id, groupName: personal!.name ?? null, domain: 'owner', isPersonal: true },
     gate: { bounds, context: { currency: 'EUR' }, gateContent: { intent: 'Quotes wait two days.' }, ttlConfig: { max: 86400 } },
   });
-  await page.goto(`${gw}/mandates/new/sign`);
+  // In-page: a reload drops the page session (it lives in the page), and the unlock screen would show.
+  await goInPage(page, "/mandates/new/sign");
   await page.locator('input[placeholder*="e.g."]').fill('Quotes');
   if (await page.getByTestId('duration-needed').isVisible().catch(() => false)) await page.locator('button', { hasText: /^24 hours$/ }).click();
 
