@@ -74,10 +74,16 @@ let apiKey: string;
 let userDid: string;
 let mcpClient: Client;
 
+/** `own` is the tool's own answer (the first content block). The gateway may append a second
+ *  block after it: a change note for the chat ("[Suveren gateway] Mandates changed ..." or new
+ *  tools offered, change-notice.ts), whenever something changed since the chat was last told.
+ *  Whether one is appended depends on timing, so a JSON result is parsed from `own` only, and any
+ *  extra block must be such a note. `text` is everything, for the `toContain` checks. */
 async function call(tool: string, args: Record<string, unknown>) {
   const r = await mcpClient.callTool({ name: tool, arguments: args });
-  const text = (r.content as Array<{ text?: string }>)?.map((c) => c.text ?? '').join('\n') ?? '';
-  return { isError: r.isError === true, text };
+  const blocks = ((r.content as Array<{ text?: string }>) ?? []).map((c) => c.text ?? '');
+  for (const extra of blocks.slice(1)) expect(extra.startsWith('[Suveren gateway] '), `an appended block is a gateway note: ${extra}`).toBe(true);
+  return { isError: r.isError === true, text: blocks.join('\n'), own: blocks[0] ?? '' };
 }
 
 function extractProposalId(text: string): string {
@@ -181,7 +187,7 @@ describe.skipIf(!available)('Commitment execution result retention (review mode,
     expect(first.text).toContain('committed and executed');
     expect(first.text).toContain('Result:');
     expect(first.text).toContain(contactName);
-    const resultJson = first.text.slice(first.text.indexOf('Result:') + 'Result:'.length).trim();
+    const resultJson = first.own.slice(first.own.indexOf('Result:') + 'Result:'.length).trim();
     contactId = JSON.parse(resultJson).id;
     expect(contactId).toBeTruthy();
 
@@ -210,7 +216,7 @@ describe.skipIf(!available)('Commitment execution result retention (review mode,
 
     const read = await call('crm__get_contact', { id: contactId });
     expect(read.isError).not.toBe(true);
-    const currentRevision = JSON.parse(read.text).revision;
+    const currentRevision = JSON.parse(read.own).revision;
     expect(currentRevision).toBe(1);
     const wrongRevision = currentRevision + 1;
 
@@ -234,8 +240,8 @@ describe.skipIf(!available)('Commitment execution result retention (review mode,
 
     // The content must genuinely not have changed.
     const stillOld = await call('crm__get_contact', { id: contactId });
-    expect(JSON.parse(stillOld.text).name).toBe(contactName);
-    expect(JSON.parse(stillOld.text).revision).toBe(currentRevision);
+    expect(JSON.parse(stillOld.own).name).toBe(contactName);
+    expect(JSON.parse(stillOld.own).revision).toBe(currentRevision);
 
     // The local execution log must NOT have counted this failed attempt —
     // proven via list-authorizations' own consumption display, fed by the
