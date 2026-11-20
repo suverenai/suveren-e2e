@@ -92,7 +92,11 @@ test.describe.serial('The mandate change card (real stack)', () => {
     expect(text(r)).toMatch(/Awaiting commitment/);
 
     const card = await openApprovalCard(page, 'Change to a mandate');
-    await expect(card.getByTestId('change-kicker')).toHaveText('Waiting for you · Change to a mandate');
+    // UI review (DEC-88): no inner "Waiting for you" bar inside the panel; the kind is the card's quiet type line, and the new
+    // values are one line under the title.
+    await expect(card.getByTestId('change-kicker')).toHaveCount(0);
+    await expect(card.getByTestId('change-type')).toContainText('Change to a mandate');
+    await expect(card.getByTestId('mandate-summary')).toBeVisible();
     await expect(card).toContainText('Your AI proposes this through your Setup mandate.');
     const rows = card.getByTestId('change-row');
     const limit = rows.filter({ hasText: /write|contact/i }).first();

@@ -151,7 +151,8 @@ async function openDevices(page: Page): Promise<void> {
   await expect(page.getByTestId('device-list')).toBeVisible({ timeout: 15_000 });
 }
 
-const deviceNames = (page: Page) => page.getByTestId('device-row').locator('.ap-device-name').allTextContents();
+// The name only (the shared row's `row-name`), not its tag or its detail line.
+const deviceNames = (page: Page) => page.getByTestId('device-row').getByTestId('row-name').allTextContents();
 
 // ═══════════════════════════════════════════════════════════════════════════════════════════════
 // No phone-first setup (DEC-83)
