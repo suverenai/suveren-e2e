@@ -84,7 +84,8 @@ interface Phone { context: BrowserContext; page: Page; cdp?: CDPSession }
 
 async function newPhone(browser: Browser, o: { passkeys: boolean }): Promise<Phone> {
   // No service worker: a cached shell would hide a rebuilt app.
-  const context = await browser.newContext({ serviceWorkers: 'block', viewport: { width: 390, height: 844 } });
+  // ignoreHTTPSErrors: the app's certificate is self-signed (global-setup.ts).
+  const context = await browser.newContext({ serviceWorkers: 'block', viewport: { width: 390, height: 844 }, ignoreHTTPSErrors: true });
   await context.addInitScript(cameraSeam);
   const page = await context.newPage();
   let cdp: CDPSession | undefined;
@@ -117,7 +118,7 @@ async function offerQr(comp: Awaited<ReturnType<typeof computerWithChain>>, o: {
 
 async function startJoin(phone: Phone, qr: string): Promise<void> {
   await phone.page.goto(stack.appUrl);
-  // DEC-83: a phone that is not paired opens straight on adding itself (apps/approve App.tsx): no start screen in between.
+  // DEC-83 (gateway 1de2ba3): with phone-first setup off the app opens straight on "Add this phone to your account".
   await expect(phone.page.getByRole('heading', { name: 'Add this phone to your account' })).toBeVisible({ timeout: 20_000 });
   await scan(phone.page, qr);
 }
@@ -149,10 +150,11 @@ async function joinedPhone(browser: Browser, phoneLabel: string, computerLabel: 
 async function openDevices(page: Page): Promise<void> {
   await page.goto(stack.appUrl);
   await page.getByRole('button', { name: 'Open with a touch' }).click();
-  await page.getByRole('button', { name: 'Devices', exact: true }).click();
+  await page.getByRole('tab', { name: 'Devices', exact: true }).click();
   await expect(page.getByTestId('device-list')).toBeVisible({ timeout: 15_000 });
 }
 
+// The device rows are the gateway's shared member rows (TileRow): the name is the bold line. The app nav is a tablist (shared Tabs).
 const deviceNames = (page: Page) => page.getByTestId('device-row').locator('.su-who > b').allTextContents();
 
 // ═══════════════════════════════════════════════════════════════════════════════════════════════
@@ -165,13 +167,14 @@ test.describe('phone-first setup is off', () => {
   test('a phone that is not paired opens straight on adding itself to an account', async ({ browser }) => {
     const phone = await newPhone(browser, { passkeys: true });
     await phone.page.goto(stack.appUrl);
-    // DEC-83: no start screen; the one way in is adding this phone (apps/approve App.tsx).
+    // DEC-83 (gateway 1de2ba3): no choice screen; the app opens straight on adding the phone.
     await expect(phone.page.getByRole('heading', { name: 'Add this phone to your account' })).toBeVisible({ timeout: 20_000 });
-    await expect(phone.page.getByRole('button', { name: 'Scan the code' })).toBeVisible();
     await expect(phone.page.getByRole('button', { name: 'Set up my account on this phone' })).toHaveCount(0);
     await expect(phone.page.locator('#setup-code')).toHaveCount(0);
-    // One way in: besides the day/dark switch, exactly one button.
+    // One way in: besides the day/dark switch (◑), the only button is "Scan the code".
+    await expect(phone.page.getByRole('button', { name: 'Scan the code' })).toBeVisible();
     await expect(phone.page.getByRole('button')).toHaveCount(2);
+    await expect(phone.page.getByRole('button', { name: '◑' })).toHaveCount(1);
     await phone.context.close();
   });
 
@@ -276,7 +279,7 @@ test.describe('a computer admits the phone', () => {
 
     // 4. Until the computer confirms, the phone is not a device: it is in no chain, so it has no session and reads nothing.
     expect((await chainOf(stack, comp, comp.root.did)).entries).toHaveLength(1);
-    await expect(phone.page.getByRole('button', { name: 'Devices', exact: true })).toHaveCount(0);
+    await expect(phone.page.getByRole('tab', { name: 'Devices', exact: true })).toHaveCount(0);
 
     // 5. The computer confirms with its check; the phone is added under the SAME root DID.
     const res = await answered.confirm();
@@ -290,7 +293,7 @@ test.describe('a computer admits the phone', () => {
     // 6. The phone's own screens: the same identity code, both devices.
     await phone.page.getByRole('button', { name: 'Continue' }).click();
     await phone.page.getByRole('button', { name: 'Open with a touch' }).click();
-    await phone.page.getByRole('button', { name: 'Devices', exact: true }).click();
+    await phone.page.getByRole('tab', { name: 'Devices', exact: true }).click();
     await expect(phone.page.getByTestId('identity-code')).toHaveText(await identityCodeOf(comp.root.did), { timeout: 15_000 });
     expect(await deviceNames(phone.page)).toEqual(['Office computer', 'My iPhone']);
     await phone.context.close();

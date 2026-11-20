@@ -18,7 +18,8 @@
  */
 import { execFileSync, execSync } from 'node:child_process';
 import { appendFileSync, existsSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
-import { createServer, type Server } from 'node:http';
+import type { Server } from 'node:http';
+import { createServer } from 'node:https';
 import { createRequire } from 'node:module';
 import { tmpdir } from 'node:os';
 import { dirname, extname, join, normalize } from 'node:path';
@@ -41,8 +42,8 @@ const MIME: Record<string, string> = {
 };
 
 /** Static files with the single-page fallback of any static host; `/__blank` is a document with nothing in it. */
-function serve(dir: string, port: number): Promise<Server> {
-  const server = createServer((req, res) => {
+function serve(dir: string, port: number, tls: { key: Buffer; cert: Buffer }): Promise<Server> {
+  const server = createServer(tls, (req, res) => {
     const path = decodeURIComponent((req.url ?? '/').split('?')[0]);
     res.setHeader('Cache-Control', 'no-store');
     if (path === '/__blank') {
@@ -80,8 +81,13 @@ export default async function globalSetup(): Promise<() => Promise<void>> {
   if (!existsSync(join(APP_DIR, 'node_modules'))) return unavailable(`${APP_DIR} has no node_modules (run pnpm install in its workspace)`);
 
   const asUrl = `http://localhost:${AS_PORT}`;
-  const appUrl = `http://localhost:${APP_PORT}`;
-  const lookalikeUrl = `http://localhost:${LOOKALIKE_PORT}`;
+  // The app is served over https, as it is deployed. A built Authority Server refuses an http app origin even on localhost:
+  // Next inlines process.env.NODE_ENV as "production" at build time (define-env-plugin), so app-origin.ts's dev-lane allowance
+  // for http://localhost never applies to `next build` + `next start`, whatever NODE_ENV the process gets. An https origin is
+  // accepted, so the suite takes the production shape instead of loosening that check. The certificate is self-signed and
+  // made here; the browsers are told to accept it (ignoreHTTPSErrors in playwright.phone.config.ts).
+  const appUrl = `https://localhost:${APP_PORT}`;
+  const lookalikeUrl = `https://localhost:${LOOKALIKE_PORT}`;
 
   // Builds (HAP_E2E_SKIP_BUILD=1 reuses the Authority Server's `.next`, as in the vitest run; the app is always built, it is quick
   // and it carries the Authority Server's address).
@@ -99,10 +105,6 @@ export default async function globalSetup(): Promise<() => Promise<void>> {
   });
 
   const pm = new ProcessManager();
-  // KNOWN BLOCKER (2026-11-20): the built AS refuses this http://localhost app address (suveren-as app-origin.ts: http is allowed
-  // only when NODE_ENV is not "production", and `next build` inlines NODE_ENV as "production"), so every pairing answers 503
-  // APP_ORIGIN_NOT_CONFIGURED here. Setting NODE_ENV at runtime does not help. Open: serve the app over HTTPS here, or read
-  // NODE_ENV at runtime in the AS.
   const asProc = await pm.startSP(AS_PORT, { name: 'as-phone', env: { SUVEREN_DEVICE_KEYS: 'on', SUVEREN_APP_ORIGIN: appUrl } });
   // The Authority Server's console mailer prints every email (EMAIL_TRANSPORT unset: lib/email ConsoleProvider). The cases run
   // in other processes, so the lines are also written to a file they read: the recovery hand-off's link reaches the "phone"
@@ -113,8 +115,16 @@ export default async function globalSetup(): Promise<() => Promise<void>> {
     for (const line of chunk.toString().split('\n')) if (line.startsWith('[Email]')) appendFileSync(asLog, `${line}\n`);
   };
   asProc.stdout?.on('data', keepMail);
-  const app = await serve(outDir, APP_PORT);
-  const lookalike = await serve(outDir, LOOKALIKE_PORT);
+  const tlsDir = mkdtempSync(join(tmpdir(), 'hap-e2e-approve-tls-'));
+  execFileSync('openssl', [
+    'req', '-x509', '-newkey', 'ec', '-pkeyopt', 'ec_paramgen_curve:prime256v1', '-nodes', '-days', '1',
+    '-subj', '/CN=localhost', '-addext', 'subjectAltName=DNS:localhost,IP:127.0.0.1',
+    '-keyout', join(tlsDir, 'key.pem'), '-out', join(tlsDir, 'cert.pem'),
+  ], { stdio: 'pipe', timeout: 30_000 });
+  const tls = { key: readFileSync(join(tlsDir, 'key.pem')), cert: readFileSync(join(tlsDir, 'cert.pem')) };
+  rmSync(tlsDir, { recursive: true, force: true });
+  const app = await serve(outDir, APP_PORT, tls);
+  const lookalike = await serve(outDir, LOOKALIKE_PORT, tls);
 
   Object.assign(process.env, {
     HAP_E2E_PHONE_AS_URL: asUrl,
