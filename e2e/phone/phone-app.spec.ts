@@ -148,11 +148,12 @@ async function joinedPhone(browser: Browser, phoneLabel: string, computerLabel: 
 async function openDevices(page: Page): Promise<void> {
   await page.goto(stack.appUrl);
   await page.getByRole('button', { name: 'Open with a touch' }).click();
-  await page.getByRole('button', { name: 'Devices', exact: true }).click();
+  await page.getByRole('tab', { name: 'Devices', exact: true }).click();
   await expect(page.getByTestId('device-list')).toBeVisible({ timeout: 15_000 });
 }
 
-const deviceNames = (page: Page) => page.getByTestId('device-row').locator('.ap-device-name').allTextContents();
+// The device rows are the gateway's shared member rows (TileRow): the name is the bold line. The app nav is a tablist (shared Tabs).
+const deviceNames = (page: Page) => page.getByTestId('device-row').locator('.su-who > b').allTextContents();
 
 // ═══════════════════════════════════════════════════════════════════════════════════════════════
 // No phone-first setup (DEC-83)
@@ -276,7 +277,7 @@ test.describe('a computer admits the phone', () => {
 
     // 4. Until the computer confirms, the phone is not a device: it is in no chain, so it has no session and reads nothing.
     expect((await chainOf(stack, comp, comp.root.did)).entries).toHaveLength(1);
-    await expect(phone.page.getByRole('button', { name: 'Devices', exact: true })).toHaveCount(0);
+    await expect(phone.page.getByRole('tab', { name: 'Devices', exact: true })).toHaveCount(0);
 
     // 5. The computer confirms with its check; the phone is added under the SAME root DID.
     const res = await answered.confirm();
@@ -290,7 +291,7 @@ test.describe('a computer admits the phone', () => {
     // 6. The phone's own screens: the same identity code, both devices.
     await phone.page.getByRole('button', { name: 'Continue' }).click();
     await phone.page.getByRole('button', { name: 'Open with a touch' }).click();
-    await phone.page.getByRole('button', { name: 'Devices', exact: true }).click();
+    await phone.page.getByRole('tab', { name: 'Devices', exact: true }).click();
     await expect(phone.page.getByTestId('identity-code')).toHaveText(await identityCodeOf(comp.root.did), { timeout: 15_000 });
     expect(await deviceNames(phone.page)).toEqual(['Office computer', 'My iPhone']);
     await phone.context.close();
