@@ -511,14 +511,17 @@ test.describe('stage D3: remove a device from the phone', () => {
 test.describe('stage D3: replace the recovery code on the phone', () => {
   test.skip(chromiumOnly, NO_VIRTUAL_AUTHENTICATOR);
 
-  test('offered on the join\'s done screen; old code, new code once, touch, the email link confirmed on the phone, the new root in force', async ({ browser }) => {
+  test('from Devices (DEC-96: no offer after joining); old code, new code once, touch, the email link confirmed on the phone, the new root in force', async ({ browser }) => {
     const { seed, code: oldCode } = await generateRecoveryCode();
     const root = await deriveRootKey(seed);
     const phone = await joinedPhone(browser, 'Rotating Phone', 'Code Mac', root);
     const { page } = phone;
-    await expect(page.getByTestId('rotate-offer')).toBeVisible();
-    await page.getByRole('button', { name: 'Make a new code' }).click();
+    // DEC-96 (revises DEC-85): the join's done screen offers nothing; replacing is a plain section under Devices.
+    await expect(page.getByTestId('rotate-offer')).toHaveCount(0);
+    await page.getByRole('button', { name: 'Continue' }).click();
     await page.getByRole('button', { name: 'Open with a touch' }).click();
+    await page.getByRole('tab', { name: 'Devices', exact: true }).click();
+    await page.getByTestId('rotate-section').getByRole('button', { name: 'Make a new code' }).click();
 
     await page.getByTestId('old-code').fill(oldCode);
     await page.getByRole('button', { name: 'Continue' }).click();

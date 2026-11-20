@@ -128,7 +128,8 @@ test('a computer without Touch ID: the give page sends the mandate to the phone,
   await expect(page.locator('.page-title').first()).toBeVisible({ timeout: 20_000 });
 
   // DEC-96: Devices is its own menu entry (device keys on), and it opens the Devices page with this computer and the phone.
-  const devicesLink = page.locator('nav').getByRole('link', { name: 'Devices', exact: true }).first();
+  // The sidebar's link (the mobile menu holds a hidden copy of the same link).
+  const devicesLink = page.locator('a[href="/devices"]:visible').first();
   await expect(devicesLink).toBeVisible();
   await page.screenshot({ path: test.info().outputPath('dec96-5-gateway-menu.png'), fullPage: true });
   await devicesLink.click();
