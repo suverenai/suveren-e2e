@@ -307,8 +307,10 @@ jobs:
       # serves the built app; no gateway. WebKit runs the cases it can (it has
       # no virtual authenticator). STRICT: a missing route or app fails the
       # step instead of skipping the whole suite.
+      # Runs even when an earlier step failed: it has its own stack and ports,
+      # so a vitest failure does not hide the phone result.
       - name: Run phone app journeys
-        if: matrix.device_keys == 'on'
+        if: matrix.device_keys == 'on' && !cancelled()
         working-directory: hap-e2e
         env:
           HAP_E2E_PHONE_STRICT: '1'
