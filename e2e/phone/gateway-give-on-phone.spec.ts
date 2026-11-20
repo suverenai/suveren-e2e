@@ -281,7 +281,13 @@ test('a computer without Touch ID: the give page sends the mandate to the phone,
     const openCard = async (id: string) => {
       const card = cardOf(id);
       // The panel opens by itself when the setting is on; otherwise the card is on the Approvals page.
-      if (!(await card.isVisible({ timeout: 15_000 }).catch(() => false))) await goInPage(page, '/approvals');
+      if (!(await card.isVisible({ timeout: 15_000 }).catch(() => false))) {
+        await goInPage(page, '/approvals');
+        // The Approvals page lists it as a row; the person opens the row to see the card.
+        const row = page.locator(`[data-testid="approval-row"][data-proposal-id="${id}"]`).first();
+        await expect(row).toBeVisible({ timeout: 60_000 });
+        if (!(await card.isVisible().catch(() => false))) await row.locator("button.av3-row-head").click();
+      }
       await expect(card).toBeVisible({ timeout: 60_000 });
       return card;
     };
