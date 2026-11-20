@@ -2,6 +2,7 @@ import { execSync } from 'node:child_process';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { AS_DIR } from './as-dir';
+import { beginRun, finishRun } from './process-registry';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..', '..', '..');
 
@@ -28,7 +29,17 @@ const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..', '..', '..');
  * locally on a single suite. Never set it in CI — a stale build would test
  * code that is not the code under review.
  */
-export default async function setup(): Promise<void> {
+export default async function setup(): Promise<() => Promise<void>> {
+  // Workers inherit HAP_E2E_PID_DIR: every server a suite starts is recorded
+  // there, and the teardown below reports (and kills) any that outlived its suite.
+  beginRun();
+  await build();
+  return async () => {
+    await finishRun();
+  };
+}
+
+async function build(): Promise<void> {
   if (process.env.HAP_E2E_SKIP_BUILD === '1') {
     console.error('[E2E] HAP_E2E_SKIP_BUILD=1 — reusing existing build output.');
     process.env.HAP_E2E_PREBUILT = '1';
