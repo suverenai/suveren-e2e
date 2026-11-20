@@ -17,7 +17,7 @@
  * app's folder when it is not suveren-gateway/apps/approve next to this checkout.
  */
 import { execFileSync, execSync } from 'node:child_process';
-import { existsSync, mkdtempSync, readFileSync, rmSync, statSync } from 'node:fs';
+import { appendFileSync, existsSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { createServer, type Server } from 'node:http';
 import { createRequire } from 'node:module';
 import { tmpdir } from 'node:os';
@@ -99,7 +99,16 @@ export default async function globalSetup(): Promise<() => Promise<void>> {
   });
 
   const pm = new ProcessManager();
-  await pm.startSP(AS_PORT, { name: 'as-phone', env: { SUVEREN_DEVICE_KEYS: 'on', SUVEREN_APP_ORIGIN: appUrl } });
+  const asProc = await pm.startSP(AS_PORT, { name: 'as-phone', env: { SUVEREN_DEVICE_KEYS: 'on', SUVEREN_APP_ORIGIN: appUrl } });
+  // The Authority Server's console mailer prints every email (EMAIL_TRANSPORT unset: lib/email ConsoleProvider). The cases run
+  // in other processes, so the lines are also written to a file they read: the recovery hand-off's link reaches the "phone"
+  // the way an email would, by its text (stage D3, replacing the recovery code). Only lines that start with "[Email]".
+  const asLog = join(outDir, '..', `as-phone-mail-${process.pid}.log`);
+  writeFileSync(asLog, '');
+  const keepMail = (chunk: Buffer) => {
+    for (const line of chunk.toString().split('\n')) if (line.startsWith('[Email]')) appendFileSync(asLog, `${line}\n`);
+  };
+  asProc.stdout?.on('data', keepMail);
   const app = await serve(outDir, APP_PORT);
   const lookalike = await serve(outDir, LOOKALIKE_PORT);
 
@@ -108,6 +117,7 @@ export default async function globalSetup(): Promise<() => Promise<void>> {
     HAP_E2E_PHONE_APP_URL: appUrl,
     HAP_E2E_PHONE_LOOKALIKE_URL: lookalikeUrl,
     HAP_E2E_PHONE_DB_URL: pm.asDatabaseUrl() ?? '',
+    HAP_E2E_PHONE_MAIL_LOG: asLog,
   });
   delete process.env.HAP_E2E_PHONE_UNAVAILABLE;
   console.error(`[E2E] Phone stack ready: AS ${asUrl}, app ${appUrl}, look-alike ${lookalikeUrl}.`);
@@ -119,5 +129,6 @@ export default async function globalSetup(): Promise<() => Promise<void>> {
     }
     await pm.killAll();
     rmSync(outDir, { recursive: true, force: true });
+    rmSync(asLog, { force: true });
   };
 }
