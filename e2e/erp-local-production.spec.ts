@@ -25,7 +25,7 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { existsSync, mkdirSync, readFileSync } from 'node:fs';
 import type { Locator, Page } from '@playwright/test';
-import { test, expect, openApprovalCard, selectQueueView } from './fixtures';
+import { test, expect, openApprovalCard, selectQueueView, settleAfterSignIn } from './fixtures';
 import { ErpLocalStack, ERP_MANIFEST_PATH, P, TODAY_VIENNA, proposalIdOf, resultJson } from '../src/helpers/erp-local-stack.js';
 import { ViesStub } from '../src/helpers/vies-stub.js';
 
@@ -70,7 +70,7 @@ async function signIn(page: Page, cpUrl: string, apiKey: string): Promise<void> 
   await page.locator('input[type="password"]').fill(apiKey);
   await page.locator('button:has-text("Sign In")').click();
   await page.waitForURL((url) => !url.toString().includes('/login'), { timeout: 45_000 });
-  await expect(page.locator('.page-title')).toBeVisible({ timeout: 15_000 });
+  await settleAfterSignIn(page);
 }
 
 async function openCard(page: Page, s: ErpLocalStack, hasText: string | RegExp): Promise<Locator> {
