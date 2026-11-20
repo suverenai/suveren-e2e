@@ -66,7 +66,7 @@ const NEW_UID = 'ATU44444444';
 const SERVICE_PERIOD = { from: '2026-09-01', to: '2026-09-30' };
 
 async function signIn(page: Page, cpUrl: string, apiKey: string): Promise<void> {
-  await page.goto(`${cpUrl}/login`, { waitUntil: 'networkidle' });
+  await page.goto(`${cpUrl}/login?account-key`, { waitUntil: 'networkidle' });
   await page.locator('input[type="password"]').fill(apiKey);
   await page.locator('button:has-text("Sign In")').click();
   await page.waitForURL((url) => !url.toString().includes('/login'), { timeout: 45_000 });
