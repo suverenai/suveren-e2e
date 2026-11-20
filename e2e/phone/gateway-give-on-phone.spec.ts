@@ -282,10 +282,20 @@ test('a computer without Touch ID: the give page sends the mandate to the phone,
     }, 60_000);
     const cardOf = (id: string) => page.locator(`[data-testid="approval-card"][data-proposal-id="${id}"]`);
     const openCard = async (id: string) => {
-      const card = cardOf(id);
-      // The panel opens by itself when the setting is on; otherwise the card is on the Approvals page.
-      if (!(await card.isVisible({ timeout: 15_000 }).catch(() => false))) await goInPage(page, '/approvals');
-      await expect(card).toBeVisible({ timeout: 60_000 });
+      // The panel may open by itself and slide over the list; the same card also exists hidden in the list behind it.
+      const card = page.locator(`[data-testid="approval-card"][data-proposal-id="${id}"]`).filter({ visible: true });
+      for (let k = 0; k < 20 && !(await card.isVisible({ timeout: 2_000 }).catch(() => false)); k++) {
+        const next = page.getByTestId('approval-next');
+        if (await next.isVisible().catch(() => false)) {
+          if (await next.isEnabled().catch(() => false)) { await next.click(); continue; }
+          await page.getByTestId('approval-later').click().catch(() => undefined);
+        }
+        await goInPage(page, '/approvals');
+        await page.waitForTimeout(1_500);
+        const row = page.locator(`[data-testid="approval-row"][data-proposal-id="${id}"] button`).first();
+        if (!(await card.isVisible().catch(() => false)) && (await row.isVisible({ timeout: 3_000 }).catch(() => false))) await row.click({ timeout: 5_000 }).catch(() => undefined);
+      }
+      await expect(card).toBeVisible({ timeout: 30_000 });
       return card;
     };
 
