@@ -25,7 +25,8 @@
  */
 import { test, expect, type Browser, type BrowserContext, type CDPSession, type Page } from '@playwright/test';
 import type pg from 'pg';
-import { buildDeviceRecord, buildEntry, ed25519PublicKey, encodeCoseEc2, keyIdOf, signEntry } from '@humanagencyp/hap-core/device-keys';
+import { buildDeviceRecord, buildEntry, deriveRootKey, ed25519PublicKey, encodeCoseEc2, generateRecoveryCode, keyIdOf, rootKeyFromRecoveryCode, signEntry } from '@humanagencyp/hap-core/device-keys';
+import { readFileSync } from 'node:fs';
 import {
   asKeyHex, chainOf, clearMailboxes, codeOf, computerAnswersJoin, computerWithChain, connectDb, enrolmentCode, headOf, http,
   identityCodeOf, mailboxRow, newJoiner, newPairing, newPerson, newRoot, nowSec, openMailbox,
@@ -126,8 +127,8 @@ async function startJoin(phone: Phone, qr: string): Promise<void> {
  * chain and a check key, admits it through the app's own "Add this phone to your account" screens. Returns the phone, the account's
  * person (the computer's) and the root.
  */
-async function joinedPhone(browser: Browser, phoneLabel: string, computerLabel: string): Promise<Phone & { person: Computer; root: Root }> {
-  const comp = await computerWithChain(stack, db, computerLabel);
+async function joinedPhone(browser: Browser, phoneLabel: string, computerLabel: string, root?: Root): Promise<Phone & { person: Computer; root: Root }> {
+  const comp = await computerWithChain(stack, db, computerLabel, root);
   const { pairing, qr } = await offerQr(comp);
   expect((await openMailbox(stack, comp, pairing)).status).toBe(201);
   const phone = await newPhone(browser, { passkeys: true });
@@ -152,8 +153,8 @@ async function openDevices(page: Page): Promise<void> {
   await expect(page.getByTestId('device-list')).toBeVisible({ timeout: 15_000 });
 }
 
-// The device rows are the gateway's shared member rows (TileRow): the name is the bold line. The app nav is a tablist (shared Tabs).
-const deviceNames = (page: Page) => page.getByTestId('device-row').locator('.su-who > b').allTextContents();
+// The name only (the shared row's `row-name`), not its tag or its detail line.
+const deviceNames = (page: Page) => page.getByTestId('device-row').getByTestId('row-name').allTextContents();
 
 // ═══════════════════════════════════════════════════════════════════════════════════════════════
 // No phone-first setup (DEC-83)
@@ -421,8 +422,121 @@ test.describe('a computer admits the phone', () => {
     test.skip(true, 'NOT BUILT on the Authority Server: lib/device-keys/device-notices.ts is a seam with no sink ("no notification channel exists yet", push is step 15, the email notices 20.1). Un-skip when the notice exists.');
   });
 
-  test('the app offers rotate-root first, and the old mandates still gate', async () => {
-    test.skip(true, 'NOT BUILT: the offer to replace the recovery code is stage D3 (join-driver.ts header), and the gateway that would gate a tool call under the old mandates has no "Add this computer"/phone-admit path yet. Un-skip with D3. What IS checked above: the root DID, users.did and the chain are unchanged by the join.');
+  test('the app offers to replace the recovery code first (D3); the old mandates still gate', async () => {
+    test.skip(true, 'The offer and the replacement are covered by "stage D3: replace the recovery code" below. Still NOT covered: that the old mandates gate a tool call afterwards (needs a gateway with the phone-admit path in this suite).');
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════════════════════════════════
+// Stage D3 on the phone: remove a device, replace the recovery code (DEC-85, DEC-86)
+// ═══════════════════════════════════════════════════════════════════════════════════════════════
+
+/** The row of a device in the app's list, and its Remove button. */
+const removeButtonOf = (page: Page, label: string) => page.getByTestId('device-row').filter({ hasText: label }).getByTestId('device-remove');
+
+/** The emails the Authority Server printed (its console mailer), as the global setup kept them. */
+function mailLines(): string[] {
+  const f = process.env.HAP_E2E_PHONE_MAIL_LOG;
+  if (!f) throw new Error('the global setup keeps no mail log');
+  return readFileSync(f, 'utf8').split('\n').filter(Boolean);
+}
+
+test.describe('stage D3: remove a device from the phone', () => {
+  test.skip(chromiumOnly, NO_VIRTUAL_AUTHENTICATOR);
+
+  test('the phone removes a computer: the list after the change before the touch, then a remove the phone signed AND checked', async ({ browser }) => {
+    const phone = await joinedPhone(browser, 'Remover Phone', 'Old Mac');
+    await openDevices(phone.page);
+    await removeButtonOf(phone.page, 'Old Mac').click();
+    await expect(phone.page.getByRole('heading', { name: 'Remove "Old Mac"?' })).toBeVisible();
+    await expect(phone.page.getByText('Your devices after this:')).toBeVisible();
+    await phone.page.getByTestId('remove-confirm').click();
+    await expect(phone.page.getByText('Old Mac was removed.')).toBeVisible({ timeout: 20_000 });
+
+    const state = await verifiedChain(stack, phone.person, phone.root.did);
+    const entries = (await chainOf(stack, phone.person, phone.root.did)).entries;
+    const rm = entries[entries.length - 1];
+    const phoneKey = Object.values(state.devices).find((d) => d.label === 'Remover Phone')!.key_id;
+    expect(rm).toMatchObject({ op: 'remove', target: phone.person.dev.record.key_id, signer: phoneKey });
+    expect(rm.checks.map((c: { by: string }) => c.by)).toEqual([phoneKey]);
+    expect(state.devices[phone.person.dev.record.key_id].removed_seq).toBe(rm.seq);
+    // The removed computer can no longer sign in.
+    const ch = await http(stack.asUrl, 'POST', '/api/devices/challenge', { body: { key_id: phone.person.dev.record.key_id } });
+    if (ch.status === 200) {
+      const r = await http(stack.asUrl, 'POST', '/api/devices/session', { body: await signinBody(phone.root, phone.person.dev, await headOf(entries[entries.length - 1]), ch.json) });
+      expect(r.status, show(r)).not.toBe(200);
+    }
+    await phone.context.close();
+  });
+
+  test('the phone removes itself (DEC-85): the same touch, an entry signed by the phone alone, and the app starts again with the reason', async ({ browser }) => {
+    const phone = await joinedPhone(browser, 'Leaving Phone', 'Staying Mac');
+    await openDevices(phone.page);
+    await removeButtonOf(phone.page, 'Leaving Phone').click();
+    await expect(phone.page.getByRole('heading', { name: 'Remove this phone?' })).toBeVisible();
+    await phone.page.getByTestId('remove-confirm').click();
+    await expect(phone.page.getByText('Continue', { exact: true })).toBeVisible({ timeout: 20_000 });
+    await phone.page.getByText('Continue', { exact: true }).click();
+    await expect(phone.page.getByTestId('join-notice')).toContainText('This phone was removed from your account.');
+
+    const entries = (await chainOf(stack, phone.person, phone.root.did)).entries;
+    const rm = entries[entries.length - 1];
+    expect(rm.op).toBe('remove');
+    expect(rm.signer).toBe(rm.target);
+    expect(rm.checks).toEqual([]);
+    await verifiedChain(stack, phone.person, phone.root.did);
+    await phone.context.close();
+  });
+});
+
+test.describe('stage D3: replace the recovery code on the phone', () => {
+  test.skip(chromiumOnly, NO_VIRTUAL_AUTHENTICATOR);
+
+  test('offered on the join\'s done screen; old code, new code once, touch, the email link confirmed on the phone, the new root in force', async ({ browser }) => {
+    const { seed, code: oldCode } = await generateRecoveryCode();
+    const root = await deriveRootKey(seed);
+    const phone = await joinedPhone(browser, 'Rotating Phone', 'Code Mac', root);
+    const { page } = phone;
+    await expect(page.getByTestId('rotate-offer')).toBeVisible();
+    await page.getByRole('button', { name: 'Make a new code' }).click();
+    await page.getByRole('button', { name: 'Open with a touch' }).click();
+
+    await page.getByTestId('old-code').fill(oldCode);
+    await page.getByRole('button', { name: 'Continue' }).click();
+    const newCode = (await page.getByTestId('new-code').textContent({ timeout: 20_000 }))!.trim();
+    expect(newCode).not.toBe(oldCode);
+    await page.getByTestId('new-code-again').fill(newCode);
+    const before = mailLines().length;
+    await page.getByTestId('rotate-confirm').click();
+    const confirmCode = (await page.getByTestId('rotate-confirm-code').textContent({ timeout: 20_000 }))!.trim();
+    expect(confirmCode).toMatch(/^\d{6}$/);
+    // Nothing is in the chain before the email link is confirmed.
+    expect((await chainOf(stack, phone.person, root.did)).entries).toHaveLength(2);
+
+    // The email, as the phone's mail app would show it; the codes are in no email.
+    const link = await until('the recovery email', async () => {
+      const hit = mailLines().slice(before).find((l) => l.includes('/recover/link?token='));
+      return hit ? /https?:\/\/\S+\/recover\/link\?token=[A-Za-z0-9_-]+/.exec(hit)![0] : undefined;
+    }, 20_000);
+    expect(mailLines().slice(before).join('\n')).toContain('open this link on your phone');
+    expect(mailLines().join('\n')).not.toContain(oldCode);
+    expect(mailLines().join('\n')).not.toContain(newCode);
+
+    // The link opens in the phone's browser (another page of the same browser): Continue, then the confirm page shows the same six digits.
+    const mail = await phone.context.newPage();
+    await mail.goto(link.replace(/^https?:\/\/[^/]+/, stack.asUrl));
+    await mail.getByRole('button', { name: 'Continue' }).click();
+    await expect(mail.locator('.code')).toHaveText(confirmCode);
+    await mail.getByRole('button', { name: 'Confirm the recovery' }).click();
+    await expect(mail.getByRole('heading', { name: 'Done' })).toBeVisible();
+
+    await expect(page.getByText('Done. Your new recovery code works. The old one does not.')).toBeVisible({ timeout: 20_000 });
+    const state = await verifiedChain(stack, phone.person, root.did);
+    expect(state.root_pub).toBe(b64uEncode((await rootKeyFromRecoveryCode(newCode)).publicKey));
+    const rot = (await chainOf(stack, phone.person, root.did)).entries[2];
+    expect(rot.op).toBe('rotate-root');
+    expect(rot.sigs.map((x: { by: string }) => x.by)).toEqual(['root', Object.values(state.devices).find((d) => d.label === 'Rotating Phone')!.key_id]);
+    await phone.context.close();
   });
 });
 

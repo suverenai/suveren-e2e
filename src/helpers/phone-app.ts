@@ -114,10 +114,11 @@ export interface Computer extends Person {
 }
 
 /** A person whose chain was made on a computer with a check key (a gateway): genesis, then a device session. */
-export async function computerWithChain(s: PhoneStack, db: pg.Client, label: string): Promise<Computer> {
+/** `root`: a root key the case made itself (for example from a recovery code it keeps, to replace it later). */
+export async function computerWithChain(s: PhoneStack, db: pg.Client, label: string, rootIn?: Root): Promise<Computer> {
   const p = await newPerson(s, 'Computer owner');
   const code = await enrolmentCode(s, db, p);
-  const root = await newRoot();
+  const root = rootIn ?? await newRoot();
   const dev = await newDevice(label);
   const g = await genesisEntry(root, dev);
   const res = await http(s.asUrl, 'POST', '/api/devices/chain', { body: { entry: g, enrolment_code: code } });
