@@ -240,8 +240,10 @@ test('a computer without Touch ID: the give page sends the mandate to the phone,
   expect(stored.status, show(stored)).toBe(201);
 
   // The page hears it: the gateway checked the phone's grant against its own chain and requested the mandate.
-  await expect(page.getByTestId('give-phone-given')).toBeVisible({ timeout: 60_000 });
-  await page.getByTestId('give-phone-done').click();
+  // The give page ends with the one shared result (whichever device gave it): "Signed", then Close to the mandate list.
+  await expect(page.getByTestId('give-done')).toBeVisible({ timeout: 60_000 });
+  await expect(page.getByTestId('give-done').getByText('Signed')).toBeVisible();
+  await page.getByTestId('give-done').getByTestId('give-touch-close').click();
   await page.waitForURL((u) => u.toString().includes('/mandates'), { timeout: 15_000 });
   await expect(page.getByText('Quotes').first()).toBeVisible({ timeout: 30_000 });
 
@@ -265,8 +267,10 @@ test('a computer without Touch ID: the give page sends the mandate to the phone,
   await page.getByTestId('give-phone-send').click();
   await expect(page.getByTestId('give-phone-waiting')).toBeVisible({ timeout: 30_000 });
   await phoneGrantsNext(p, sb.recoveryCode, phone, read.priv, granted, 'the Setup give');
-  await expect(page.getByTestId('give-phone-given')).toBeVisible({ timeout: 60_000 });
-  await page.getByTestId('give-phone-done').click();
+  // The give page ends with the one shared result (whichever device gave it): "Signed", then Close to the mandate list.
+  await expect(page.getByTestId('give-done')).toBeVisible({ timeout: 60_000 });
+  await expect(page.getByTestId('give-done').getByText('Signed')).toBeVisible();
+  await page.getByTestId('give-done').getByTestId('give-touch-close').click();
 
   // 2. The AI, over the gateway's own MCP endpoint, proposes a Records mandate.
   const agent = new Client({ name: 'ai-proposed-mandate', version: '1.0.0' }, { capabilities: {} });
@@ -328,7 +332,8 @@ test('a computer without Touch ID: the give page sends the mandate to the phone,
     const opened2 = await phoneGrantsNext(p, sb.recoveryCode, phone, read.priv, granted, 'the AI-proposed give');
     expect(opened2.give.bounds.write_daily_max).toBe(50);
     expect(opened2.intent).toBe('Keep the notes of the quotes.');
-    await expect(card.getByTestId('give-phone-given')).toBeVisible({ timeout: 60_000 });
+    // The card shows "Signed", then the panel moves on as the proposal closes as replaced: either proves the give.
+    await expect.poll(async () => (await card.getByTestId('give-phone-given').isVisible().catch(() => false)) || !(await card.isVisible().catch(() => false)), { timeout: 60_000 }).toBe(true);
     await shot('s3-card-given');
     expect(page.url()).toBe(urlBefore);
 
