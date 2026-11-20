@@ -26,6 +26,7 @@ import { dirname, extname, join, normalize } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { AS_DIR } from '../../src/helpers/as-dir';
 import { ProcessManager } from '../../src/helpers/process-manager';
+import { GW_DIR, newSecret, startControlPlane, startMcpServer, type StackOptions } from '../../src/helpers/gateway-stack';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..', '..', '..');
 const APP_DIR = process.env.HAP_E2E_APPROVE_DIR ?? join(ROOT, 'suveren-gateway', 'apps', 'approve');
@@ -34,6 +35,10 @@ const APP_DIR = process.env.HAP_E2E_APPROVE_DIR ?? join(ROOT, 'suveren-gateway',
 const AS_PORT = Number(process.env.HAP_E2E_PHONE_AS_PORT ?? 19940);
 const APP_PORT = Number(process.env.HAP_E2E_PHONE_APP_PORT ?? 19941);
 const LOOKALIKE_PORT = Number(process.env.HAP_E2E_PHONE_LOOKALIKE_PORT ?? 19942);
+// A gateway of its own with the switch on (control plane + MCP server, its own data folder) for the gateway-page journeys
+// against the phone ("Give on your phone", DEC-90). The default browser suite's gateway is not touched.
+const GW_CP_PORT = Number(process.env.HAP_E2E_PHONE_GW_CP_PORT ?? 19943);
+const GW_MCP_PORT = Number(process.env.HAP_E2E_PHONE_GW_MCP_PORT ?? 19944);
 
 const MIME: Record<string, string> = {
   '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.css': 'text/css; charset=utf-8',
@@ -125,6 +130,26 @@ export default async function globalSetup(): Promise<() => Promise<void>> {
   const app = await serve(outDir, APP_PORT, tls);
   const lookalike = await serve(outDir, LOOKALIKE_PORT, tls);
 
+  // The chain gateway: only when the gateway checkout is built (the CI job builds it for the main suite first). Without it, the
+  // cases that need it skip with that reason; in CI (strict) that is a failure, not a skip.
+  let gwDir: string | null = null;
+  const gwSecret = newSecret();
+  if (existsSync(join(GW_DIR, 'apps', 'control-plane', 'dist', 'index.mjs')) && existsSync(join(GW_DIR, 'apps', 'mcp-server', 'dist', 'http.mjs'))) {
+    gwDir = mkdtempSync(join(tmpdir(), 'hap-e2e-phone-gw-'));
+    const stack: StackOptions = {
+      dataDir: gwDir, ports: { cp: GW_CP_PORT, mcp: GW_MCP_PORT }, secret: gwSecret, asUrl,
+      extraEnv: { SUVEREN_DEVICE_KEYS: 'on', SUVEREN_DISABLE_AUTO_INTEGRATIONS: '1' },
+    };
+    await startControlPlane(pm, stack, 'gw-phone-cp');
+    await startMcpServer(pm, stack, 'gw-phone-mcp');
+    process.env.HAP_E2E_PHONE_GW_URL = `http://localhost:${GW_CP_PORT}`;
+    delete process.env.HAP_E2E_PHONE_GW_UNAVAILABLE;
+  } else {
+    const reason = `the gateway at ${GW_DIR} is not built (apps/control-plane/dist, apps/mcp-server/dist)`;
+    if (process.env.HAP_E2E_PHONE_STRICT === '1') throw new Error(`phone suite cannot run: ${reason}`);
+    process.env.HAP_E2E_PHONE_GW_UNAVAILABLE = reason;
+  }
+
   Object.assign(process.env, {
     HAP_E2E_PHONE_AS_URL: asUrl,
     HAP_E2E_PHONE_APP_URL: appUrl,
@@ -141,6 +166,7 @@ export default async function globalSetup(): Promise<() => Promise<void>> {
       await new Promise<void>((r) => s.close(() => r()));
     }
     await pm.killAll();
+    if (gwDir) rmSync(gwDir, { recursive: true, force: true });
     rmSync(outDir, { recursive: true, force: true });
     rmSync(asLog, { force: true });
   };
