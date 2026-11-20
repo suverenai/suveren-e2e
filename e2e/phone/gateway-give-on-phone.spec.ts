@@ -126,6 +126,18 @@ test('a computer without Touch ID: the give page sends the mandate to the phone,
   await page.locator('#unlock-password').fill(PASSWORD);
   await page.locator('#unlock-password').press('Enter');
   await expect(page.locator('.page-title').first()).toBeVisible({ timeout: 20_000 });
+
+  // DEC-95: a reload ends the page session (the header token lives only in the page's memory). The gateway itself keeps
+  // running, so the unlock screen must say that, never "the computer restarted".
+  await page.reload();
+  await expect(page.locator('#unlock-password')).toBeVisible({ timeout: 20_000 });
+  await expect(page.getByText('The gateway is still running and your AI can keep working. Unlock to use this page again.')).toBeVisible({ timeout: 10_000 });
+  await expect(page.getByText('The computer restarted')).toHaveCount(0);
+  await page.screenshot({ path: test.info().outputPath('unlock-after-reload.png'), fullPage: true });
+  await test.info().attach('unlock-after-reload', { path: test.info().outputPath('unlock-after-reload.png'), contentType: 'image/png' });
+  await page.locator('#unlock-password').fill(PASSWORD);
+  await page.locator('#unlock-password').press('Enter');
+  await expect(page.locator('.page-title').first()).toBeVisible({ timeout: 20_000 });
   const groups = await (await fetch(`${gw}/api/groups`, { headers })).json() as { groups?: Array<{ id: string; name?: string; isPersonal?: boolean }> };
   const personal = (groups.groups ?? []).find((g) => g.isPersonal);
   expect(personal, JSON.stringify(groups)).toBeTruthy();
