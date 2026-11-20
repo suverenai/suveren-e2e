@@ -5,23 +5,44 @@
  * so a wrong Client ID could not be corrected (found in Andreas's walkthrough, 2026-11-10).
  * The Client ID here is a placeholder: no Google call is made.
  */
+import http from 'node:http';
 import { test, expect, ensureUsersRegistered, ALICE, signInToGateway, handleOnboarding, cardTitlePattern, GW_URL } from './fixtures';
 
-test('Email: Change Credentials opens the saved Gmail settings for editing', async ({ page, request }) => {
+/**
+ * Save the Email settings on a connection of its own.
+ *
+ * Playwright sends every API request of a worker through ONE keep-alive agent
+ * (playwright-core server/utils/happyEyeballs.js: keepAlive: true), so a `request.put` reuses a socket an
+ * earlier request left idle, even from another request context, and even with `connection: close` (that
+ * only closes it afterwards; measured). When the control plane closes that idle socket at the same moment,
+ * the save fails with "read ECONNRESET" before any answer (CI runs 44676369532 and 44689442027, switch off).
+ * `agent: false` opens a fresh connection for this one request, so there is no pooled socket to lose.
+ */
+function putCredentialsFresh(fields: Record<string, string>): Promise<{ status: number; text: string }> {
+  const body = JSON.stringify(fields);
+  return new Promise((resolve, reject) => {
+    const req = http.request(`${GW_URL}/vault/credentials/mail`, {
+      method: 'PUT',
+      agent: false,
+      headers: { 'x-api-key': ALICE.apiKey, 'content-type': 'application/json', 'content-length': Buffer.byteLength(body) },
+    }, res => {
+      let text = '';
+      res.setEncoding('utf8');
+      res.on('data', chunk => { text += chunk; });
+      res.on('end', () => resolve({ status: res.statusCode ?? 0, text }));
+    });
+    req.on('error', reject);
+    req.end(body);
+  });
+}
+
+test('Email: Change Credentials opens the saved Gmail settings for editing', async ({ page }) => {
   test.setTimeout(180_000);
   await ensureUsersRegistered();
   await signInToGateway(page, ALICE.apiKey);
   await handleOnboarding(page);
-  // Playwright sends every API request of this worker through ONE keep-alive agent
-  // (playwright-core server/utils/happyEyeballs.js: keepAlive: true), so this PUT can go out on a pooled
-  // socket the control plane is just closing after its idle timeout: "read ECONNRESET", before any byte
-  // of an answer (CI runs 44676369532 and 44689442027, switch off). maxRetries retries only ECONNRESET.
-  const put = await request.put(`${GW_URL}/vault/credentials/mail`, {
-    maxRetries: 1,
-    headers: { 'x-api-key': ALICE.apiKey },
-    data: { mode: 'live', liveAdapter: 'gmail', clientId: 'placeholder-client.apps.googleusercontent.com', clientSecret: 'placeholder' },
-  });
-  expect(put.ok(), await put.text()).toBe(true);
+  const put = await putCredentialsFresh({ mode: 'live', liveAdapter: 'gmail', clientId: 'placeholder-client.apps.googleusercontent.com', clientSecret: 'placeholder' });
+  expect(put.status >= 200 && put.status < 300, put.text).toBe(true);
 
   await page.click('.sidebar-item:has-text("Connectors")');
   await page.waitForURL('**/integrations');
@@ -44,5 +65,6 @@ test('Email: Change Credentials opens the saved Gmail settings for editing', asy
   await expect(clientId).toHaveValue('placeholder-client.apps.googleusercontent.com');
 
   // Put Email back to its default, for the specs that follow on the same gateway.
-  await request.put(`${GW_URL}/vault/credentials/mail`, { maxRetries: 1, headers: { 'x-api-key': ALICE.apiKey }, data: { mode: 'simulation' } });
+  const reset = await putCredentialsFresh({ mode: 'simulation' });
+  expect(reset.status >= 200 && reset.status < 300, reset.text).toBe(true);
 });
