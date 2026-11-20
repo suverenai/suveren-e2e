@@ -11,7 +11,7 @@
  * (src/helpers/phone-app.ts).
  *
  * Needs SUVEREN_DB_URL (a Postgres, as every Authority Server suite) and checkouts that have the phone routes and the app. When one
- * is missing the suite skips with the reason (HAP_E2E_PHONE_UNAVAILABLE) instead of failing.
+ * is missing the suite skips with the reason (HAP_E2E_PHONE_UNAVAILABLE) instead of failing, except with HAP_E2E_PHONE_STRICT=1 (CI).
  *
  * Where things are: the same sibling layout as the rest of this suite (src/helpers/as-dir.ts). HAP_E2E_APPROVE_DIR names the
  * app's folder when it is not suveren-gateway/apps/approve next to this checkout.
@@ -66,6 +66,8 @@ function serve(dir: string, port: number): Promise<Server> {
 
 export default async function globalSetup(): Promise<() => Promise<void>> {
   const unavailable = (reason: string): (() => Promise<void>) => {
+    // CI sets HAP_E2E_PHONE_STRICT=1: there a missing piece is a broken checkout, and a whole suite skipped would read as green.
+    if (process.env.HAP_E2E_PHONE_STRICT === '1') throw new Error(`phone suite cannot run: ${reason}`);
     process.env.HAP_E2E_PHONE_UNAVAILABLE = reason;
     console.error(`[E2E] phone suite skipped: ${reason}`);
     return async () => undefined;

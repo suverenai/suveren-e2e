@@ -299,6 +299,23 @@ jobs:
         working-directory: hap-e2e
         run: npx playwright test -c playwright.simulation.config.ts
 
+      # The phone approval app (device-keys step 11) against the real Authority
+      # Server, switch on only: with the switch off every phone route answers
+      # 404 by design. Its own global setup starts the Authority Server and
+      # serves the built app; no gateway. WebKit runs the cases it can (it has
+      # no virtual authenticator). STRICT: a missing route or app fails the
+      # step instead of skipping the whole suite.
+      - name: Run phone app journeys
+        if: matrix.device_keys == 'on'
+        working-directory: hap-e2e
+        env:
+          HAP_E2E_PHONE_STRICT: '1'
+          # Its own report folder, so the browser journeys' report is kept.
+          PLAYWRIGHT_HTML_REPORT: playwright-report/phone
+        run: |
+          npx playwright install --with-deps webkit
+          npx playwright test -c playwright.phone.config.ts --output test-results/phone --reporter=list,html
+
       - name: Upload logs
         if: always()
         uses: actions/upload-artifact@v4
