@@ -339,7 +339,7 @@ jobs:
   touchid:
     name: Touch ID journeys (macOS, debug helper)
     if: (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && github.event.inputs.device_keys != 'off'
-    runs-on: macos-14
+    runs-on: macos-15  # macos-14 refused 2026-11-20: "configuration macos-14-arm64-us-default is not supported"
     timeout-minutes: 60
     env:
       SUVEREN_DB_URL: postgres://postgres:e2e@localhost:5432/suveren_as
