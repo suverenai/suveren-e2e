@@ -15,6 +15,7 @@ import { fileURLToPath } from 'node:url';
 import { resolveAsDir, resolveNextBin } from '../src/helpers/as-dir';
 import { localProfilesForAs } from '../src/helpers/local-profiles';
 import { profileHashFor } from '../src/helpers/profiles';
+import { assertPortFree, stopTracked, trackProcess } from '../src/helpers/process-registry';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -147,8 +148,35 @@ function simulationEnv(): Record<string, string> {
   return process.env.HAP_E2E_PW_SIMULATION === '1' ? { SUVEREN_SIMULATION: '1' } : {};
 }
 
+/**
+ * Playwright does not run globalTeardown when globalSetup throws, so a server
+ * that came up before a later one failed would be left behind. Clean up here.
+ */
 export async function startServers(): Promise<void> {
+  try {
+    await startServersInner();
+  } catch (err) {
+    await stopServers();
+    throw err;
+  }
+}
+
+/** Spawn as its own process group (so stopServers reaches forked workers) and track it. */
+function launch(name: string, command: string, args: string[], options: Parameters<typeof spawn>[2]): ChildProcess {
+  const proc = spawn(command, args, { ...options, detached: true, stdio: ['pipe', 'pipe', 'pipe'] });
+  processes.push(proc);
+  trackProcess(proc, name, `${command} ${args.join(' ')}`);
+  return proc;
+}
+
+async function startServersInner(): Promise<void> {
   if (serversReady) return;
+
+  // Fail before spawning: an old process on a fixed port would let the new one
+  // die with EADDRINUSE while the old one answers the health checks.
+  await assertPortFree(SP_PORT, 'the Authority Server (HAP_E2E_PW_AS_PORT moves it)');
+  await assertPortFree(GW_MCP_PORT, 'the gateway MCP server');
+  await assertPortFree(GW_CP_PORT, 'the gateway control plane');
 
   console.error('[E2E] Building gateway...');
   execSync('pnpm build', { cwd: GW_DIR, stdio: 'pipe', timeout: 180_000 });
@@ -177,7 +205,7 @@ export async function startServers(): Promise<void> {
   // PROFILE_HASH_MISMATCH. next start is still pointed at SP_DIR; only the
   // cwd (bundled-profiles/migrations source) changes.
   const localProfiles = localProfilesForAs(PROFILES_DIR);
-  const sp = spawn(process.execPath, [nextBin, 'start', SP_DIR, '-p', String(SP_PORT)], {
+  const sp = launch('as', process.execPath, [nextBin, 'start', SP_DIR, '-p', String(SP_PORT)], {
     cwd: localProfiles.cwd,
     env: {
       ...process.env,
@@ -192,10 +220,8 @@ export async function startServers(): Promise<void> {
       SUVEREN_DB_URL: process.env.SUVEREN_DB_URL ?? 'postgres://postgres:suveren_test@localhost:55432/suveren_as',
       ...localProfiles.env,
     },
-    stdio: ['pipe', 'pipe', 'pipe'],
   });
   process.env.HAP_E2E_PW_AS_PID = String(sp.pid); // as-frozen-retry.spec freezes this process
-  processes.push(sp);
   pipe(sp, 'AS');
   await waitFor(`${SP_URL}/api/as/pubkey`, 60_000);
   console.error('[E2E] Authority Server ready.');
@@ -235,7 +261,7 @@ export async function startServers(): Promise<void> {
   }));
 
   // Start gateway MCP server
-  const mcp = spawn('node', ['apps/mcp-server/dist/http.mjs'], {
+  const mcp = launch('mcp', 'node', ['apps/mcp-server/dist/http.mjs'], {
     cwd: GW_DIR,
     env: {
       ...process.env,
@@ -257,15 +283,13 @@ export async function startServers(): Promise<void> {
       // seeds this company into its empty database on first open.
       ERP_COMPANY_FILE,
     },
-    stdio: ['pipe', 'pipe', 'pipe'],
   });
-  processes.push(mcp);
   pipe(mcp, 'MCP');
   await waitFor(`${GW_MCP_URL}/health`, 30_000);
   console.error('[E2E] MCP ready.');
 
   // Start gateway control plane
-  const cp = spawn('node', ['apps/control-plane/dist/index.mjs'], {
+  const cp = launch('cp', 'node', ['apps/control-plane/dist/index.mjs'], {
     cwd: GW_DIR,
     env: {
       ...process.env,
@@ -277,9 +301,7 @@ export async function startServers(): Promise<void> {
       HAP_UI_DIST: join(GW_DIR, 'apps/ui/dist'), // still HAP_-prefixed in v0.4
       ...simulationEnv(),
     },
-    stdio: ['pipe', 'pipe', 'pipe'],
   });
-  processes.push(cp);
   pipe(cp, 'CP');
   await waitFor(`${GW_URL}/health`, 15_000);
   console.error('[E2E] Control plane ready.');
@@ -301,15 +323,9 @@ export function gatewayDataDir(): string {
 }
 
 export async function stopServers(): Promise<void> {
-  for (const proc of processes) {
-    if (proc.exitCode != null) continue;
-    proc.kill('SIGTERM');
-    await Promise.race([
-      new Promise<void>(r => proc.on('exit', () => r())),
-      new Promise(r => setTimeout(r, 3000)),
-    ]);
-    if (proc.exitCode == null) proc.kill('SIGKILL');
-  }
+  // Whole process groups, SIGCONT first (as-frozen-retry freezes the AS with
+  // SIGSTOP), waiting until nothing of them is left.
+  for (const proc of [...processes].reverse()) await stopTracked(proc, 3_000);
   processes.length = 0;
   if (dataDir) { try { rmSync(dataDir, { recursive: true, force: true }); } catch { /* */ } dataDir = null; }
   serversReady = false;

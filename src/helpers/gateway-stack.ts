@@ -107,6 +107,7 @@ export async function startControlPlane(pm: ProcessManager, o: StackOptions, nam
     cwd: GW_DIR,
     env: stackEnv(o),
     healthUrl: `http://localhost:${o.ports.cp}/health`,
+    port: o.ports.cp,
   });
 }
 
@@ -115,6 +116,7 @@ export async function startMcpServer(pm: ProcessManager, o: StackOptions, name =
     cwd: GW_DIR,
     env: stackEnv(o),
     healthUrl: `http://localhost:${o.ports.mcp}/health`,
+    port: o.ports.mcp,
   });
 }
 
