@@ -40,7 +40,9 @@ on:
         description: 'Device-keys switch (SUVEREN_DEVICE_KEYS) for the Authority Server and the gateway: off, on, or both (two parallel legs).'
         required: false
         type: choice
-        options: [off, on, both]
+        # Quoted: bare on/off are YAML booleans, and GitHub then refused
+        # device_keys=on as "not in the list of allowed values".
+        options: ['off', 'on', 'both']
         default: 'off'
 
 # The refs are part of the group so dispatches for different branches run side
