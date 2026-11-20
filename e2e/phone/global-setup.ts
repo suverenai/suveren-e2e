@@ -99,7 +99,10 @@ export default async function globalSetup(): Promise<() => Promise<void>> {
   });
 
   const pm = new ProcessManager();
-  const asProc = await pm.startSP(AS_PORT, { name: 'as-phone', env: { SUVEREN_DEVICE_KEYS: 'on', SUVEREN_APP_ORIGIN: appUrl } });
+  // NODE_ENV=test, as the vitest stack runs the same Authority Server (vitest sets it and the child inherits it; Playwright does
+  // not). In a production process the AS rightly refuses an `http://localhost` app address (lib/device-keys/app-origin.ts), and this
+  // suite serves the app on localhost: without it every pairing answers 503 APP_ORIGIN_NOT_CONFIGURED.
+  const asProc = await pm.startSP(AS_PORT, { name: 'as-phone', env: { NODE_ENV: 'test', SUVEREN_DEVICE_KEYS: 'on', SUVEREN_APP_ORIGIN: appUrl } });
   // The Authority Server's console mailer prints every email (EMAIL_TRANSPORT unset: lib/email ConsoleProvider). The cases run
   // in other processes, so the lines are also written to a file they read: the recovery hand-off's link reaches the "phone"
   // the way an email would, by its text (stage D3, replacing the recovery code). Only lines that start with "[Email]".
