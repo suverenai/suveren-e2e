@@ -275,24 +275,28 @@ test('a computer without Touch ID: the give page sends the mandate to the phone,
     const proposalId = /Proposal ID: (\S+?)\./.exec(proposed.text)?.[1];
     expect(proposalId, proposed.text).toBeTruthy();
 
-    // 3. The person approves it on the card (the gateway signs the decision with this computer's device key).
+    // 3. The person presses "Give this mandate" on the card: the give page opens from the proposal and starts the give at once
+    //    (one mechanism with giving it yourself). This computer has no check key, so the give goes to the phone (DEC-90).
     const approve = page.getByTestId('btn-approve').first();
     // The panel opens by itself when the setting is on; otherwise the card is on the Approvals page.
     if (!(await approve.isVisible({ timeout: 15_000 }).catch(() => false))) await goInPage(page, '/approvals');
     await expect(approve).toBeVisible({ timeout: 60_000 });
     await approve.click();
+    await expect(page.getByTestId('give-phone-waiting')).toBeVisible({ timeout: 60_000 });
 
-    // 4. Execution names the approved fingerprint; this computer has no check key, so the grant goes to the phone (DEC-90).
-    const executed = await until('the approved proposal runs', async () => {
-      const r = await callTool(agent, 'check-pending-commitments', { proposal_id: proposalId });
-      return /pending|awaiting/i.test(r.text) && !/phone/i.test(r.text) ? undefined : r;
-    }, 60_000);
-    expect(executed.text).not.toMatch(/nothing was approved under that fingerprint/);
-    expect(executed.text).not.toMatch(/setup refused to run it/);
+    // 4. The phone grants exactly what the AI proposed and the page showed.
     const opened2 = await phoneGrantsNext(p, sb.recoveryCode, phone, read.priv, granted, 'the AI-proposed give');
     // What the phone grants is exactly what the AI proposed and the person approved.
     expect(opened2.give.bounds.write_daily_max).toBe(50);
     expect(opened2.intent).toBe('Keep the notes of the quotes.');
+
+    await expect(page.getByTestId('give-phone-given')).toBeVisible({ timeout: 60_000 });
+    // The proposal is closed as replaced by the person's own mandate (never executed as a second one), and nothing was refused.
+    const closed = await until('the proposal is closed', async () => {
+      const r = await callTool(agent, 'check-pending-commitments', { proposal_id: proposalId });
+      return /pending|awaiting/i.test(r.text) ? undefined : r;
+    }, 60_000);
+    expect(closed.text).not.toMatch(/nothing was approved under that fingerprint|setup refused to run it/);
 
     // 5. The mandate is live for the AI (the MCP server lists only mandates whose owner's grant it verified).
     await until('the Records mandate is live for the AI', async () => {
