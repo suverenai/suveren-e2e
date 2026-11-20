@@ -388,32 +388,56 @@ describe.skipIf(!available)('a change to a mandate, proposed by the AI (real sta
       expect(JSON.stringify(commit.body)).toMatch(/revoked/i);
     }, 120_000);
 
-    it('the old mandate stays live until the new one is delivered, then is revoked; a failed revoke tells the AI and leaves the new one active', async () => {
+    it('a failed revoke: the old mandate is no longer used on this gateway at once, the AI is told the change is in place, and the gateway ends the old one on the AS by itself', async () => {
+      // Narrow the scope: `vendor` is allowed by the old mandate only.
       const id = await grantCustomers(w, 3, 'automatic', 'vendor,lead', 'Why — revoke fails.');
-      const r = await change(w, { mandate_id: id, limits: { write_daily_max: 2 } });
+      const r = await change(w, { mandate_id: id, scope: { contact_type: 'lead' } });
       expect(r.denied, r.text).toBe(false);
       failRevokeOf = id;
       const proposalId = proposalIdOf(r.text);
       const before = await activeIds(w.owner);
       await resolve(w, proposalId, 'commit');
-      // The gateway revokes the old mandate only after the new one is issued AND delivered, so the new one is
-      // active on the Authority Server a moment before the revoke is sent. Keep the revoke failing until the
-      // relay has actually refused it; clearing it as soon as the new mandate appeared let the revoke through.
+      // The gateway revokes the old mandate only after the new one is issued AND delivered. Keep the revoke
+      // failing until the relay has actually refused it.
       const refused = await until(async () => refusedRevokes.includes(id), (v) => v);
-      failRevokeOf = null;
       expect(refused, 'the gateway never sent the revoke of the old mandate').toBe(true);
-      // Both are live: the new mandate was delivered, the revoke of the old one failed.
+      // The AS still holds both: the new mandate was delivered, the revoke of the old one failed.
       const after = await until(() => activeIds(w.owner), (ids) => ids.some((x) => !before.includes(x)));
       expect(after).toContain(id);
-      const created = after.filter((x) => !before.includes(x));
-      expect(created).toHaveLength(1);
+      expect(after.filter((x) => !before.includes(x))).toHaveLength(1);
+
+      // The AI is told the change happened — not that it failed.
       const told = await until(
         async () => textOf(await w.agent.callTool({ name: 'check-pending-commitments', arguments: { proposal_id: proposalId } })),
-        (t) => /could not be revoked/.test(t),
+        (t) => /The change is in place/.test(t),
       );
-      expect(told).toMatch(/still live with its old limits/);
+      expect(told).toContain('The change is in place. The old mandate is no longer used on this computer. It will be ended on suveren.ai as soon as possible.');
+      expect(told).not.toMatch(/still live with its old limits|nothing was done/i);
       noAddress(told);
-    }, 120_000);
+
+      // A call only the OLD mandate allows is refused on this gateway, although the AS still serves it.
+      const vendor = await w.agent.callTool({ name: 'crm__create_contact', arguments: { name: 'Vera Vendor', type: 'vendor' } });
+      expect(vendor.isError, textOf(vendor)).toBe(true);
+      expect(textOf(vendor)).not.toMatch(/Awaiting commitment/);
+      // A call the NEW mandate allows still runs.
+      const lead = await w.agent.callTool({ name: 'crm__create_contact', arguments: { name: 'Lena Lead', type: 'lead' } });
+      expect(lead.isError, textOf(lead)).not.toBe(true);
+
+      // The page's list knows it is replaced (for its quiet line).
+      const replaced = await fetch(`http://localhost:${ANNA.cp}/api/replaced-mandates`, { headers: { 'X-API-Key': w.owner.apiKey } });
+      expect(replaced.status).toBe(200);
+      expect(((await replaced.json()) as { entries: Array<{ authorizationId: string }> }).entries.map((e) => e.authorizationId)).toContain(id);
+
+      // The AS accepts revokes again: the gateway's retry ends the old mandate there by itself.
+      failRevokeOf = null;
+      const ended = await until(() => activeIds(w.owner), (ids) => !ids.includes(id), 200_000);
+      expect(ended, 'the gateway never retried the revoke').not.toContain(id);
+      const cleared = await until(
+        async () => ((await (await fetch(`http://localhost:${ANNA.cp}/api/replaced-mandates`, { headers: { 'X-API-Key': w.owner.apiKey } })).json()) as { entries: unknown[] }).entries.length,
+        (n) => n === 0,
+      );
+      expect(cleared).toBe(0);
+    }, 300_000);
   });
 
   describe('a list whose empty value allows nothing: what the AI may attach', () => {
