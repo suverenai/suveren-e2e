@@ -10,7 +10,7 @@
     "test:browser:headed": "npx playwright test --headed && npx playwright test -c playwright.simulation.config.ts --headed"
   },
   "devDependencies": {
-    "@humanagencyp/hap-core": "^0.12.0",
+    "@humanagencyp/hap-core": "^0.16.0",
     "@modelcontextprotocol/sdk": "^1.12.1",
     "@playwright/test": "^1.58.2",
     "@types/node": "^20.10.0",
