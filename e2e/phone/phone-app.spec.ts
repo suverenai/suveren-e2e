@@ -34,6 +34,7 @@ import {
   b64uEncode, newDevice, entryHash, randomBytes, checkOver,
   type Computer, type PhoneStack, type Root,
 } from '../../src/helpers/phone-app';
+import { buildChangeRequest, verifyPhoneAnswer } from '../../src/helpers/change-request';
 
 const unavailable = process.env.HAP_E2E_PHONE_UNAVAILABLE;
 test.skip(!!unavailable, `phone suite not available: ${unavailable}`);
@@ -537,6 +538,106 @@ test.describe('stage D3: replace the recovery code on the phone', () => {
 // ═══════════════════════════════════════════════════════════════════════════════════════════════
 // The phone admits a gateway (shown_by: joiner)
 // ═══════════════════════════════════════════════════════════════════════════════════════════════
+
+// ═══════════════════════════════════════════════════════════════════════════════════════════════
+// Stage D3: a computer's change to a connector login, confirmed on the phone (plan 7 phone path, 20.4)
+// ═══════════════════════════════════════════════════════════════════════════════════════════════
+
+test.describe('stage D3: confirm a computer\'s change to a connector login on the phone', () => {
+  test.skip(chromiumOnly, NO_VIRTUAL_AUTHENTICATOR);
+
+  /** The computer (played here, without using its check key: the phone path) sends a sealed, signed request to the phone. */
+  async function sendChange(phone: Awaited<ReturnType<typeof joinedPhone>>, phoneLabel: string, o: { kind?: 'replace' | 'remove' } = {}) {
+    const chain = await verifiedChain(stack, phone.person, phone.root.did);
+    const ph = Object.values(chain.devices).find((d) => d.label === phoneLabel && d.removed_seq === null)!;
+    const kind = o.kind ?? 'replace';
+    const sent = await buildChangeRequest({
+      computer: phone.person.dev, chain, phones: { [ph.key_id]: ph.read_pub }, kind, name: 'gmail', connector: 'Gmail', now: nowSec(),
+      fields: kind === 'remove' ? [] : [{ key: 'clientId', label: 'Client ID', secret: false, old: 'old.apps.example', new: 'new.apps.example' }, { key: 'clientSecret', label: 'Client secret', secret: true }],
+      change: { route: 'credentials', op: kind === 'remove' ? 'delete' : 'put-merge', fields: kind === 'remove' ? undefined : { clientId: 'new.apps.example', clientSecret: 'new-secret' } },
+    });
+    const r = await http(stack.asUrl, 'POST', '/api/devices/confirmations', { token: phone.person.token, body: sent.body });
+    expect(r.status, show(r)).toBe(201);
+    return { sent, chain, phoneKeyId: ph.key_id };
+  }
+
+  async function openRequests(page: Page): Promise<void> {
+    await page.goto(stack.appUrl);
+    await page.getByRole('button', { name: 'Open with a touch' }).click();
+  }
+
+  async function answerOf(phone: Awaited<ReturnType<typeof joinedPhone>>, requestId: string) {
+    return until('the phone\'s answer at the Authority Server', async () => {
+      const r = await http(stack.asUrl, 'GET', `/api/devices/confirmations/${requestId}`, { token: phone.person.token });
+      return r.status === 200 && r.json.status === 'answered' ? r.json.answer : undefined;
+    }, 20_000);
+  }
+
+  test('the request opens full screen by itself; old value crossed out, the secret without a value; the touch; the computer verifies an allow against its own chain', async ({ browser }) => {
+    const phone = await joinedPhone(browser, 'Confirm Phone', 'Home Mac');
+    const { sent } = await sendChange(phone, 'Confirm Phone');
+    await openRequests(phone.page);
+    const card = phone.page.getByTestId('change-card');
+    await expect(card).toBeVisible({ timeout: 20_000 });
+    await expect(card.getByTestId('change-asked-by')).toHaveText('Asked by Home Mac.');
+    await expect(card.getByTestId('change-sentence')).toContainText('Replace the login of "Gmail".');
+    await expect(card.locator('.mc-old')).toHaveText('old.apps.example');
+    await expect(card.locator('.mc-old')).toHaveCSS('text-decoration-line', 'line-through');
+    await expect(card.locator('.mc-new').first()).toHaveText('new.apps.example');
+    await expect(card).not.toContainText('new-secret');
+    // the button is visible without scrolling (the gateway's pinned footer)
+    await expect(card.getByTestId('change-confirm')).toBeInViewport();
+    await card.getByTestId('change-confirm').click();
+    await expect(card.getByTestId('change-stamp')).toContainText('Confirmed', { timeout: 20_000 });
+
+    const answer = await answerOf(phone, sent.requestId);
+    const chain = await verifiedChain(stack, phone.person, phone.root.did);
+    expect(await verifyPhoneAnswer(answer, { chain, rootDid: phone.root.did, requestId: sent.requestId, changeHash: sent.changeHash, computerKeyId: phone.person.dev.record.key_id, now: nowSec() })).toBe('allow');
+    // A second answer is refused: the first one stands.
+    const again = await http(stack.asUrl, 'GET', '/api/devices/confirmations', { token: phone.person.token });
+    expect(again.status).toBe(403); // a computer session never lists the phone's requests
+    await phone.context.close();
+  });
+
+  test('"Do not allow": a signed deny without a touch; the phone says the computer keeps the login', async ({ browser }) => {
+    const phone = await joinedPhone(browser, 'Deny Phone', 'Office Mac');
+    const { sent } = await sendChange(phone, 'Deny Phone', { kind: 'remove' });
+    await openRequests(phone.page);
+    const card = phone.page.getByTestId('change-card');
+    await expect(card.getByTestId('change-sentence')).toContainText('Remove the login of "Gmail".', { timeout: 20_000 });
+    await card.getByTestId('change-deny').click();
+    await expect(card.getByTestId('change-denied')).toHaveText('Not allowed. Office Mac keeps the login of "Gmail".', { timeout: 20_000 });
+    await expect(card.getByTestId('change-dismiss')).toBeVisible();
+    const answer = await answerOf(phone, sent.requestId);
+    expect(answer.check).toBeUndefined();
+    const chain = await verifiedChain(stack, phone.person, phone.root.did);
+    expect(await verifyPhoneAnswer(answer, { chain, rootDid: phone.root.did, requestId: sent.requestId, changeHash: sent.changeHash, computerKeyId: phone.person.dev.record.key_id, now: nowSec() })).toBe('deny');
+    await phone.context.close();
+  });
+
+  test('a request whose sealed content the server changed is never shown; the server refuses an unsigned request and a wrap for a computer', async ({ browser }) => {
+    const phone = await joinedPhone(browser, 'Tamper Phone', 'Lab Mac');
+    const { sent, chain, phoneKeyId } = await sendChange(phone, 'Tamper Phone');
+    const ct = Buffer.from(sent.body.ciphertext as string, 'base64url');
+    ct[ct.length - 5] ^= 1;
+    await db.query('update change_confirmations set ciphertext = $1 where request_id = $2', [ct.toString('base64url'), sent.requestId]);
+    await openRequests(phone.page);
+    await expect(phone.page.getByTestId('list-empty')).toBeVisible({ timeout: 20_000 });
+    await expect(phone.page.getByTestId('change-card')).toHaveCount(0);
+
+    // Signed by another key while naming this computer: refused.
+    const other = await newDevice('Not this computer');
+    const forged = await buildChangeRequest({ computer: other, chain, phones: { [phoneKeyId]: chain.devices[phoneKeyId].read_pub }, kind: 'remove', name: 'gmail', connector: 'Gmail', fields: [], change: {}, now: nowSec() });
+    (forged.body.envelope as Record<string, unknown>).gateway_key_id = phone.person.dev.record.key_id;
+    const r1 = await http(stack.asUrl, 'POST', '/api/devices/confirmations', { token: phone.person.token, body: forged.body });
+    expect(codeOf(r1), show(r1)).toBe('BAD_SIGNATURE');
+    // A wrap for the computer itself (not a phone): refused.
+    const toComputer = await buildChangeRequest({ computer: phone.person.dev, chain, phones: { [phone.person.dev.record.key_id]: chain.devices[phoneKeyId].read_pub }, kind: 'remove', name: 'gmail', connector: 'Gmail', fields: [], change: {}, now: nowSec() });
+    const r2 = await http(stack.asUrl, 'POST', '/api/devices/confirmations', { token: phone.person.token, body: toComputer.body });
+    expect(codeOf(r2), show(r2)).toBe('NOT_YOUR_PHONE');
+    await phone.context.close();
+  });
+});
 
 test.describe('the phone admits a computer', () => {
   test.skip(chromiumOnly, NO_VIRTUAL_AUTHENTICATOR);
