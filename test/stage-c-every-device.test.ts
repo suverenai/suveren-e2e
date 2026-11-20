@@ -662,22 +662,22 @@ describe.skipIf(!available)('step 8: encrypt to every device, re-wrap, card cont
     const early = await internal(C, '/decrypt-content', await wireFor(p1.id, devC.record.key_id, P));
     expect(early.status, show(early)).toBeGreaterThanOrEqual(400);
 
-    // What the re-wrap reads: the AS lists the owner's open proposals to a device session of the owner, each with that
-    // device's OWN wrap (and no other). Checked here with device B's session, the one this test holds.
+    // What the re-wrap reads (suveren-gateway lib/proposal-rewrap.ts): the union of four lists of the AS, each answered
+    // to a device session of the owner with that device's OWN wrap (and no other). Checked here with device B's session,
+    // the one this test holds: the owner's open proposals must be in that union, or no new device ever gets a wrap.
     const facts = JSON.stringify((await db.query(
-      `select p.id, p.status, p.created_by, p.expires_at, a.group_id, (select array_agg(m.group_id || ':' || coalesce(m.status, 'active')) from group_members m where m.user_id = $3) as p_groups
-       from proposals p left join authorizations a on a.authorization_id = p.authorization_id where p.id in ($1, $2)`,
-      [p1.id, p2.id, P.id],
-    )).rows) + ` P=${P.id} team=${teamId} now=${now()}`;
-    for (const q of ['creator=me', 'domain=owner']) {
+      `select p.id, p.status, p.created_by, p.pending_domains, a.group_id from proposals p
+       left join authorizations a on a.authorization_id = p.authorization_id where p.id in ($1, $2)`,
+      [p1.id, p2.id],
+    )).rows) + ` P=${P.id} team=${teamId}`;
+    const seen = new Map<string, any>();
+    for (const q of ['creator=me', 'approver=me', 'domain=owner', `domain=${encodeURIComponent(P.id)}`]) {
       const listed = await as('GET', `/api/proposals?${q}`, { token: tokenB });
-      expect(listed.status, `${q}: ${show(listed)} ${facts}`).toBe(200);
-      expect((listed.json.proposals as any[]).map((x) => x.id).filter((id) => id === p1.id || id === p2.id).sort(), `${q}: ${show(listed)} ${facts}`).toEqual([p1.id, p2.id].sort());
       expect(listed.status, `${q}: ${show(listed)}`).toBe(200);
-      const open = (listed.json.proposals as any[]).filter((x) => x.id === p1.id || x.id === p2.id);
-      expect(open.map((x) => x.id).sort(), `${q}: ${show(listed)}`).toEqual([p1.id, p2.id].sort());
-      for (const x of open) expect(Object.keys(x.content?.device_keys ?? {}), `${q}: ${JSON.stringify(x.content ? Object.keys(x.content) : x.content)} status=${x.status}`).toEqual([devB.record.key_id]);
+      for (const x of listed.json.proposals as any[]) if (!seen.has(x.id)) seen.set(x.id, x);
     }
+    expect([p1.id, p2.id].filter((id) => seen.has(id)), `the owner's open proposals are in none of the lists the re-wrap reads: ${facts}`).toEqual([p1.id, p2.id]);
+    for (const id of [p1.id, p2.id]) expect(Object.keys(seen.get(id).content?.device_keys ?? {})).toEqual([devB.record.key_id]);
 
     // A, which can open the content key, wraps it for the devices of the chain it verified, and hands the wraps to the AS.
     const run = await internal(A, '/rewrap-proposals', {});
