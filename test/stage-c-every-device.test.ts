@@ -662,7 +662,8 @@ describe.skipIf(!available)('step 8: encrypt to every device, re-wrap, card cont
     const early = await internal(C, '/decrypt-content', await wireFor(p1.id, devC.record.key_id, P));
     expect(early.status, show(early)).toBeGreaterThanOrEqual(400);
 
-    // What the re-wrap reads (suveren-gateway lib/proposal-rewrap.ts): the union of four lists of the AS, each answered
+    // What the re-wrap reads (suveren-gateway lib/proposal-rewrap.ts): the union of five lists of the AS (readable=me,
+    // the open proposals holding a wrap for one of the caller's devices, plus the four older ones), each answered
     // to a device session of the owner with that device's OWN wrap (and no other). Checked here with device B's session,
     // the one this test holds: the owner's open proposals must be in that union, or no new device ever gets a wrap.
     const facts = JSON.stringify((await db.query(
@@ -671,7 +672,7 @@ describe.skipIf(!available)('step 8: encrypt to every device, re-wrap, card cont
       [p1.id, p2.id],
     )).rows) + ` P=${P.id} team=${teamId}`;
     const seen = new Map<string, any>();
-    for (const q of ['creator=me', 'approver=me', 'domain=owner', `domain=${encodeURIComponent(P.id)}`]) {
+    for (const q of ['readable=me', 'creator=me', 'approver=me', 'domain=owner', `domain=${encodeURIComponent(P.id)}`]) {
       const listed = await as('GET', `/api/proposals?${q}`, { token: tokenB });
       expect(listed.status, `${q}: ${show(listed)}`).toBe(200);
       for (const x of listed.json.proposals as any[]) if (!seen.has(x.id)) seen.set(x.id, x);
