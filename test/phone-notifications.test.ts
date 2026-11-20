@@ -200,9 +200,11 @@ const subBody = (s: PhoneSub, endpoint = `${pushOrigin}${s.path}`) => ({
 /** A waiting request on the person's granted mandate, its content wrapped to `keyIds`. */
 async function file(p: Person, keyIds: string[]): Promise<{ status: number; id: string; json: any }> {
   const wrap = () => ({ ct: nodeRandom(48).toString('base64url'), enc: nodeRandom(32).toString('base64url') });
+  // The v0.8 content object (Proposals, rule 2): one wrap per reader DID, readers = that key set, plus the step 8
+  // wraps per device. The AS never decrypts; random bytes stand in for the ciphertext and the wraps.
   const content = {
-    v: 1, alg: 'HPKE-X25519-HKDF-SHA256-AES256GCM', ciphertext: nodeRandom(64).toString('base64url'), keys: { [p.userId]: wrap() },
-    hash: 'sha256:' + nodeRandom(32).toString('hex'), readers: [p.root.did], unreadable: [],
+    ciphertext: nodeRandom(64).toString('base64url'), encrypted_keys: { [p.root.did]: wrap() },
+    readers: [p.root.did], unreadable: [], hash: 'sha256:' + nodeRandom(32).toString('hex'),
     device_keys: Object.fromEntries(keyIds.map((k) => [k, wrap()])),
   };
   const r = await as('POST', '/api/proposals', {
