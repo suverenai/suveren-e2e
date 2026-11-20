@@ -31,6 +31,9 @@ const unavailable = process.env.HAP_E2E_PHONE_UNAVAILABLE ?? process.env.HAP_E2E
 test.skip(!helper, 'Touch ID journeys need the debug unlock helper (HAP_E2E_HELPER_APP): the macOS CI job');
 test.skip(!!unavailable, `chain gateway not available: ${unavailable}`);
 test.skip(({ browserName }) => browserName !== 'chromium', 'the gateway page is the same in every browser');
+// The gateway refuses approvals from a browser that announces automation (navigator.webdriver); the person-side test runs
+// Chromium without that flag, as the default browser suite does (playwright.config.ts).
+test.use({ launchOptions: { args: ['--disable-blink-features=AutomationControlled'] } });
 
 const PROFILES_DIR = process.env.HAP_E2E_PROFILES_DIR ?? join(import.meta.dirname, '..', '..', '..', 'hap-profiles');
 const PASSWORD = 'correct horse battery staple 42';
