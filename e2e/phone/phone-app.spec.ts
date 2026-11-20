@@ -82,7 +82,8 @@ interface Phone { context: BrowserContext; page: Page; cdp?: CDPSession }
 
 async function newPhone(browser: Browser, o: { passkeys: boolean }): Promise<Phone> {
   // No service worker: a cached shell would hide a rebuilt app.
-  const context = await browser.newContext({ serviceWorkers: 'block', viewport: { width: 390, height: 844 } });
+  // ignoreHTTPSErrors: the app's certificate is self-signed (global-setup.ts).
+  const context = await browser.newContext({ serviceWorkers: 'block', viewport: { width: 390, height: 844 }, ignoreHTTPSErrors: true });
   await context.addInitScript(cameraSeam);
   const page = await context.newPage();
   let cdp: CDPSession | undefined;

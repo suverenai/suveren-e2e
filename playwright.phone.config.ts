@@ -15,7 +15,8 @@ export default defineConfig({
   retries: 0,
   workers: 1, // one Authority Server, one database, cases that share a registered phone
   globalSetup: './e2e/phone/global-setup.ts',
-  use: { headless: true, screenshot: 'only-on-failure', trace: 'retain-on-failure' },
+  // ignoreHTTPSErrors: the app is served over https with a certificate made in global setup (see there why https).
+  use: { headless: true, ignoreHTTPSErrors: true, screenshot: 'only-on-failure', trace: 'retain-on-failure' },
   projects: [
     { name: 'chromium', use: { ...devices['Desktop Chrome'] } },
     { name: 'webkit', use: { ...devices['Desktop Safari'] } },
