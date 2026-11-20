@@ -56,6 +56,8 @@ const sp = new SPClient(AS_URL);
 
 // The relay: everything is forwarded to the real Authority Server, except a revoke while `failRevokeOf` names it.
 let failRevokeOf: string | null = null;
+/** Every revoke the relay refused, by authorization id: the test waits for the refusal itself, not for a side effect. */
+const refusedRevokes: string[] = [];
 let relay: Server;
 async function startRelay(): Promise<void> {
   relay = createServer((req, res) => {
@@ -63,6 +65,7 @@ async function startRelay(): Promise<void> {
     req.on('data', (c) => chunks.push(c));
     req.on('end', () => {
       if (failRevokeOf && req.url?.includes(`/authorizations/${failRevokeOf}/revoke`)) {
+        refusedRevokes.push(failRevokeOf);
         res.writeHead(500, { 'content-type': 'application/json' });
         res.end(JSON.stringify({ error: 'database connection lost' }));
         return;
@@ -393,9 +396,14 @@ describe.skipIf(!available)('a change to a mandate, proposed by the AI (real sta
       const proposalId = proposalIdOf(r.text);
       const before = await activeIds(w.owner);
       await resolve(w, proposalId, 'commit');
+      // The gateway revokes the old mandate only after the new one is issued AND delivered, so the new one is
+      // active on the Authority Server a moment before the revoke is sent. Keep the revoke failing until the
+      // relay has actually refused it; clearing it as soon as the new mandate appeared let the revoke through.
+      const refused = await until(async () => refusedRevokes.includes(id), (v) => v);
+      failRevokeOf = null;
+      expect(refused, 'the gateway never sent the revoke of the old mandate').toBe(true);
       // Both are live: the new mandate was delivered, the revoke of the old one failed.
       const after = await until(() => activeIds(w.owner), (ids) => ids.some((x) => !before.includes(x)));
-      failRevokeOf = null;
       expect(after).toContain(id);
       const created = after.filter((x) => !before.includes(x));
       expect(created).toHaveLength(1);
