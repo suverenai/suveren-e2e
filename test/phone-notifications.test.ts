@@ -18,10 +18,9 @@
  * Seams that are not HTTP (each a write into the throwaway database):
  *   - A chain needs an enrolment code that only a dashboard session from an email link may fetch: that session row is
  *     inserted (same as test/team-member-list).
- *   - Since step 13 a proposal on a chain account needs the owner's signed grant of the mandate, which this suite does
- *     not build (grants are covered by the gateway suites). The mandate is made before the chain, and each proposal is filed with
- *     the account's root DID cleared for that one call and restored right after, exactly the AS's own unit tests'
- *     `asBeforeTheChain`. The wraps are still checked against the live devices of the person.
+ *   None other. The mandate is granted (plan 4.4) by the person's computer, a test-held device with a check key, before
+ *     the Authority Server issues it (src/helpers/mandate-grant.ts, shared with the stage C suite); every request is
+ *     then filed under that real granted mandate.
  *
  * Not covered: the hourly cap of 50 (DEC-28; the AS's unit tests seed the counter), a real push service (Apple, Google)
  * and a real phone showing the notice (by hand, plan 12.2), the app's service worker (the app's own tests).
@@ -39,8 +38,10 @@ import { b64uEncode, randomBytes, type ChainEntry } from '@humanagencyp/hap-core
 import { AS_DIR } from '../src/helpers/as-dir.js';
 import { ProcessManager } from '../src/helpers/process-manager.js';
 import { SPClient, mintAuthorizationId } from '../src/helpers/sp-client.js';
-import { hashGateContent, hashExecutionContext, computeScopeHash } from '../src/helpers/crypto.js';
-import { PROFILE_V07, profileHashFor } from '../src/helpers/profiles.js';
+import type { MandatePayload } from '@humanagencyp/hap-core';
+import { hashGateContent, computeBoundsHash, computeScopeHash, computeExecutionContextHash } from '../src/helpers/crypto.js';
+import { PROFILE_V07, profileHashFor, loadProfile } from '../src/helpers/profiles.js';
+import { grantMembersOf, newMandateId, signedGrant } from '../src/helpers/mandate-grant.js';
 import { shiftedClock } from '../src/helpers/clock.js';
 import { genesisEntry, headOf, newDevice, newRoot, signinBody, type Device, type Root } from '../src/helpers/device-chain.js';
 import { admitEntry, newPhone, phoneSigninBody, registration, removeEntry, type Phone } from '../src/helpers/phone-passkey.js';
@@ -109,20 +110,11 @@ const now = () => Math.floor(Date.now() / 1000);
 // ─── People and phones ───────────────────────────────────────────────────────
 
 interface PhoneSub { phone: Phone; token: string; ua: ReturnType<typeof createECDH>; auth: Buffer; path: string }
-interface Person { userId: string; apiKey: string; authId: string; root: Root; dev: Device; token: string; tip: ChainEntry; phones: PhoneSub[] }
+interface Person { userId: string; apiKey: string; authId: string; mandate: Record<string, any>; root: Root; dev: Device; token: string; tip: ChainEntry; phones: PhoneSub[] }
 
 async function person(name: string): Promise<Person> {
   const r = await sp.register(name, `${name.toLowerCase()}-${randomUUID().slice(0, 8)}@test.local`);
-  // The mandate first, while the account has no chain (see the seams in the header).
-  const bounds = { profile: PROFILE_ID, amount_max: 500, amount_daily_max: 5000, amount_monthly_max: 50_000, transaction_count_daily_max: 50 };
-  const m = await sp.submitMandate(r.apiKey, {
-    authorization_id: mintAuthorizationId(), profile_id: PROFILE_ID, profile_hash: profileHashFor(PROFILE_ID, PROFILES_DIR),
-    group_id: await sp.getPersonalGroupId(r.apiKey), bounds, scope_hash: computeScopeHash({ currency: 'EUR', action_type: 'charge' }, ['currency', 'action_type']),
-    domain: 'owner', did: r.user.did, commitment_mode: 'review',
-    gate_content_hashes: hashGateContent({ intent: 'Notifications e2e.' }),
-    execution_context_hash: hashExecutionContext({ action_type: 'charge', amount: 500, currency: 'EUR' }),
-  });
-  // The chain: genesis on a computer with an enrolment code.
+  // The chain: genesis on a computer with an enrolment code, then a device session.
   const cookie = randomUUID();
   await db.query(`insert into sessions (token, user_id, kind, created_at, expires_at) values ($1, $2, 'email-link', $3, $4)`, [cookie, r.user.id, now(), now() + 3600]);
   const enrol = await as('POST', '/api/enrolment-codes', { cookie: `hap-session=${cookie}` });
@@ -135,7 +127,45 @@ async function person(name: string): Promise<Person> {
   const ch = await as('POST', '/api/devices/challenge', { body: { key_id: dev.record.key_id } });
   const s = await as('POST', '/api/devices/session', { body: await signinBody(root, dev, await headOf(g), ch.json) });
   expect(s.status, show(s)).toBe(200);
-  return { userId: r.user.id, apiKey: r.apiKey, authId: m.authorization_id, root, dev, token: s.json.token, tip: g, phones: [] };
+  const token = s.json.token as string;
+
+  // The mandate: a review mandate in the person's own workspace, granted on the computer first (plan 4.4), then issued.
+  const groupId = await sp.getPersonalGroupId(r.apiKey);
+  const bounds = { profile: PROFILE_ID, amount_max: 500, amount_daily_max: 5000, amount_monthly_max: 50_000, transaction_count_daily_max: 50 };
+  const request = {
+    profile_id: PROFILE_ID, profile_hash: profileHashFor(PROFILE_ID, PROFILES_DIR), group_id: groupId, bounds,
+    bounds_hash: computeBoundsHash(bounds, ['profile', 'amount_max', 'amount_daily_max', 'amount_monthly_max', 'transaction_count_daily_max']),
+    scope_hash: computeScopeHash({ currency: 'EUR', action_type: 'charge' }, ['currency', 'action_type']),
+    domain: 'owner', did: root.did, mandate_owners: [{ did: root.did }], commitment_mode: 'review',
+    gate_content_hashes: hashGateContent({ intent: 'Notifications e2e.' }),
+    execution_context_hash: computeExecutionContextHash(loadProfile(PROFILE_ID, PROFILES_DIR) as { executionContextSchema?: unknown }),
+    supported_versions: ['0.8', '0.7'],
+  };
+  const mandateId = newMandateId();
+  const authorization = mintAuthorizationId();
+  const expiresAt = now() + 86_400;
+  const payload = {
+    mandate_id: mandateId, version: '0.8', profile_id: request.profile_id, profile_hash: request.profile_hash,
+    bounds_hash: request.bounds_hash, scope_hash: request.scope_hash, execution_context_hash: request.execution_context_hash,
+    issuer: 'did:key:z', mandate_owners: [{ did: root.did }], gate_content_hashes: request.gate_content_hashes,
+    commitment_mode: request.commitment_mode, issued_at: now(), expires_at: expiresAt,
+  } as unknown as MandatePayload;
+  const grant = await as('POST', `/api/mandates/${encodeURIComponent(mandateId)}/grants`, {
+    token,
+    body: await signedGrant({
+      dev, ownerDid: root.did, head: await headOf(g), mandateId, version: 1,
+      members: grantMembersOf(payload, { authorizationId: authorization, groupId, replaces: null, chainDids: [root.did] }),
+    }),
+  });
+  expect(grant.status, show(grant)).toBe(201);
+  const m = await as('POST', '/api/as/mandate', {
+    apiKey: r.apiKey, body: { ...request, authorization_id: authorization, mandate_id: mandateId, mandate_version: 1, expires_at: expiresAt },
+  });
+  expect(m.status, show(m)).toBeLessThan(300);
+  const mandate = JSON.parse(Buffer.from(m.json.blob as string, 'base64url').toString('utf8')).payload;
+  expect(mandate.mandate_id).toBe(mandateId);
+  expect(mandate.mandate_owners[0].did).toBe(root.did);
+  return { userId: r.user.id, apiKey: r.apiKey, authId: m.json.authorization_id, mandate, root, dev, token, tip: g, phones: [] };
 }
 
 /** The computer admits a phone the way the app does (pairing id + the phone's passkey); the phone signs in and subscribes. */
@@ -167,27 +197,24 @@ const subBody = (s: PhoneSub, endpoint = `${pushOrigin}${s.path}`) => ({
   endpoint, expirationTime: null, keys: { p256dh: s.ua.getPublicKey().toString('base64url'), auth: s.auth.toString('base64url') },
 });
 
-/** A waiting request on the person's mandate, its content wrapped to `keyIds`. */
+/** A waiting request on the person's granted mandate, its content wrapped to `keyIds`. */
 async function file(p: Person, keyIds: string[]): Promise<{ status: number; id: string; json: any }> {
   const wrap = () => ({ ct: nodeRandom(48).toString('base64url'), enc: nodeRandom(32).toString('base64url') });
   const content = {
     v: 1, alg: 'HPKE-X25519-HKDF-SHA256-AES256GCM', ciphertext: nodeRandom(64).toString('base64url'), keys: { [p.userId]: wrap() },
-    hash: 'sha256:' + nodeRandom(32).toString('hex'), device_keys: Object.fromEntries(keyIds.map((k) => [k, wrap()])),
+    hash: 'sha256:' + nodeRandom(32).toString('hex'), readers: [p.root.did], unreadable: [],
+    device_keys: Object.fromEntries(keyIds.map((k) => [k, wrap()])),
   };
-  const { rows } = await db.query<{ root_did: string }>('select root_did from users where id = $1', [p.userId]);
-  await db.query('update users set root_did = null where id = $1', [p.userId]);
-  try {
-    const r = await as('POST', '/api/proposals', {
-      apiKey: p.apiKey,
-      body: {
-        authorization_id: p.authId, profile_id: PROFILE_ID, tool: 'mollie__CreatePaymentLink', actionType: 'charge',
-        execution_context: { amount: 250, currency: 'EUR', action_type: 'charge' }, pending_domains: ['owner'], content,
-      },
-    });
-    return { status: r.status, id: r.json?.proposal?.id, json: r.json };
-  } finally {
-    await db.query('update users set root_did = $2 where id = $1', [p.userId, rows[0].root_did]);
-  }
+  const r = await as('POST', '/api/proposals', {
+    apiKey: p.apiKey,
+    body: {
+      authorization_id: p.authId, mandateId: p.mandate.mandate_id, boundsHash: p.mandate.bounds_hash,
+      profile_id: PROFILE_ID, tool: 'create_payment_link', action: 'create_payment_link', actionType: 'charge',
+      execution_context: { amount: 250 }, executionContext: { amount: 250 }, pending_domains: ['owner'],
+      content, proposalContentHash: content.hash,
+    },
+  });
+  return { status: r.status, id: r.json?.proposal?.id, json: r.json };
 }
 
 const received = (s: PhoneSub) => got.filter((g) => g.path === s.path).map((g) => JSON.parse(decrypt(g.body, s.ua.getPrivateKey(), s.auth)));
@@ -277,13 +304,14 @@ describe.skipIf(!available)('notifications to phones (step 15, real Authority Se
     const s = await addPhone(p);
     const k = [s.phone.record.key_id];
     const first: string[] = [];
-    for (let i = 0; i < 3; i++) first.push((await file(p, k)).id);
-    const held = [(await file(p, k)).id, (await file(p, k)).id];
+    const filed = async () => { const r = await file(p, k); expect(r.status, JSON.stringify(r.json)).toBe(201); return r.id; };
+    for (let i = 0; i < 3; i++) first.push(await filed());
+    const held = [await filed(), await filed()];
     expect(received(s)).toEqual(first.map((id) => ({ ids: [id] })));
     try {
       await clock.set(601);
       got.length = 0;
-      const next = (await file(p, k)).id;
+      const next = await filed();
       expect(received(s)).toEqual([{ ids: [...held].sort().concat(next) }]);
     } finally {
       await clock.set(0);
