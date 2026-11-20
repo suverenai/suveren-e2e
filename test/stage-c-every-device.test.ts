@@ -10,12 +10,13 @@
  *      gateway's own set-up (password, recovery code, genesis, device sign-in). B and C are real gateways signed in
  *      to P's account; they enter P's chain by an `add` entry (see "Seams" below).
  *   Q  a team approver with a device chain made here (a real X25519 reading key, so it can open what is wrapped).
- *   L  a team approver WITHOUT a chain on a gateway with the device switch OFF: the stand-in for the last released
- *      gateway (see "Not covered").
+ *   L  a team member WITHOUT a chain. Since DEC-52 a mandate does not mix accounts with and without a chain, so L is
+ *      never an approver of P's mandate; case 2 checks that the Authority Server refuses such a mandate.
  *
  * Cases (the done-when of step 8, then the security review)
  *   1. A proposal opens on both gateways and for the approver; the proposal row holds no readable content.
- *   2. The reader without a chain still opens it through the legacy wrap (backward compatibility).
+ *   2. A mandate naming an approver without a chain is refused (MIXED_CHAIN_ACCOUNTS, plan 9.2). This replaces the
+ *      former "a reader without a chain opens it through the legacy wrap": DEC-52 voided that requirement.
  *   3. A card context moved to another proposal fails to open (the arguments stay shown).
  *   4. A wrap for another person's device is refused (WRAP_NOT_YOURS) and nothing is stored.
  *   5. A forged chain for an approver in the AS database: the gateway lists the approver as unreadable, gives them no
@@ -41,10 +42,11 @@
  *     the entry of that key id), because the test holds no bearer token of A, B or C. Q's view is the real one: Q's
  *     own device session reads the proposal from the AS.
  *   - Cases 5 and 6 forge and withhold a chain in the database (a changed entry; users.root_did cleared), restored after.
+ *   - P's mandate is granted (plan 4.4) by device B, which the test holds (its signing key and check key are the test's,
+ *     see above): B signs in to the AS as a device and stores the grant; the mandate request then names it.
  *
- * Not covered here: the released gateway from npm (case 2 uses the source gateway with the device switch off, which
- * runs the unchanged pre-stage-C decrypt path with the request a released gateway sends: ciphertext, keys, hash);
- * the approval page in a browser; the MCP server's own call into the control plane (needs a connector).
+ * Not covered here: the approval page in a browser; the MCP server's own call into the control plane (needs a
+ * connector); a grant made by a gateway's own check key (CI computers have no Touch ID; the grant is signed here).
  *
  * Needs: SUVEREN_DB_URL (Postgres admin URL), sibling checkouts ../suveren-as (with migration 029 and
  * POST /api/proposals/:id/wraps), ../suveren-gateway (stage C: lib/{device-readers,content-wraps,proposal-rewrap}.ts),
@@ -71,11 +73,13 @@ import {
 import {
   addEntryByRoot, genesisEntry, headOf, newDevice, newReadKey, newRoot, signinBody, withReadPub, type Device, type Root,
 } from '../src/helpers/device-chain.js';
+import { grantMembersOf, newMandateId, signedGrant } from '../src/helpers/mandate-grant.js';
+import type { MandatePayload } from '@humanagencyp/hap-core';
 
 const AS_PORT = 19950;
 const AS_URL = `http://localhost:${AS_PORT}`;
 const PORTS = {
-  A: { cp: 19951, mcp: 19952 }, B: { cp: 19953, mcp: 19954 }, C: { cp: 19955, mcp: 19956 }, L: { cp: 19957, mcp: 19958 },
+  A: { cp: 19951, mcp: 19952 }, B: { cp: 19953, mcp: 19954 }, C: { cp: 19955, mcp: 19956 },
 };
 
 const available = !!process.env.SUVEREN_DB_URL
@@ -292,7 +296,7 @@ describe.skipIf(!available)('step 8: encrypt to every device, re-wrap, card cont
   let P: Person & { rootDid?: string };
   let Q: Chained;
   let L: Person;
-  let A: Gw, B: Gw, C: Gw, Lgw: Gw;
+  let A: Gw, B: Gw, C: Gw;
   let rootOfP: Root;
   let devA = '';
   let devB: Device, devC: Device;
@@ -302,13 +306,50 @@ describe.skipIf(!available)('step 8: encrypt to every device, re-wrap, card cont
   let p1: Filed, p2: Filed;
 
   const CHARGE = PROFILE_V07.charge;
+  let tokenB = '';
+  /** The mandate request without its identity (authorization, mandate id and version, expiry), set in beforeAll. */
+  let request: Record<string, any>;
+
+  /**
+   * Grant P's mandate on device B (plan 4.4), then ask the AS for it. The grant's members are the mandate as the AS
+   * will sign it: the request's fields, the expiry, and the above-cap fields the request names. `grantFirst: false`
+   * only names a mandate id and version, with no grant stored.
+   */
+  async function grantAndRequest(o: { chainDids: string[]; approvers?: string[]; grantFirst?: boolean }) {
+    const mandateId = newMandateId();
+    const authorization = mintAuthorizationId();
+    const expiresAt = now() + 86_400;
+    const approvers = [...(o.approvers ?? request.above_cap_approvers)].sort();
+    const payload = {
+      mandate_id: mandateId, version: '0.8', profile_id: request.profile_id, profile_hash: request.profile_hash,
+      bounds_hash: request.bounds_hash, scope_hash: request.scope_hash, execution_context_hash: request.execution_context_hash,
+      issuer: 'did:key:z', mandate_owners: [{ did: P.rootDid }], gate_content_hashes: request.gate_content_hashes,
+      commitment_mode: request.commitment_mode,
+      above_cap_caps: request.above_cap_caps, above_cap_approvers: approvers, above_cap_approvals: request.above_cap_approvals,
+      issued_at: now(), expires_at: expiresAt,
+    } as unknown as MandatePayload;
+    let grant: Res | null = null;
+    if (o.grantFirst !== false) {
+      const [, addB] = await chainEntriesOf(P.id);
+      const body = await signedGrant({
+        dev: devB, ownerDid: P.rootDid!, head: await headOf(addB), mandateId, version: 1,
+        members: grantMembersOf(payload, { authorizationId: authorization, groupId: teamId, replaces: null, chainDids: o.chainDids }),
+      });
+      grant = await as('POST', `/api/mandates/${encodeURIComponent(mandateId)}/grants`, { token: tokenB, body });
+    }
+    const m = await as('POST', '/api/as/mandate', {
+      apiKey: P.apiKey,
+      body: { ...request, above_cap_approvers: approvers, authorization_id: authorization, mandate_id: mandateId, mandate_version: 1, expires_at: expiresAt },
+    });
+    return { mandateId, grant: grant as Res, mandate: m };
+  }
 
   /** The signed deciders of P's mandate, and the card context, for a proposal filed by A. */
   async function file(tag: string): Promise<Filed> {
     const args = { amount: 250, description: `Licence ${tag} ${MARK}`, customer_id: 'cus_1' };
     const sealed = await internal(A, '/encrypt-content', {
       toolArgs: args,
-      recipientUserIds: [P.id, Q.id, L.id],
+      recipientUserIds: [P.id, Q.id],
       readers: { ownerDid: P.rootDid, deciders: mandate.above_cap_approvers },
       context: contextFor(tag),
     });
@@ -320,7 +361,7 @@ describe.skipIf(!available)('step 8: encrypt to every device, re-wrap, card cont
         authorization_id: authorizationId, mandateId: mandate.mandate_id, boundsHash: mandate.bounds_hash,
         profile_id: CHARGE, tool: 'create_payment_link', action: 'create_payment_link', actionType: 'charge',
         execution_context: { amount: 250 }, executionContext: { amount: 250 },
-        content, proposalContentHash: content.hash, pending_approvers: [Q.id, L.id],
+        content, proposalContentHash: content.hash, pending_approvers: [Q.id],
       },
     });
     expect(created.status, show(created)).toBe(201);
@@ -344,17 +385,14 @@ describe.skipIf(!available)('step 8: encrypt to every device, re-wrap, card cont
     await sp.joinGroup(L.apiKey, team.inviteCode, P.apiKey);
     const cfg = await as('PUT', `/api/groups/${teamId}/profile-config/${encodeURIComponent(CHARGE)}`, {
       apiKey: P.apiKey,
-      body: { grantors: [P.id], approvers: [q0.id, L.id], approvals: 1, caps: { amount_max: { value: 100, kind: 'approval' } } },
+      body: { grantors: [P.id], approvers: [q0.id], approvals: 1, caps: { amount_max: { value: 100, kind: 'approval' } } },
     });
     expect(cfg.status, show(cfg)).toBeLessThan(300);
 
-    // Four real gateways. L's has the device switch OFF.
+    // Three real gateways of P.
     A = await startGw('gw-a', PORTS.A, true);
     B = await startGw('gw-b', PORTS.B, true);
     C = await startGw('gw-c', PORTS.C, true);
-    Lgw = await startGw('gw-l', PORTS.L, false);
-    expect((await new ControlPlaneClient(Lgw.url).login(L.apiKey)).status).toBe(200);
-    await registeredReadPub(L.apiKey, null);   // L's reading key is at the AS: the legacy wrap can be made for L
 
     // Q: a chain made here (test-held device with a real reading key). Its person is the one q0 registered.
     Q = await (async () => {
@@ -397,27 +435,40 @@ describe.skipIf(!available)('step 8: encrypt to every device, re-wrap, card cont
     const addB = await addEntryByRoot(rootOfP, genesis, devB);
     await storeAdd(P.id, addB);
 
-    // The mandate: P grants charge in the team; an amount above the cap makes it review_above_cap with both approvers signed.
+    // B signs in to the AS as a device of P's chain: the device that grants P's mandate (see the header).
+    const chB = await as('POST', '/api/devices/challenge', { body: { key_id: devB.record.key_id }, headers: { 'x-forwarded-for': '10.8.1.1' } });
+    expect(chB.status, show(chB)).toBe(200);
+    const sessB = await as('POST', '/api/devices/session', { body: await signinBody(rootOfP, devB, await headOf(addB), chB.json) });
+    expect(sessB.status, show(sessB)).toBe(200);
+    tokenB = sessB.json.token;
+
+    // The mandate: P grants charge in the team. The team's approval cap (100) is below amount_max, so the mandate is
+    // review_above_cap with Q as the approver; a chain account names that itself and grants it on a device first.
     const bounds = { profile: CHARGE, amount_max: 500, amount_daily_max: 5000, amount_monthly_max: 50_000, transaction_count_daily_max: 50 };
-    const m = await sp.submitMandateRaw(P.apiKey, {
-      authorization_id: mintAuthorizationId(),
+    request = {
       profile_id: CHARGE,
       profile_hash: profileHashFor(CHARGE, PROFILES_DIR),
       group_id: teamId,
       bounds,
       bounds_hash: computeBoundsHash(bounds, ['profile', 'amount_max', 'amount_daily_max', 'amount_monthly_max', 'transaction_count_daily_max']),
       scope_hash: computeScopeHash({ currency: 'EUR', action_type: 'charge' }, ['currency', 'action_type']),
-      domain: 'owner', did: P.rootDid, commitment_mode: 'automatic',
+      domain: 'owner', did: P.rootDid, mandate_owners: [{ did: P.rootDid }],
+      commitment_mode: 'review_above_cap',
+      above_cap_caps: { amount_max: 100 }, above_cap_approvers: [Q.root.did], above_cap_approvals: 1,
       gate_content_hashes: hashGateContent({ intent: 'Stage C: encrypt to every device.' }),
       execution_context_hash: computeExecutionContextHash(loadProfile(CHARGE, PROFILES_DIR) as { executionContextSchema?: unknown }),
       supported_versions: ['0.8', '0.7'],
-    });
-    expect(m.status, JSON.stringify(m.body)).toBeLessThan(300);
-    authorizationId = m.body.authorization_id as string;
-    mandate = JSON.parse(Buffer.from(m.body.blob as string, 'base64url').toString('utf8')).payload;
+    };
+    const g = await grantAndRequest({ chainDids: [P.rootDid!, Q.root.did] });
+    expect(g.grant.status, show(g.grant)).toBe(201);
+    const m = g.mandate;
+    expect(m.status, show(m)).toBeLessThan(300);
+    authorizationId = m.json.authorization_id as string;
+    mandate = JSON.parse(Buffer.from(m.json.blob as string, 'base64url').toString('utf8')).payload;
     expect(mandate.version).toBe('0.8');
+    expect(mandate.mandate_id).toBe(g.mandateId);
     expect(mandate.mandate_owners[0].did).toBe(P.rootDid);
-    expect([...mandate.above_cap_approvers].sort()).toEqual([Q.root.did, L.did].sort());
+    expect([...mandate.above_cap_approvers]).toEqual([Q.root.did]);
   }, 900_000);
 
   afterAll(async () => {
@@ -432,7 +483,7 @@ describe.skipIf(!available)('step 8: encrypt to every device, re-wrap, card cont
     const content = p1.sealed.content;
     // One wrap per active device of each reader with a chain; nothing for the reader without one.
     expect(Object.keys(content.device_keys).sort()).toEqual([devA, devB.record.key_id, Q.dev.record.key_id].sort());
-    expect(content.readers.sort()).toEqual([P.rootDid, Q.root.did, L.did].sort());
+    expect(content.readers.sort()).toEqual([P.rootDid, Q.root.did].sort());
     expect(content.unreadable).toEqual([]);
     expect(p1.sealed.unreadableReaders).toEqual([]);
     expect(typeof content.context).toBe('string');
@@ -475,18 +526,25 @@ describe.skipIf(!available)('step 8: encrypt to every device, re-wrap, card cont
   }, 120_000);
 
   // ── 2 ──────────────────────────────────────────────────────────────────────
-  it('a reader without a chain, on a gateway without device keys, still opens the proposal from the new gateway through the legacy wrap', async () => {
-    // No device wrap for L; the legacy wrap by account id and by DID is there.
-    expect(Object.keys(p1.sealed.content.device_keys)).not.toContain(L.did);
-    const view = await as('GET', `/api/proposals/${p1.id}`, { apiKey: L.apiKey });
-    expect(view.status, show(view)).toBe(200);
-    const c = view.json.proposal.content;
-    expect(Object.keys(c.keys)).toContain(L.id);
-    expect(Object.keys(c.encrypted_keys)).toContain(L.did);
-    // What a released gateway sends: ciphertext, keys, fingerprint. Nothing about devices.
-    const opened = await internal(Lgw, '/decrypt-content', { ciphertext: c.ciphertext, keys: c.keys, hash: c.hash });
-    expect(opened.status, show(opened)).toBe(200);
-    expect(JSON.parse(opened.json.plaintext)).toEqual(p1.args);
+  it('a mandate naming an approver without a device chain is refused (no mixing, plan 9.2)', async () => {
+    // L becomes an approver of the team's charge settings; L has no chain.
+    const mixed = await as('PUT', `/api/groups/${teamId}/profile-config/${encodeURIComponent(CHARGE)}`, {
+      apiKey: P.apiKey,
+      body: { grantors: [P.id], approvers: [Q.id, L.id], approvals: 1, caps: { amount_max: { value: 100, kind: 'approval' } } },
+    });
+    expect(mixed.status, show(mixed)).toBeLessThan(300);
+    try {
+      const r = await grantAndRequest({ chainDids: [P.rootDid!, Q.root.did], approvers: [Q.root.did, L.did], grantFirst: false });
+      expect(r.mandate.status, show(r.mandate)).toBe(409);
+      expect(code(r.mandate)).toBe('MIXED_CHAIN_ACCOUNTS');
+      expect(r.mandate.json?.authorization_id).toBeUndefined();
+    } finally {
+      const back = await as('PUT', `/api/groups/${teamId}/profile-config/${encodeURIComponent(CHARGE)}`, {
+        apiKey: P.apiKey,
+        body: { grantors: [P.id], approvers: [Q.id], approvals: 1, caps: { amount_max: { value: 100, kind: 'approval' } } },
+      });
+      expect(back.status, show(back)).toBeLessThan(300);
+    }
   }, 60_000);
 
   // ── 3 ──────────────────────────────────────────────────────────────────────
