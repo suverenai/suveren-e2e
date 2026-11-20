@@ -277,8 +277,14 @@ export async function newJoiner(s: PhoneStack, label: string): Promise<Joiner> {
   const run: Joiner['run'] = async (o = {}) => {
     const hello = await waitForMessage(s, pairing, 'hello');
     const head = hello.body.head as { seq: number; hash: string };
-    const make = (rec: DeviceRecord) => buildEntry({ root_did: hello.body.root_did as string, seq: head.seq + 1, prev: head.hash, op: 'add', created_at: nowSec(), signer: hello.body.key_id as string, device: rec });
-    const entry = make(device.record);
+    // As the real gateway joiner does (control-plane device-pairing.ts): a device that brings a check key proves it in its own
+    // entry (`checks`), because the chain check refuses an add of a device with a check and no proof of it (NO_POSSESSION).
+    const make = async (rec: DeviceRecord): Promise<ChainEntry> => {
+      const e = buildEntry({ root_did: hello.body.root_did as string, seq: head.seq + 1, prev: head.hash, op: 'add', created_at: nowSec(), signer: hello.body.key_id as string, device: rec });
+      if (rec.check) e.checks = [{ by: rec.key_id, check: await checkOver(device.checkPriv, await entryHash(e)) }];
+      return e;
+    };
+    const entry = await make(device.record);
     const sig = b64uDecode((await signEntry(entry, device.record.key_id, device.seed)).sig);
     const rJ = randomBytes(32);
     const c = await pairingCommitment(entry, sig, rJ);
@@ -292,7 +298,7 @@ export async function newJoiner(s: PhoneStack, label: string): Promise<Joiner> {
     let openSig = sig;
     if (o.openOtherEntry) {
       // Same device, same keys, another label: a perfectly signed entry, but not the one the commitment names.
-      opened = make({ ...device.record, label: `${device.record.label} (other)` });
+      opened = await make({ ...device.record, label: `${device.record.label} (other)` });
       openSig = b64uDecode((await signEntry(opened, device.record.key_id, device.seed)).sig);
     }
     await postMessage(s, pairing, 'open', { entry: opened, sig: b64uEncode(openSig), r_j: b64uEncode(rJ) });
