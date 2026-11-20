@@ -107,14 +107,13 @@ export default async function globalSetup(): Promise<() => Promise<void>> {
   const pm = new ProcessManager();
   const asProc = await pm.startSP(AS_PORT, { name: 'as-phone', env: { SUVEREN_DEVICE_KEYS: 'on', SUVEREN_APP_ORIGIN: appUrl } });
   // The Authority Server's console mailer prints every email (EMAIL_TRANSPORT unset: lib/email ConsoleProvider). The cases run
-  // in other processes, so the lines are also written to a file they read: the recovery hand-off's link reaches the "phone"
-  // the way an email would, by its text (stage D3, replacing the recovery code). Only lines that start with "[Email]".
+  // in other processes, so its output is also written to a file they read: the recovery hand-off's link reaches the "phone"
+  // the way an email would, by its text (stage D3, replacing the recovery code). The whole output, as it comes: the mailer
+  // prints an email's body as ONE multi-line log, so only its first line starts with "[Email]" and the link is on a later one
+  // (a line filter dropped it: run 44710456133); a chunk can also end in the middle of a line.
   const asLog = join(outDir, '..', `as-phone-mail-${process.pid}.log`);
   writeFileSync(asLog, '');
-  const keepMail = (chunk: Buffer) => {
-    for (const line of chunk.toString().split('\n')) if (line.startsWith('[Email]')) appendFileSync(asLog, `${line}\n`);
-  };
-  asProc.stdout?.on('data', keepMail);
+  asProc.stdout?.on('data', (chunk: Buffer) => appendFileSync(asLog, chunk));
   const tlsDir = mkdtempSync(join(tmpdir(), 'hap-e2e-approve-tls-'));
   execFileSync('openssl', [
     'req', '-x509', '-newkey', 'ec', '-pkeyopt', 'ec_paramgen_curve:prime256v1', '-nodes', '-days', '1',
