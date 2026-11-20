@@ -9,8 +9,12 @@
  * Screenshots of both cards are attached to the report.
  */
 import { randomUUID } from 'node:crypto';
+import { join, dirname } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import type { APIRequestContext, Page, TestInfo } from '@playwright/test';
 import { test, expect, SP_URL, signInToGateway, handleOnboarding } from './fixtures';
+
+const SHOTS = join(dirname(fileURLToPath(import.meta.url)), '..', 'test-results', 'admin-enable-hint');
 
 interface AsUser { id: string; apiKey: string; name: string }
 
@@ -46,8 +50,10 @@ async function openPicker(page: Page): Promise<void> {
   await page.waitForSelector('.profile-grid', { timeout: 10_000 });
 }
 
+/** Saved under test-results/ (kept with the run's logs) and attached to the report. */
 async function shot(page: Page, testInfo: TestInfo, name: string): Promise<void> {
-  await testInfo.attach(name, { body: await page.screenshot({ fullPage: true }), contentType: 'image/png' });
+  const body = await page.screenshot({ path: join(SHOTS, `${name}.png`), fullPage: true });
+  await testInfo.attach(name, { body, contentType: 'image/png' });
 }
 
 test.describe('team admin: a not-enabled area says how to enable it', () => {
