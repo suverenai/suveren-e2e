@@ -126,6 +126,16 @@ test('a computer without Touch ID: the give page sends the mandate to the phone,
   await page.locator('#unlock-password').fill(PASSWORD);
   await page.locator('#unlock-password').press('Enter');
   await expect(page.locator('.page-title').first()).toBeVisible({ timeout: 20_000 });
+
+  // DEC-96: Devices is its own menu entry (device keys on), and it opens the Devices page with this computer and the phone.
+  const devicesLink = page.locator('nav').getByRole('link', { name: 'Devices', exact: true }).first();
+  await expect(devicesLink).toBeVisible();
+  await page.screenshot({ path: test.info().outputPath('dec96-5-gateway-menu.png'), fullPage: true });
+  await devicesLink.click();
+  await page.waitForURL((u) => u.pathname === '/devices', { timeout: 10_000 });
+  await expect(page.getByText('My phone', { exact: true }).first()).toBeVisible({ timeout: 15_000 });
+  await page.screenshot({ path: test.info().outputPath('dec96-6-gateway-devices.png'), fullPage: true });
+
   const groups = await (await fetch(`${gw}/api/groups`, { headers })).json() as { groups?: Array<{ id: string; name?: string; isPersonal?: boolean }> };
   const personal = (groups.groups ?? []).find((g) => g.isPersonal);
   expect(personal, JSON.stringify(groups)).toBeTruthy();

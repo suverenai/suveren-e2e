@@ -277,6 +277,10 @@ test.describe('a computer admits the phone', () => {
     const answered = await computerAnswersJoin(stack, comp, pairing);
     expect(answered.matches, 'the open must match the commit').toBe(true);
     await expect(phone.page.getByTestId('compare-code')).toHaveText(answered.code, { timeout: 20_000 });
+    // DEC-96: the phone says first that the next step is on the computer, and names it.
+    await expect(phone.page.getByRole('heading', { name: 'Now on your computer' })).toBeVisible();
+    await expect(phone.page.getByTestId('compare-next')).toHaveText('On Office computer, tap this number.');
+    await phone.page.screenshot({ path: test.info().outputPath('dec96-1-phone-compare.png'), fullPage: true });
 
     // 3. The mailbox rows hold neither the secret nor the code.
     const row = (await mailboxRow(db, pairing))!;
@@ -299,12 +303,17 @@ test.describe('a computer admits the phone', () => {
     expect((await chainOf(stack, comp, comp.root.did)).entries).toHaveLength(2);
 
     // 6. The phone's own screens: the same identity code, both devices.
-    // Since D3 the join's done screen offers to replace the recovery code first (DEC-85: an offer with "Later").
-    await phone.page.getByRole('button', { name: 'Later' }).click();
+    // DEC-96 (revises DEC-85): the join's done screen offers nothing about the recovery code, only Continue.
+    await expect(phone.page.getByTestId('rotate-offer')).toHaveCount(0);
+    await phone.page.screenshot({ path: test.info().outputPath('dec96-2-phone-joined.png'), fullPage: true });
+    await phone.page.getByRole('button', { name: 'Continue' }).click();
     await phone.page.getByRole('button', { name: 'Open with a touch' }).click();
     await phone.page.getByRole('tab', { name: 'Devices', exact: true }).click();
     await expect(phone.page.getByTestId('identity-code')).toHaveText(await identityCodeOf(comp.root.did), { timeout: 15_000 });
     expect(await deviceNames(phone.page)).toEqual(['Office computer', 'My iPhone']);
+    // DEC-96: replacing the recovery code is a plain section under Devices, with the one-sentence why.
+    await expect(phone.page.getByTestId('rotate-section')).toContainText('Replace it if anyone could have seen your screen when you set up.');
+    await phone.page.screenshot({ path: test.info().outputPath('dec96-3-phone-devices.png'), fullPage: true });
     await phone.context.close();
   });
 
@@ -683,6 +692,9 @@ test.describe('the phone admits a computer', () => {
     const choices = await phone.page.getByTestId('code-choice').allTextContents();
     expect(choices).toHaveLength(3);
     expect(choices).toContain(shown.code);
+    // DEC-96: the phone says the computer is ready, above the three numbers.
+    await expect(phone.page.getByTestId('other-ready')).toHaveText('Your computer is ready. Tap the number it shows.');
+    await phone.page.screenshot({ path: test.info().outputPath('dec96-4-phone-admit-choose.png'), fullPage: true });
 
     // The mailbox rows hold neither the secret nor the code.
     const row = (await mailboxRow(db, joiner.pairing))!;
