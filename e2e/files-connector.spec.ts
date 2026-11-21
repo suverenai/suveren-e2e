@@ -23,6 +23,7 @@ import {
 } from './fixtures';
 import { hashGateContent, computeBoundsHash, computeScopeHash } from '../src/helpers/crypto.js';
 import { mp4, pdfAnnotated, png, sha256 } from '../src/helpers/file-fixtures.js';
+import { typeTitle } from '../src/helpers/give-page';
 
 const ROOT = join(import.meta.dirname, '..', '..');
 const PROFILES_DIR = join(ROOT, 'hap-profiles');
@@ -95,7 +96,7 @@ test.describe.serial('Files connector: selector and approval card', () => {
     await page.locator('button:has-text("Continue to Review")').click();
     await page.waitForURL((url) => url.toString().includes('/mandates/new/sign'), { timeout: 10_000 });
     await page.locator('button', { hasText: 'Review Each Action' }).click();
-    await page.locator('input[placeholder*="e.g."]').fill(title);
+    await typeTitle(page, title);
     if (await page.getByTestId('duration-needed').isVisible().catch(() => false)) await page.locator('button', { hasText: /^24 hours$/ }).click();
     await page.locator('button', { hasText: /^Sign mandate/ }).last().click();
     await page.waitForURL((url) => url.toString().includes('/mandates') && !url.toString().includes('/new/'), { timeout: 15_000 });

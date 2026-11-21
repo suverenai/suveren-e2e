@@ -16,6 +16,7 @@ import { resolveAsDir, resolveNextBin } from '../src/helpers/as-dir';
 import { localProfilesForAs } from '../src/helpers/local-profiles';
 import { profileHashFor } from '../src/helpers/profiles';
 import { assertPortFree, stopTracked, trackProcess } from '../src/helpers/process-registry';
+import { typeTitle } from '../src/helpers/give-page';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -706,7 +707,7 @@ export async function createAuthorization(
   }
 
   // Fill title
-  await page.locator('input[placeholder*="e.g."]').fill(opts.title);
+  await typeTitle(page, opts.title);
 
   // The form makes the person choose how long; these tests take the shortest common choice.
   if (await page.getByTestId('duration-needed').isVisible().catch(() => false)) await page.locator('button', { hasText: /^24 hours$/ }).click();

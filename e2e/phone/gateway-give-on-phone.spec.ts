@@ -20,6 +20,7 @@
  * live in the gateway's own list, which the MCP server fills only with mandates whose owner's grant it verified.
  */
 import { test, expect, type Page } from '@playwright/test';
+import { titleField, typeTitle } from '../../src/helpers/give-page';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { SSEClientTransport } from '@modelcontextprotocol/sdk/client/sse.js';
 import type pg from 'pg';
@@ -222,7 +223,7 @@ test('a computer without Touch ID: the give page sends the mandate to the phone,
   // In-app navigation, not a reload: the page session's header token lives in the page's memory, so a reload locks it again.
   await page.evaluate(() => { window.history.pushState({}, '', '/mandates/new/sign'); window.dispatchEvent(new PopStateEvent('popstate')); });
   await page.waitForURL((u) => u.toString().includes('/mandates/new/sign'), { timeout: 10_000 });
-  await page.locator('input[placeholder*="e.g."]').fill('Quotes');
+  await typeTitle(page, 'Quotes');
   if (await page.getByTestId('duration-needed').isVisible().catch(() => false)) await page.locator('button', { hasText: /^24 hours$/ }).click();
 
   // This computer cannot give it: the footer offers the phone.
@@ -284,7 +285,7 @@ test('a computer without Touch ID: the give page sends the mandate to the phone,
     gate: { bounds: { profile: delegation, read_access: 'unlimited', brief_daily_max: 5, mandate_daily_max: 30 }, context: { allowed_profiles: 'records', allowed_modes: 'review' }, gateContent: { intent: 'The AI prepares the mandates its work needs.' }, ttlConfig: { max: 86400 } },
   });
   await goInPage(page, '/mandates/new/sign');
-  await page.locator('input[placeholder*="e.g."]').fill('Setup');
+  await typeTitle(page, 'Setup');
   if (await page.getByTestId('duration-needed').isVisible().catch(() => false)) await page.locator('button', { hasText: /^24 hours$/ }).click();
   await expect(page.getByTestId('give-phone-send')).toBeEnabled({ timeout: 30_000 });
   await page.getByTestId('give-phone-send').click();
@@ -359,7 +360,7 @@ test('a computer without Touch ID: the give page sends the mandate to the phone,
     await expect(card.getByTestId('give-phone-waiting')).toBeVisible({ timeout: 60_000 });
     await shot('s2-card-waiting-for-phone');
     expect(page.url(), 'the give runs on the card, no navigation').toBe(urlBefore);
-    await expect(page.locator('input[placeholder*="e.g."]'), 'no edit form').toHaveCount(0);
+    await expect(titleField(page), 'no edit form').toHaveCount(0);
 
     // 5. The phone grants exactly what the AI proposed and the card showed.
     const opened2 = await phoneGrantsNext(p, sb.recoveryCode, phone, read.priv, granted, 'the AI-proposed give');

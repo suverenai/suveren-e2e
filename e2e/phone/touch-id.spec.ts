@@ -17,6 +17,7 @@
  *   S6 a new page session (sign-out) is opened with Touch ID; the AI continues under its mandates
  */
 import { test, expect, type Page } from '@playwright/test';
+import { titleField, typeTitle } from '../../src/helpers/give-page';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { SSEClientTransport } from '@modelcontextprotocol/sdk/client/sse.js';
 import type pg from 'pg';
@@ -125,7 +126,7 @@ test('Touch ID on the gateway page: set-up, unlock, give, the card in place, an 
     gate: { bounds: { profile: delegation, read_access: 'unlimited', brief_daily_max: 5, mandate_daily_max: 30 }, context: { allowed_profiles: 'records', allowed_modes: 'review' }, gateContent: { intent: 'The AI prepares the mandates its work needs.' }, ttlConfig: { max: 86400 } },
   });
   await goInPage(page, '/mandates/new/sign');
-  await page.locator('input[placeholder*="e.g."]').fill('Setup');
+  await typeTitle(page, 'Setup');
   if (await page.getByTestId('duration-needed').isVisible().catch(() => false)) await page.locator('button', { hasText: /^24 hours$/ }).click();
   const giveTouch = page.getByTestId('give-touch-button');
   await expect(giveTouch).toBeEnabled({ timeout: 30_000 });
