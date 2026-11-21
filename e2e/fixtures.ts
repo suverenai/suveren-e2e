@@ -458,7 +458,8 @@ export async function signInToGateway(page: Page, apiKey: string): Promise<void>
       throw new Error(`signing the previous account out failed: ${out.status()} ${await out.text()}`);
     }
   }
-  await page.goto(`${GW_URL}/login`, { waitUntil: 'networkidle' });
+  // `?account-key`: the ordinary sign-in, never moved on to the one-time start page of a new gateway (DEC-93).
+  await page.goto(`${GW_URL}/login?account-key`, { waitUntil: 'networkidle' });
   await page.locator('input[type="password"]').waitFor({ state: 'visible', timeout: 10_000 });
   await page.locator('input[type="password"]').fill(apiKey);
 
@@ -503,7 +504,8 @@ export async function signInToGateway(page: Page, apiKey: string): Promise<void>
       await page.waitForTimeout(61_000);
       // Start from a fresh login page: the old "Too many login attempts"
       // message would otherwise still be visible and be read as a new 429.
-      await page.goto(`${GW_URL}/login`, { waitUntil: 'networkidle' });
+      // `?account-key`: the ordinary sign-in, never moved on to the one-time start page of a new gateway (DEC-93).
+  await page.goto(`${GW_URL}/login?account-key`, { waitUntil: 'networkidle' });
       await page.locator('input[type="password"]').fill(apiKey);
       await signInBtn.click();
       continue;
