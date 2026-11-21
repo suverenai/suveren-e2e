@@ -14,10 +14,6 @@ name: Windows journeys (device keys on)
 # Manual only for now: whether it joins the nightly is the maintainer's call.
 
 on:
-  # TEMPORARY, remove before merging: a workflow that is not on the default branch cannot be dispatched, so this
-  # branch runs it on push, against the Windows helper branch and the Authority Server integration branch.
-  push:
-    branches: ['test/windows-ci']
   workflow_dispatch:
     inputs:
       gateway_ref:
@@ -30,7 +26,7 @@ on:
         default: 'main'
 
 concurrency:
-  group: e2e-windows-${{ github.ref }}-${{ github.event.inputs.gateway_ref || (github.ref_name == 'test/windows-ci' && 'feat/windows-hello-helper') || 'main' }}-${{ github.event.inputs.as_ref || (github.ref_name == 'test/windows-ci' && 'int/batch8') || 'main' }}
+  group: e2e-windows-${{ github.ref }}-${{ github.event.inputs.gateway_ref || 'main' }}-${{ github.event.inputs.as_ref || 'main' }}
   cancel-in-progress: true
 
 jobs:
@@ -71,14 +67,14 @@ jobs:
         with:
           repository: suverenai/suveren-gateway
           path: suveren-gateway
-          ref: ${{ github.event.inputs.gateway_ref || (github.ref_name == 'test/windows-ci' && 'feat/windows-hello-helper') || 'main' }}
+          ref: ${{ github.event.inputs.gateway_ref || 'main' }}
 
       - uses: actions/checkout@v6
         with:
           repository: suverenai/suveren-as
           path: suveren-as
           token: ${{ secrets.HAP_CI_TOKEN }}
-          ref: ${{ github.event.inputs.as_ref || (github.ref_name == 'test/windows-ci' && 'int/batch8') || 'main' }}
+          ref: ${{ github.event.inputs.as_ref || 'main' }}
 
       - uses: actions/checkout@v6
         with:
