@@ -169,10 +169,12 @@ test('Touch ID on the gateway page: set-up, unlock, give, the card in place, an 
     await shot('t5-card-mandate');
     const urlBefore = page.url();
     await card.getByTestId('btn-approve').click();
-    // After the give the card shows "Signed" and the panel moves on (the proposal is closed as replaced): wait for either.
-    await expect.poll(async () => (await card.getByTestId('give-touch-given').isVisible().catch(() => false)) || !(await card.isVisible().catch(() => false)), { timeout: 60_000 }).toBe(true);
+    // After the give the card shows the gateway's stamp ("Signed") and stays until the person presses Close (DEC-86/88, like any decision).
+    await expect(card.getByTestId('give-touch-given')).toBeVisible({ timeout: 60_000 });
+    await expect(card.getByTestId('give-touch-given').getByText('Signed')).toBeVisible();
     await shot('t6-card-given-with-touch');
     expect(page.url(), 'the give runs on the card').toBe(urlBefore);
+    await card.getByTestId('give-touch-close').click();
     await until('the Records mandate is live for the AI', async () => (/records@/.test((await callTool(agent, 'list-authorizations', {})).text) ? true : undefined), 90_000);
 
     // S4: the AI writes a note (review mode); the person approves on the card (a click, no touch); the note exists.
