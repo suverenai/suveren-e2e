@@ -24,6 +24,7 @@ export default defineConfig({
       'test/profile-conformance.test.ts',
       'test/conformance-map.test.ts',
       'test/as-dir.test.ts',
+      'test/vies-checked-day.test.ts',
     ],
     testTimeout: 30_000,
     sequence: { concurrent: false },

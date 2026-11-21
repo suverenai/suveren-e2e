@@ -12,13 +12,15 @@
  *   - The phone joins the chain by a root-signed `add` written straight into the throwaway database (the same seam as
  *     test/stage-c-every-device.test.ts): the real path is the recovery code plus an emailed link, which a gateway without a
  *     check key needs; the entry itself is a valid one (root, the phone's signature and its passkey check over the entry hash).
- *   - The give page is opened with the wizard's hand-over (sessionStorage `agentAuth` / `agentGate`) set by the test; the wizard
- *     itself is covered by the default browser suite.
+ *   - The give page is opened with the wizard's hand-over (sessionStorage `agentAuth` / `agentGate`) set by the test, by an
+ *     in-app navigation (a reload would lock the page again: its session token lives in the page); the wizard itself is
+ *     covered by the default browser suite.
  *
  * Not covered: a connector's tool call under the phone-given mandate (this gateway runs no connector); the mandate is shown as
  * live in the gateway's own list, which the MCP server fills only with mandates whose owner's grant it verified.
  */
 import { test, expect, type Page } from '@playwright/test';
+import { titleField, typeTitle } from '../../src/helpers/give-page';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { SSEClientTransport } from '@modelcontextprotocol/sdk/client/sse.js';
 import type pg from 'pg';
@@ -183,6 +185,29 @@ test('a computer without Touch ID: the give page sends the mandate to the phone,
   await page.locator('#unlock-password').fill(PASSWORD);
   await page.locator('#unlock-password').press('Enter');
   await expect(page.locator('.page-title').first()).toBeVisible({ timeout: 20_000 });
+
+  // DEC-95: a reload ends the page session (the header token lives only in the page's memory). The gateway itself keeps
+  // running, so the unlock screen must say that, never "the computer restarted".
+  await page.reload();
+  await expect(page.locator('#unlock-password')).toBeVisible({ timeout: 20_000 });
+  await expect(page.getByText('The gateway is still running and your AI can keep working. Unlock to use this page again.')).toBeVisible({ timeout: 10_000 });
+  await expect(page.getByText('The computer restarted')).toHaveCount(0);
+  await page.screenshot({ path: test.info().outputPath('unlock-after-reload.png'), fullPage: true });
+  await test.info().attach('unlock-after-reload', { path: test.info().outputPath('unlock-after-reload.png'), contentType: 'image/png' });
+  await page.locator('#unlock-password').fill(PASSWORD);
+  await page.locator('#unlock-password').press('Enter');
+  await expect(page.locator('.page-title').first()).toBeVisible({ timeout: 20_000 });
+
+  // DEC-96: Devices is its own menu entry (device keys on), and it opens the Devices page with this computer and the phone.
+  // The sidebar's link (the mobile menu holds a hidden copy of the same link).
+  const devicesLink = page.locator('a[href="/devices"]:visible').first();
+  await expect(devicesLink).toBeVisible();
+  await page.screenshot({ path: test.info().outputPath('dec96-5-gateway-menu.png'), fullPage: true });
+  await devicesLink.click();
+  await page.waitForURL((u) => u.pathname === '/devices', { timeout: 10_000 });
+  await expect(page.getByText('My phone', { exact: true }).first()).toBeVisible({ timeout: 15_000 });
+  await page.screenshot({ path: test.info().outputPath('dec96-6-gateway-devices.png'), fullPage: true });
+
   const groups = await (await fetch(`${gw}/api/groups`, { headers })).json() as { groups?: Array<{ id: string; name?: string; isPersonal?: boolean }> };
   const personal = (groups.groups ?? []).find((g) => g.isPersonal);
   expect(personal, JSON.stringify(groups)).toBeTruthy();
@@ -195,9 +220,10 @@ test('a computer without Touch ID: the give page sends the mandate to the phone,
     auth: { profileId, groupId: personal!.id, groupName: personal!.name ?? null, domain: 'owner', isPersonal: true },
     gate: { bounds, context: { currency: 'EUR' }, gateContent: { intent: 'Quotes wait two days.' }, ttlConfig: { max: 86400 } },
   });
-  // In-page: a reload drops the page session (it lives in the page), and the unlock screen would show.
-  await goInPage(page, "/mandates/new/sign");
-  await page.locator('input[placeholder*="e.g."]').fill('Quotes');
+  // In-app navigation, not a reload: the page session's header token lives in the page's memory, so a reload locks it again.
+  await page.evaluate(() => { window.history.pushState({}, '', '/mandates/new/sign'); window.dispatchEvent(new PopStateEvent('popstate')); });
+  await page.waitForURL((u) => u.toString().includes('/mandates/new/sign'), { timeout: 10_000 });
+  await typeTitle(page, 'Quotes');
   if (await page.getByTestId('duration-needed').isVisible().catch(() => false)) await page.locator('button', { hasText: /^24 hours$/ }).click();
 
   // This computer cannot give it: the footer offers the phone.
@@ -238,13 +264,15 @@ test('a computer without Touch ID: the give page sends the mandate to the phone,
   expect(stored.status, show(stored)).toBe(201);
 
   // The page hears it: the gateway checked the phone's grant against its own chain and requested the mandate.
-  // One result screen after a give, on the phone path too (DEC-86/88, changed 2026-11-20): the gateway's stamp, then Close.
-  const stamp = page.getByTestId('give-touch-given');
-  await expect(stamp).toBeVisible({ timeout: 60_000 });
-  await expect(stamp.getByText('Signed')).toBeVisible();
-  await page.getByTestId('give-touch-close').click();
+  // The give page ends with the one shared result (whichever device gave it): "Signed", then Close to the mandate list.
+  await expect(page.getByTestId('give-done')).toBeVisible({ timeout: 60_000 });
+  await expect(page.getByTestId('give-done').getByText('Signed')).toBeVisible();
+  await page.getByTestId('give-done').getByTestId('give-touch-close').click();
   await page.waitForURL((u) => u.toString().includes('/mandates'), { timeout: 15_000 });
-  await expect(page.getByText('Quotes').first()).toBeVisible({ timeout: 30_000 });
+  // The list opens on THIS mandate: Close carries its authorization id, and the list marks that card. (The card shows
+  // the profile, not the title, so the title is no identity here.)
+  expect(new URL(page.url()).searchParams.get('highlight')).toBe(c.give.place.authorization_id);
+  await expect(page.locator('[data-testid="mandate-card"].card-highlight')).toHaveCount(1, { timeout: 30_000 });
 
   // ── An AI-PROPOSED mandate on the same gateway (found on the dev lane 2026-11-20: every one was refused at execution with
   // "nothing was approved under that fingerprint", because the executor's ticket_id was hashed into the approval fingerprint).
@@ -260,14 +288,16 @@ test('a computer without Touch ID: the give page sends the mandate to the phone,
     gate: { bounds: { profile: delegation, read_access: 'unlimited', brief_daily_max: 5, mandate_daily_max: 30 }, context: { allowed_profiles: 'records', allowed_modes: 'review' }, gateContent: { intent: 'The AI prepares the mandates its work needs.' }, ttlConfig: { max: 86400 } },
   });
   await goInPage(page, '/mandates/new/sign');
-  await page.locator('input[placeholder*="e.g."]').fill('Setup');
+  await typeTitle(page, 'Setup');
   if (await page.getByTestId('duration-needed').isVisible().catch(() => false)) await page.locator('button', { hasText: /^24 hours$/ }).click();
   await expect(page.getByTestId('give-phone-send')).toBeEnabled({ timeout: 30_000 });
   await page.getByTestId('give-phone-send').click();
   await expect(page.getByTestId('give-phone-waiting')).toBeVisible({ timeout: 30_000 });
   await phoneGrantsNext(p, sb.recoveryCode, phone, read.priv, granted, 'the Setup give');
-  await expect(page.getByTestId('give-touch-given')).toBeVisible({ timeout: 60_000 });
-  await page.getByTestId('give-touch-close').click();
+  // The give page ends with the one shared result (whichever device gave it): "Signed", then Close to the mandate list.
+  await expect(page.getByTestId('give-done')).toBeVisible({ timeout: 60_000 });
+  await expect(page.getByTestId('give-done').getByText('Signed')).toBeVisible();
+  await page.getByTestId('give-done').getByTestId('give-touch-close').click();
 
   // 2. The AI, over the gateway's own MCP endpoint, proposes a Records mandate.
   const agent = new Client({ name: 'ai-proposed-mandate', version: '1.0.0' }, { capabilities: {} });
@@ -279,16 +309,20 @@ test('a computer without Touch ID: the give page sends the mandate to the phone,
     }, 60_000);
     const cardOf = (id: string) => page.locator(`[data-testid="approval-card"][data-proposal-id="${id}"]`);
     const openCard = async (id: string) => {
-      const card = cardOf(id);
-      // The panel opens by itself when the setting is on; otherwise the card is on the Approvals page.
-      if (!(await card.isVisible({ timeout: 15_000 }).catch(() => false))) {
+      // The panel may open by itself and slide over the list; the same card also exists hidden in the list behind it.
+      const card = page.locator(`[data-testid="approval-card"][data-proposal-id="${id}"]`).filter({ visible: true });
+      for (let k = 0; k < 20 && !(await card.isVisible({ timeout: 2_000 }).catch(() => false)); k++) {
+        const next = page.getByTestId('approval-next');
+        if (await next.isVisible().catch(() => false)) {
+          if (await next.isEnabled().catch(() => false)) { await next.click(); continue; }
+          await page.getByTestId('approval-later').click().catch(() => undefined);
+        }
         await goInPage(page, '/approvals');
-        // The Approvals page lists it as a row; the person opens the row to see the card.
-        const row = page.locator(`[data-testid="approval-row"][data-proposal-id="${id}"]`).first();
-        await expect(row).toBeVisible({ timeout: 60_000 });
-        if (!(await card.isVisible().catch(() => false))) await row.locator("button.av3-row-head").click();
+        await page.waitForTimeout(1_500);
+        const row = page.locator(`[data-testid="approval-row"][data-proposal-id="${id}"] button`).first();
+        if (!(await card.isVisible().catch(() => false)) && (await row.isVisible({ timeout: 3_000 }).catch(() => false))) await row.click({ timeout: 5_000 }).catch(() => undefined);
       }
-      await expect(card).toBeVisible({ timeout: 60_000 });
+      await expect(card).toBeVisible({ timeout: 30_000 });
       return card;
     };
 
@@ -353,7 +387,7 @@ test('a computer without Touch ID: the give page sends the mandate to the phone,
     await expect(card.getByTestId('give-phone-waiting')).toBeVisible({ timeout: 60_000 });
     await shot('s2-card-waiting-for-phone');
     expect(page.url(), 'the give runs on the card, no navigation').toBe(urlBefore);
-    await expect(page.locator('input[placeholder*="e.g."]'), 'no edit form').toHaveCount(0);
+    await expect(titleField(page), 'no edit form').toHaveCount(0);
 
     // 5. The phone grants exactly what the AI proposed and the card showed.
     const opened2 = await phoneGrantsNext(p, sb.recoveryCode, phone, read.priv, granted, 'the AI-proposed give');

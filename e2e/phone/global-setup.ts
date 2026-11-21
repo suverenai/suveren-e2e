@@ -39,6 +39,9 @@ const LOOKALIKE_PORT = Number(process.env.HAP_E2E_PHONE_LOOKALIKE_PORT ?? 19942)
 // against the phone ("Give on your phone", DEC-90). The default browser suite's gateway is not touched.
 const GW_CP_PORT = Number(process.env.HAP_E2E_PHONE_GW_CP_PORT ?? 19943);
 const GW_MCP_PORT = Number(process.env.HAP_E2E_PHONE_GW_MCP_PORT ?? 19944);
+// A second chain gateway: a gateway is claimed by the first person who sets it up, so a spec that needs its own gets this one.
+const GW2_CP_PORT = Number(process.env.HAP_E2E_PHONE_GW2_CP_PORT ?? 19945);
+const GW2_MCP_PORT = Number(process.env.HAP_E2E_PHONE_GW2_MCP_PORT ?? 19946);
 
 const MIME: Record<string, string> = {
   '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.css': 'text/css; charset=utf-8',
@@ -110,7 +113,9 @@ export default async function globalSetup(): Promise<() => Promise<void>> {
   });
 
   const pm = new ProcessManager();
-  const asProc = await pm.startSP(AS_PORT, { name: 'as-phone', env: { SUVEREN_DEVICE_KEYS: 'on', SUVEREN_APP_ORIGIN: appUrl } });
+  // The dashboard's own address is the Authority Server's (step 17: a dashboard passkey is made there); http on localhost needs the
+  // explicit test opt-in of a built AS (never honoured on Vercel production).
+  const asProc = await pm.startSP(AS_PORT, { name: 'as-phone', env: { SUVEREN_DEVICE_KEYS: 'on', SUVEREN_APP_ORIGIN: appUrl, SUVEREN_DASHBOARD_ORIGIN: asUrl, SUVEREN_ALLOW_HTTP_LOCAL_ORIGINS: '1' } });
   // The Authority Server's console mailer prints every email (EMAIL_TRANSPORT unset: lib/email ConsoleProvider). The cases run
   // in other processes, so its output is also written to a file they read: the recovery hand-off's link reaches the "phone"
   // the way an email would, by its text (stage D3, replacing the recovery code). The whole output, as it comes: the mailer
@@ -133,16 +138,29 @@ export default async function globalSetup(): Promise<() => Promise<void>> {
   // The chain gateway: only when the gateway checkout is built (the CI job builds it for the main suite first). Without it, the
   // cases that need it skip with that reason; in CI (strict) that is a failure, not a skip.
   let gwDir: string | null = null;
+  let gw2Dir: string | null = null;
   const gwSecret = newSecret();
   if (existsSync(join(GW_DIR, 'apps', 'control-plane', 'dist', 'index.mjs')) && existsSync(join(GW_DIR, 'apps', 'mcp-server', 'dist', 'http.mjs'))) {
     gwDir = mkdtempSync(join(tmpdir(), 'hap-e2e-phone-gw-'));
     const stack: StackOptions = {
       dataDir: gwDir, ports: { cp: GW_CP_PORT, mcp: GW_MCP_PORT }, secret: gwSecret, asUrl,
-      extraEnv: { SUVEREN_DEVICE_KEYS: 'on', SUVEREN_DISABLE_AUTO_INTEGRATIONS: '1' },
+      extraEnv: {
+        SUVEREN_DEVICE_KEYS: 'on', SUVEREN_DISABLE_AUTO_INTEGRATIONS: '1',
+        // The macOS job only (touch-id.spec.ts): the unlock helper's DEBUG build with its software backend, so the Touch ID
+        // path runs in a real browser on a runner with no Secure Enclave (DESIGN.md section 9; never shipped).
+        ...(process.env.HAP_E2E_HELPER_APP ? { SUVEREN_HELPER_APP: process.env.HAP_E2E_HELPER_APP, SUVEREN_HELPER_ARGS: '--backend software --allow-any-caller' } : {}),
+      },
     };
     await startControlPlane(pm, stack, 'gw-phone-cp');
     await startMcpServer(pm, stack, 'gw-phone-mcp');
     process.env.HAP_E2E_PHONE_GW_URL = `http://localhost:${GW_CP_PORT}`;
+    process.env.HAP_E2E_PHONE_GW_SECRET = gwSecret;
+    process.env.HAP_E2E_PHONE_GW_DATA_DIR = gwDir;
+    gw2Dir = mkdtempSync(join(tmpdir(), 'hap-e2e-phone-gw2-'));
+    const stack2: StackOptions = { ...stack, dataDir: gw2Dir, ports: { cp: GW2_CP_PORT, mcp: GW2_MCP_PORT }, secret: newSecret() };
+    await startControlPlane(pm, stack2, 'gw2-phone-cp');
+    await startMcpServer(pm, stack2, 'gw2-phone-mcp');
+    process.env.HAP_E2E_PHONE_GW2_URL = `http://localhost:${GW2_CP_PORT}`;
     delete process.env.HAP_E2E_PHONE_GW_UNAVAILABLE;
   } else {
     const reason = `the gateway at ${GW_DIR} is not built (apps/control-plane/dist, apps/mcp-server/dist)`;
@@ -167,6 +185,7 @@ export default async function globalSetup(): Promise<() => Promise<void>> {
     }
     await pm.killAll();
     if (gwDir) rmSync(gwDir, { recursive: true, force: true });
+    if (gw2Dir) rmSync(gw2Dir, { recursive: true, force: true });
     rmSync(outDir, { recursive: true, force: true });
     rmSync(asLog, { force: true });
   };

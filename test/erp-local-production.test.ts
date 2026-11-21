@@ -58,6 +58,7 @@ import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js'
 
 import { COMPANY, ErpLocalStack, ERP_MANIFEST_PATH, P, TODAY_VIENNA, proposalIdOf, resultJson, type CallResult } from '../src/helpers/erp-local-stack.js';
 import { ViesStub } from '../src/helpers/vies-stub.js';
+import { viesCheckedDay } from '../src/helpers/vies-day.js';
 import { PROFILES_DIR } from '../src/helpers/gateway-stack.js';
 
 // ── availability (skip loudly) ───────────────────────────────────────────
@@ -249,7 +250,10 @@ describe.skipIf(!available)('ERP Local in production (real AS + gateway + erp-mc
       expect(vat.result.body.structured.vies).toMatchObject({ status: 'valid', name: 'KUNDE GMBH' });
       expect(check(card.checks, 'vat-format').status).toBe('pass');
       expect(check(card.checks, 'vies')).toMatchObject({ status: 'pass', blocking: true });
-      expect(check(card.checks, 'vies').detail).toContain(`checked ${TODAY_VIENNA}`);
+      // The day of the connector's own check (the stub logs the moment it answered), as the gateway shows it.
+      const viesAt = vies.callsFor(C1.uid).at(-1)?.at;
+      expect(viesAt, 'the connector asked VIES').toBeTruthy();
+      expect(check(card.checks, 'vies').detail).toContain(`checked ${viesCheckedDay(viesAt!)}`);
       expect(check(card.checks, 'vat-duplicate').status).toBe('pass');
       expect(check(card.checks, 'crm-duplicate').status).toBe('pass');
       expect(await customersByUid(C1.uid)).toHaveLength(0);

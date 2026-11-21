@@ -67,6 +67,7 @@
  * creator) — never something Tom can clear by himself.
  */
 import { randomUUID } from 'node:crypto';
+import { typeTitle } from '../src/helpers/give-page';
 import { existsSync, readFileSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -609,7 +610,7 @@ test.describe('Team roles, caps and read limits — gateway (#119)', () => {
 
     await page.waitForURL(url => url.toString().includes('/mandates/new/sign'), { timeout: 10_000 });
     await page.locator('button', { hasText: 'Automatic' }).click();
-    await page.locator('input[placeholder*="e.g."]').fill('Team CRM ops (within caps)');
+    await typeTitle(page, 'Team CRM ops (within caps)');
     if (await page.getByTestId('duration-needed').isVisible().catch(() => false)) await page.locator('button', { hasText: /^24 hours$/ }).click();
     await page.locator('button', { hasText: /^Sign mandate/ }).last().click();
     await page.waitForURL(url => url.toString().includes('/mandates'), { timeout: 15_000 });
