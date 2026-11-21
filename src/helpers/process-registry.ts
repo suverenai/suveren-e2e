@@ -41,10 +41,14 @@ const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
 
 // ─── Process groups ─────────────────────────────────────────────────────────
 
-/** True while any process of the group led by `pid` exists. */
+// Windows has no process groups and no signals besides "end it": the leader stands for the group, and its whole
+// tree is ended with `taskkill /T /F` (which also reaches children that Next forks). SIGCONT does not exist there.
+const WINDOWS = process.platform === 'win32';
+
+/** True while any process of the group led by `pid` exists (on Windows: while the leader exists). */
 export function groupAlive(pid: number): boolean {
   try {
-    process.kill(-pid, 0);
+    process.kill(WINDOWS ? pid : -pid, 0);
     return true;
   } catch (err) {
     return (err as NodeJS.ErrnoException).code === 'EPERM';
@@ -52,6 +56,11 @@ export function groupAlive(pid: number): boolean {
 }
 
 function signalGroup(pid: number, sig: NodeJS.Signals): void {
+  if (WINDOWS) {
+    if (sig === 'SIGCONT') return;
+    try { execFileSync('taskkill', ['/T', '/F', '/PID', String(pid)], { stdio: 'ignore' }); } catch { /* already gone */ }
+    return;
+  }
   try {
     process.kill(-pid, sig);
   } catch {

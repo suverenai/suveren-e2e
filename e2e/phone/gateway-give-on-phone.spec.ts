@@ -108,6 +108,16 @@ test('a computer without Touch ID: the give page sends the mandate to the phone,
   const p = await newPerson(stack, 'Give on phone');
   const { headers } = await setUpGateway(p);
 
+  // HAP_E2E_EXPECT_PLATFORM (JSON): what the gateway's native helper must report here, e.g. the Windows CI leg that runs the
+  // gateway with the real release helper (SUVEREN_HELPER_APP): it is found, hashed, accepts the gateway as its caller, and
+  // says it has no secure hardware, so the journey below takes the password path with a real helper in place.
+  if (process.env.HAP_E2E_EXPECT_PLATFORM) {
+    const cap = await fetch(`${gw}/auth/platform/capabilities`, { headers });
+    const cb = await cap.json();
+    expect(cap.status, JSON.stringify(cb)).toBe(200);
+    expect(cb).toMatchObject(JSON.parse(process.env.HAP_E2E_EXPECT_PLATFORM));
+  }
+
   // The gateway's own set-up (no check key: CI has no native helper).
   const start = await fetch(`${gw}/auth/device/setup/start`, { method: 'POST', headers, body: JSON.stringify({ label: 'Office PC' }) });
   const sb = (await start.json()) as { setupId: string; recoveryCode: string; rootDid: string };

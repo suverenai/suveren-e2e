@@ -1,0 +1,144 @@
+name: Windows journeys (device keys on)
+
+# The gateway on Windows with the device-keys switch on, against the real Authority Server, in a real browser:
+# set-up (genesis with the enrolment code), unlock with the password on the gateway page, and give a mandate on the
+# phone (e2e/phone/gateway-give-on-phone.spec.ts), plus the phone app's own journeys (e2e/phone/phone-app.spec.ts).
+#
+# Two legs:
+#   password — the gateway without a native helper (what a Windows gateway is today).
+#   helper   — the gateway with the REAL release Windows helper (suveren-gateway packages/unlock-helper/windows), found
+#              by SUVEREN_HELPER_APP, hashed, started for the gateway process. Windows Hello is NOT tested: a runner has
+#              no Hello, and the release helper keeps its TPM path off until Hello is measured on real hardware; the
+#              journey checks that it reports exactly that ("no secure hardware") and that the password path still works.
+#
+# Manual only for now: whether it joins the nightly is the maintainer's call.
+
+on:
+  # TEMPORARY, remove before merging: a workflow that is not on the default branch cannot be dispatched, so this
+  # branch runs it on push, against the Windows helper branch and the Authority Server integration branch.
+  push:
+    branches: ['test/windows-ci']
+  workflow_dispatch:
+    inputs:
+      gateway_ref:
+        description: 'suveren-gateway ref (branch, tag or SHA). The helper leg needs packages/unlock-helper/windows in it.'
+        required: false
+        default: 'main'
+      as_ref:
+        description: 'suveren-as ref (branch, tag or SHA).'
+        required: false
+        default: 'main'
+
+concurrency:
+  group: e2e-windows-${{ github.ref }}-${{ github.event.inputs.gateway_ref || (github.ref_name == 'test/windows-ci' && 'feat/windows-hello-helper') || 'main' }}-${{ github.event.inputs.as_ref || (github.ref_name == 'test/windows-ci' && 'int/batch8') || 'main' }}
+  cancel-in-progress: true
+
+jobs:
+  windows:
+    name: Windows, device keys on, ${{ matrix.leg }} path
+    strategy:
+      fail-fast: false
+      matrix:
+        leg: [password, helper]
+    runs-on: windows-latest
+    timeout-minutes: 60
+    env:
+      SUVEREN_DEVICE_KEYS: 'on'
+      # The runner's preinstalled PostgreSQL (service started below; user postgres, password root).
+      SUVEREN_DB_URL: postgres://postgres:root@localhost:5432/suveren_as
+      SUVEREN_SEED_DEV_USERS: '1'
+      HAP_E2E_PHONE_STRICT: '1'
+
+    steps:
+      - name: Start PostgreSQL
+        shell: pwsh
+        env:
+          PGPASSWORD: root
+        run: |
+          $svc = Get-Service -Name 'postgresql*'
+          Set-Service -InputObject $svc -Status Running -StartupType Automatic
+          & "$env:PGBIN\pg_isready.exe" -h localhost -p 5432 -t 60
+          if ($LASTEXITCODE -ne 0) { throw 'PostgreSQL did not start' }
+          & "$env:PGBIN\psql.exe" -h localhost -U postgres -c 'create database suveren_as'
+          if ($LASTEXITCODE -ne 0) { throw 'create database failed' }
+
+      # The harness resolves siblings from the repo's parent directory, as in e2e.yml.
+      - uses: actions/checkout@v6
+        with:
+          path: hap-e2e
+
+      - uses: actions/checkout@v6
+        with:
+          repository: suverenai/suveren-gateway
+          path: suveren-gateway
+          ref: ${{ github.event.inputs.gateway_ref || (github.ref_name == 'test/windows-ci' && 'feat/windows-hello-helper') || 'main' }}
+
+      - uses: actions/checkout@v6
+        with:
+          repository: suverenai/suveren-as
+          path: suveren-as
+          token: ${{ secrets.HAP_CI_TOKEN }}
+          ref: ${{ github.event.inputs.as_ref || (github.ref_name == 'test/windows-ci' && 'int/batch8') || 'main' }}
+
+      - uses: actions/checkout@v6
+        with:
+          repository: humanagencyprotocol/hap-profiles
+          path: hap-profiles
+
+      - uses: pnpm/action-setup@v6
+        with:
+          version: 9
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 22
+
+      - name: Install and build — gateway
+        working-directory: suveren-gateway
+        run: |
+          pnpm install --frozen-lockfile
+          pnpm build
+
+      - name: Install — Authority Server
+        working-directory: suveren-as
+        run: npm ci
+
+      - name: Install — e2e
+        working-directory: hap-e2e
+        run: npm ci
+
+      - uses: actions/setup-go@v5
+        if: matrix.leg == 'helper'
+        with:
+          go-version-file: suveren-gateway/packages/unlock-helper/windows/go.mod
+          cache-dependency-path: suveren-gateway/packages/unlock-helper/windows/go.sum
+
+      # The release helper, as the package carries it. SUVEREN_HELPER_APP names its folder; its hash list is read from
+      # beside it (helper-manifest-windows-x64.json), the weaker dev-lane form of the gateway's own list.
+      - name: Build the release Windows helper
+        if: matrix.leg == 'helper'
+        working-directory: suveren-gateway/packages/unlock-helper/windows
+        shell: bash
+        run: |
+          node build.mjs dist
+          echo "SUVEREN_HELPER_APP=$(cygpath -w "$PWD/dist/windows-x64")" >> "$GITHUB_ENV"
+          echo 'HAP_E2E_EXPECT_PLATFORM={"available":false,"reason":"no_secure_hardware","platform":"windows","backend":"tpm-platform-crypto-unmeasured"}' >> "$GITHUB_ENV"
+
+      - name: Install Playwright browser
+        working-directory: hap-e2e
+        run: npx playwright install chromium
+
+      - name: Run the journeys (Chromium)
+        working-directory: hap-e2e
+        run: npx playwright test -c playwright.phone.config.ts --project chromium --reporter=list,html
+
+      - name: Upload logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: e2e-windows-${{ matrix.leg }}
+          path: |
+            hap-e2e/test-results/**
+            hap-e2e/playwright-report/**
+          if-no-files-found: ignore
+          retention-days: 7
