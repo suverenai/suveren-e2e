@@ -313,6 +313,11 @@ test('a computer without Touch ID: the give page sends the mandate to the phone,
     await expect(badCard.getByTestId('give-phone-given')).toHaveCount(0);
     await expect(badCard.getByText('Signed')).toHaveCount(0);
     if (await badCard.getByTestId('give-phone-stop').isVisible().catch(() => false)) await badCard.getByTestId('give-phone-stop').click();
+    // The person closes the failed give (back to the card's buttons) and rejects that proposal, so the next one comes up.
+    await badCard.getByTestId('give-phone-close').click();
+    await expect(badCard.getByTestId('btn-reject')).toBeVisible({ timeout: 15_000 });
+    await badCard.getByTestId('btn-reject').click();
+    await expect(cardOf(badId!)).toHaveCount(0, { timeout: 30_000 });
 
     // 4. SUCCESS: the AI proposes; the person presses "Give this mandate" ON THE CARD. The give runs in place: same URL, no edit form,
     //    the give's own footer on the card. This computer has no check key (CI has no native helper), so it goes to the phone (DEC-90).
