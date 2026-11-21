@@ -11,4 +11,7 @@ export default defineConfig({
   ...base,
   testMatch: SIMULATION_SPECS,
   testIgnore: [],
+  // Its own output folder: Playwright empties its outputDir at the start of a run, and this run follows the default
+  // browser run in CI — with the shared `test-results` it deleted that run's screenshots before the logs were uploaded.
+  outputDir: 'test-results/simulation',
 });
