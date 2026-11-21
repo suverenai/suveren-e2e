@@ -14,6 +14,7 @@
  * name carries "touch-id" for that job's filter), the Touch ID button must be part of that first real paint. On Linux the
  * gateway has no helper: the first real paint must be the password-only form, and nothing may arrive after it.
  *
+ * While a page shows its skeleton, no real card may be visible beside it (a section outside the page gate pops in).
  * Screenshots of every page: greyed out (while it loads) and loaded, kept with the run and in the HTML report.
  * Not covered here: the approval card and the phone app's screens (their skeletons have unit tests in the gateway).
  * The numbers are reported as annotations (cls:<page>) and on stdout, so a run against an older gateway shows the "before".
@@ -107,8 +108,27 @@ async function watchPage(page: Page): Promise<void> {
       }
     };
     new MutationObserver(look).observe(document, { childList: true, subtree: true, characterData: true });
+
+    // DEC-98: while the page shows its skeleton, no real card may be on screen beside it (a section outside the gate
+    // pops in on its own). Checked on every change of the page, so a state of one frame is caught too.
+    const v = window as unknown as { __mixed: string[] };
+    v.__mixed = [];
+    const vis = (el: Element) => (el as HTMLElement).checkVisibility?.({ checkOpacity: true, checkVisibilityCSS: true }) ?? (el as HTMLElement).offsetParent !== null;
+    const mixed = () => {
+      const skel = [...document.querySelectorAll('.page-inner .skel-area, .page-inner [data-testid$="-skeleton"]')].some(vis);
+      if (!skel) return;
+      for (const c of document.querySelectorAll('.page-inner :is(.card, .ob-card)')) {
+        if (c.classList.contains('skel-card') || c.querySelector('.skeleton') || c.closest('.skel-area, [data-testid$="-skeleton"]') || !vis(c)) continue;
+        const what = `${c.className.toString().slice(0, 60)}: ${(c.textContent ?? '').trim().slice(0, 50)}`;
+        if (!v.__mixed.includes(what)) v.__mixed.push(what);
+      }
+    };
+    new MutationObserver(mixed).observe(document, { childList: true, subtree: true, attributes: true, attributeFilter: ['style', 'class'] });
   });
 }
+
+const mixedCards = (page: Page) => page.evaluate(() => (window as unknown as { __mixed: string[] }).__mixed);
+const resetMixed = (page: Page) => page.evaluate(() => { (window as unknown as { __mixed: string[] }).__mixed = []; });
 
 const cls = (page: Page) => page.evaluate(() => (window as unknown as { __cls: number }).__cls);
 const resetCls = (page: Page) => page.evaluate(() => { const w = window as unknown as { __cls: number; __shifts: unknown[]; __skelSeen: boolean }; w.__cls = 0; w.__shifts = []; w.__skelSeen = false; });
@@ -201,6 +221,7 @@ test('DEC-98: every main page loads in one go under a slow network (CLS < 0.05),
   ];
   for (const [i, pg] of pages.entries()) {
     await resetCls(page);
+    await resetMixed(page);
     await goInPage(page, pg.path);
     await shotWhileLoading(page, info, `${String(i + 2).padStart(2, '0')}-${pg.name}`);
     await settle(page);
@@ -208,6 +229,7 @@ test('DEC-98: every main page loads in one go under a slow network (CLS < 0.05),
     const v = await cls(page);
     report(info, pg.name, v, await shifts(page));
     expect.soft(v, `${pg.name}: layout shift while it loads`).toBeLessThan(CLS_MAX);
+    expect.soft(await mixedCards(page), `${pg.name}: a real card was on screen beside the skeleton`).toEqual([]);
   }
 
   // 3. The give page: the Setup mandate's review card, handed over the way the AI's proposal does it.
@@ -226,6 +248,7 @@ test('DEC-98: every main page loads in one go under a slow network (CLS < 0.05),
     gate: { bounds: { profile: delegation!, read_access: 'unlimited', brief_daily_max: 5, mandate_daily_max: 30 }, context: { allowed_profiles: 'records', allowed_modes: 'review' }, gateContent: { intent: 'The AI prepares the mandates its work needs.' }, ttlConfig: { max: 86400 } },
   });
   await resetCls(page);
+  await resetMixed(page);
   await goInPage(page, '/mandates/new/sign');
   await shotWhileLoading(page, info, '07-give');
   await settle(page);
@@ -233,4 +256,5 @@ test('DEC-98: every main page loads in one go under a slow network (CLS < 0.05),
   const giveCls = await cls(page);
   report(info, 'give', giveCls, await shifts(page));
   expect.soft(giveCls, 'give: layout shift while it loads').toBeLessThan(CLS_MAX);
+  expect.soft(await mixedCards(page), 'give: a real card was on screen beside the skeleton').toEqual([]);
 });
