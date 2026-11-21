@@ -269,7 +269,10 @@ test('a computer without Touch ID: the give page sends the mandate to the phone,
   await expect(page.getByTestId('give-done').getByText('Signed')).toBeVisible();
   await page.getByTestId('give-done').getByTestId('give-touch-close').click();
   await page.waitForURL((u) => u.toString().includes('/mandates'), { timeout: 15_000 });
-  await expect(page.getByText('Quotes').first()).toBeVisible({ timeout: 30_000 });
+  // The list opens on THIS mandate: Close carries its authorization id, and the list marks that card. (The card shows
+  // the profile, not the title, so the title is no identity here.)
+  expect(new URL(page.url()).searchParams.get('highlight')).toBe(c.give.place.authorization_id);
+  await expect(page.locator('[data-testid="mandate-card"].card-highlight')).toHaveCount(1, { timeout: 30_000 });
 
   // ── An AI-PROPOSED mandate on the same gateway (found on the dev lane 2026-11-20: every one was refused at execution with
   // "nothing was approved under that fingerprint", because the executor's ticket_id was hashed into the approval fingerprint).
