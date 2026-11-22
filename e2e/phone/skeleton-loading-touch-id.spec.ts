@@ -98,7 +98,16 @@ async function watchPage(page: Page): Promise<void> {
     w.__cls = 0; w.__shifts = []; w.__unlockFirst = null; w.__skelSeen = false;
     new PerformanceObserver((list) => {
       for (const e of list.getEntries() as Array<PerformanceEntry & { value: number; hadRecentInput: boolean }>) {
-        if (!e.hadRecentInput) { w.__cls += e.value; w.__shifts.push({ v: e.value, at: Math.round(e.startTime) }); }
+        if (!e.hadRecentInput) {
+          // Which elements moved, from where to where: a failing number alone does not say what to fix.
+          const src = ((e as unknown as { sources?: Array<{ node?: Node; previousRect: DOMRectReadOnly; currentRect: DOMRectReadOnly }> }).sources ?? []).map((x) => {
+            const el = x.node instanceof Element ? x.node : x.node?.parentElement;
+            const name = el ? `${el.tagName.toLowerCase()}${el.id ? '#' + el.id : ''}${el.getAttribute('data-testid') ? '[' + el.getAttribute('data-testid') + ']' : ''}.${(el.className?.toString() ?? '').split(' ').slice(0, 3).join('.')}` : '?';
+            const r = (q: DOMRectReadOnly) => `${Math.round(q.x)},${Math.round(q.y)} ${Math.round(q.width)}x${Math.round(q.height)}`;
+            return `${name} ${r(x.previousRect)} -> ${r(x.currentRect)} "${(el?.textContent ?? '').trim().slice(0, 30)}"`;
+          });
+          w.__cls += e.value; w.__shifts.push({ v: e.value, at: Math.round(e.startTime), src } as { v: number; at: number });
+        }
       }
     }).observe({ type: 'layout-shift', buffered: true });
     const look = () => {
@@ -172,6 +181,7 @@ function report(info: TestInfo, name: string, value: number, detail: Array<{ v: 
   const v = Math.round(value * 10_000) / 10_000;
   info.annotations.push({ type: `cls:${name}`, description: `${v} (${detail.length} shift${detail.length === 1 ? '' : 's'})` });
   console.log(`[DEC-98] CLS ${name}: ${v} — ${JSON.stringify(detail.map((d) => Math.round(d.v * 10_000) / 10_000))}`);
+  for (const d of detail as Array<{ v: number; src?: string[] }>) for (const x of d.src ?? []) console.log(`[DEC-98]   ${name} ${Math.round(d.v * 10_000) / 10_000}: ${x}`);
 }
 
 test('DEC-98: every main page loads in one go under a slow network (CLS < 0.05), and the unlock form is complete at its first paint', async ({ page }, info) => {
