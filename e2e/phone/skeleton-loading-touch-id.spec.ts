@@ -109,6 +109,14 @@ async function watchPage(page: Page): Promise<void> {
     };
     new MutationObserver(look).observe(document, { childList: true, subtree: true, characterData: true });
 
+    // DEC-100: no turning mark while loading, anywhere in this journey; and the dashboard greyed out while signing in.
+    const sp = window as unknown as { __spinSeen: boolean; __shellSeen: boolean };
+    sp.__spinSeen = false; sp.__shellSeen = false;
+    new MutationObserver(() => {
+      if (document.querySelector('.brand-spin')) sp.__spinSeen = true;
+      if (document.querySelector('[data-testid="shell-skeleton-dashboard"]')) sp.__shellSeen = true;
+    }).observe(document, { childList: true, subtree: true });
+
     // DEC-98: while the page shows its skeleton, no real card may be on screen beside it (a section outside the gate
     // pops in on its own). Checked on every change of the page, so a state of one frame is caught too.
     const v = window as unknown as { __mixed: string[] };
@@ -205,11 +213,23 @@ test('DEC-98: every main page loads in one go under a slow network (CLS < 0.05),
   report(info, 'unlock', unlockCls, await shifts(page));
   expect.soft(unlockCls, 'unlock: layout shift while it loads').toBeLessThan(CLS_MAX);
 
-  // In: the password (the Touch ID path itself is covered by touch-id.spec.ts).
+  // In: the password (the Touch ID path itself is covered by touch-id.spec.ts). DEC-100: between the password and the
+  // dashboard the dashboard greyed out, in its own frame, and the real one fills in without moving. The sign-in request
+  // is held a moment longer so the step between is on screen long enough to be seen.
+  const holdSignIn = async (route: import('@playwright/test').Route) => { await new Promise((r) => setTimeout(r, 1_500)); await route.fallback(); };
+  await page.route(`${gw}/auth/device/signin`, holdSignIn);
   await page.locator('#unlock-password').fill(PASSWORD);
+  await resetCls(page);
   await page.locator('#unlock-password').press('Enter');
+  await expect(page.getByTestId('shell-skeleton-dashboard'), 'DEC-100: the dashboard greyed out while signing in').toBeVisible({ timeout: 15_000 });
+  await shot(page, info, '01b-signin-skeleton');
   await expect(page.locator('.page-title').first()).toBeVisible({ timeout: 30_000 });
   await settle(page);
+  await page.unroute(`${gw}/auth/device/signin`, holdSignIn);
+  await shot(page, info, '01c-signin-dashboard');
+  const signinCls = await cls(page);
+  report(info, 'signin', signinCls, await shifts(page));
+  expect.soft(signinCls, 'sign-in → dashboard: layout shift').toBeLessThan(CLS_MAX);
 
   // 2. The main pages, each reached in the app (history + popstate, no click), from a page that is already loaded.
   const pages: Array<{ name: string; path: string }> = [
@@ -257,4 +277,9 @@ test('DEC-98: every main page loads in one go under a slow network (CLS < 0.05),
   report(info, 'give', giveCls, await shifts(page));
   expect.soft(giveCls, 'give: layout shift while it loads').toBeLessThan(CLS_MAX);
   expect.soft(await mixedCards(page), 'give: a real card was on screen beside the skeleton').toEqual([]);
+
+  // DEC-100: no turning mark at any moment of this journey, and the sign-in showed the dashboard greyed out.
+  const seen = await page.evaluate(() => { const w = window as unknown as { __spinSeen: boolean; __shellSeen: boolean }; return { spin: w.__spinSeen, shell: w.__shellSeen }; });
+  expect.soft(seen.spin, 'DEC-100: the turning mark appeared while loading').toBe(false);
+  expect.soft(seen.shell, 'DEC-100: the sign-in showed the dashboard greyed out').toBe(true);
 });
