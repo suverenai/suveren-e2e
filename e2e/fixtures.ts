@@ -450,6 +450,19 @@ const writeLastGatewayKey = (key: string): void => {
 };
 const ANOTHER_ACCOUNT = 'This gateway is signed in to another account';
 
+/**
+ * DEC-98: Dashboard, Settings, Connectors, Devices, Mandates and the give page hold their content behind one page gate
+ * (grey until every part is in, at most ~4 s). Wait until this page's gate is open before reading what it shows, so a
+ * short assertion timeout never races the gate. The gate says it in `data-gate` (loading | open). A page without a gate
+ * (an older gateway) passes at once.
+ */
+export async function waitForPageGate(page: Page, timeout = 30_000): Promise<void> {
+  await page.waitForFunction(() => {
+    const gates = Array.from(document.querySelectorAll('.load-gate'));
+    return gates.every((g) => g.getAttribute('data-gate') !== 'loading');
+  }, undefined, { timeout });
+}
+
 export async function signInToGateway(page: Page, apiKey: string): Promise<void> {
   const lastGatewayKey = readLastGatewayKey();
   if (lastGatewayKey && lastGatewayKey !== apiKey) {
@@ -561,6 +574,7 @@ export async function activateIntegration(page: Page, integrationName: string): 
   await page.waitForLoadState('networkidle');
   await expect(page.locator('.page-title')).toBeVisible({ timeout: 10_000 });
   await page.click('.sidebar-item:has-text("Connectors")');
+  await waitForPageGate(page);
   // Wait for the route + page to settle before looking for cards — otherwise we
   // race the SPA navigation and match `.card` on the Dashboard "Get Started" panel.
   await page.waitForURL('**/integrations');

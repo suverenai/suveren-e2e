@@ -4,7 +4,7 @@
  * signing in again. And the gateway itself must give up on the hung call instead of waiting forever.
  */
 import { execSync } from 'node:child_process';
-import { test, expect, registerOnSP, signInToGateway, handleOnboarding } from './fixtures';
+import { test, expect, registerOnSP, signInToGateway, handleOnboarding, waitForPageGate } from './fixtures';
 
 test('a frozen Authority Server: told what is going on, recovers without a reload or a new sign-in', async ({ page }) => {
   test.setTimeout(180_000);
@@ -16,6 +16,7 @@ test('a frozen Authority Server: told what is going on, recovers without a reloa
   await page.click('.sidebar-item:has-text("Mandates")');
   await expect(loading).toHaveCount(0, { timeout: 30_000 });
   await page.click('.sidebar-item:has-text("Dashboard")');
+  await waitForPageGate(page);
   // Not reloaded = this marker survives to the end.
   await page.evaluate(() => { (window as unknown as { __noReload: boolean }).__noReload = true; });
 

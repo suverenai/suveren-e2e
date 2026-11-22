@@ -19,8 +19,7 @@ import { join } from 'node:path';
 import type { APIRequestContext, Page } from '@playwright/test';
 import {
   test, expect, SP_URL, GW_MCP_URL, INTERNAL_SECRET,
-  registerOnSP, signInToGateway, handleOnboarding, activateIntegration, spApiAttest, spApiReceipt, latestProfileId,
-} from './fixtures';
+  registerOnSP, signInToGateway, handleOnboarding, activateIntegration, spApiAttest, spApiReceipt, latestProfileId,, waitForPageGate } from './fixtures';
 import { hashGateContent, computeBoundsHash, computeScopeHash } from '../src/helpers/crypto.js';
 
 const PROFILE = latestProfileId('customers');
@@ -105,6 +104,7 @@ test.describe.serial('The outcome of an approval, and a dead mandate (real stack
     await mandate(request, apiKey, did, { scope: 'customer', mode: 'review', write: 2, push: true });
     burner = await mandate(request, apiKey, did, { scope: 'vendor', mode: 'automatic', write: 50, push: false });
     await page.click('.sidebar-item:has-text("Dashboard")');
+    await waitForPageGate(page);
     await expect(page.locator('.page-title')).toHaveText('Dashboard');
   });
 

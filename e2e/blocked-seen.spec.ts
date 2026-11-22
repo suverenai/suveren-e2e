@@ -19,8 +19,7 @@ import {
   test, expect,
   SP_URL, GW_MCP_URL, INTERNAL_SECRET,
   registerOnSP, signInToGateway, handleOnboarding, activateIntegration,
-  spApiAttest, latestProfileId,
-} from './fixtures';
+  spApiAttest, latestProfileId,, waitForPageGate } from './fixtures';
 import { hashGateContent, computeBoundsHash, computeScopeHash } from '../src/helpers/crypto.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -64,6 +63,7 @@ const badge = (page: Page) => page.locator('.sidebar-item', { hasText: 'Blocked'
 
 async function openBlocked(page: Page): Promise<void> {
   await page.click('.sidebar-item:has-text("Dashboard")');
+  await waitForPageGate(page);
   await page.click('.sidebar-item:has-text("Blocked")');
   await page.waitForURL('**/blocked');
 }
@@ -105,6 +105,7 @@ test.describe.serial('Blocked page: seen badge, rail, date and mandate title (re
     // A new block reaches the badge through the gateway's live events — no
     // reload, well before the 5-minute fallback poll.
     await page.click('.sidebar-item:has-text("Dashboard")');
+    await waitForPageGate(page);
     await expect(badge(page)).toBeVisible({ timeout: 20_000 });
     // The badge can appear on the first block's event, before the second
     // arrives — wait for the count, don't read it the moment it shows.
@@ -143,6 +144,7 @@ test.describe.serial('Blocked page: seen badge, rail, date and mandate title (re
   test('C: one new block afterwards → badge 1, only that item is new; seen is kept by the gateway', async ({ browser }) => {
     test.setTimeout(120_000);
     await page.click('.sidebar-item:has-text("Dashboard")');
+    await waitForPageGate(page);
     await blockOnce('Third Lead');
     await expect(badge(page)).toHaveText('1', { timeout: 20_000 });
 

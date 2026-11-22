@@ -41,8 +41,7 @@ import {
   registerOnSP, signInToGateway, handleOnboarding, activateIntegration,
   spApiAttest, latestProfileId, gatewayDataDir,
   openApprovalCard,
-  selectQueueView,
-} from './fixtures';
+  selectQueueView,, waitForPageGate } from './fixtures';
 import { DatabaseSync } from 'node:sqlite';
 import { randomUUID } from 'node:crypto';
 import { hashGateContent, computeBoundsHash, computeScopeHash } from '../src/helpers/crypto.js';
@@ -140,6 +139,7 @@ async function call(c: Client, name: string, args: Record<string, unknown>): Pro
 
 async function openCard(page: Page, hasText: string): Promise<Locator> {
   await page.click('.sidebar-item:has-text("Dashboard")');
+  await waitForPageGate(page);
   await page.click('.sidebar-item:has-text("Approvals")');
   await page.waitForURL('**/approvals');
   await selectQueueView(page, 'me');
@@ -330,6 +330,7 @@ test.describe.serial('AU10: request and customer history on the approval card (r
       'gateway without manifest summaries (UI3)');
     test.setTimeout(90_000);
     await page.click('.sidebar-item:has-text("Dashboard")');
+    await waitForPageGate(page);
     await page.click('.sidebar-item:has-text("Approvals")');
     await page.waitForURL('**/approvals');
     const sums = page.getByTestId('approval-row-summary');
