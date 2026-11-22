@@ -41,3 +41,16 @@ export async function expectStampCentredAtSizes(page: Page, stamp: Locator, what
   }
   if (before) await page.setViewportSize(before);
 }
+
+/** A button shows its whole name: nothing cut off at its edge (its text is not wider than the button's inside). */
+export async function expectButtonTextFits(button: Locator, what: string): Promise<void> {
+  const m = await button.evaluate((el) => {
+    const cs = getComputedStyle(el);
+    const range = document.createRange();
+    range.selectNodeContents(el);
+    const text = range.getBoundingClientRect().width;
+    const inner = el.getBoundingClientRect().width - parseFloat(cs.paddingLeft) - parseFloat(cs.paddingRight);
+    return { text, inner };
+  });
+  expect(m.text, `${what}: the button's text (${Math.round(m.text)}px) fits inside it (${Math.round(m.inner)}px)`).toBeLessThanOrEqual(m.inner + 0.5);
+}

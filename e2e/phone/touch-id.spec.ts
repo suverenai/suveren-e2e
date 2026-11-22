@@ -26,7 +26,7 @@ import { join } from 'node:path';
 import { connectDb, enrolmentCode, newPerson, until, stackFromEnv, type PhoneStack, type Person } from '../../src/helpers/phone-app';
 import { GatewayClient } from '../../src/helpers/gateway-client';
 import { RECORDS_INTEGRATION, recordTitles } from '../../src/helpers/gateway-stack';
-import { expectStampCentred, expectStampCentredAtSizes } from './stamp-centre';
+import { expectStampCentred, expectStampCentredAtSizes, expectButtonTextFits } from './stamp-centre';
 
 const helper = process.env.HAP_E2E_HELPER_APP;
 const unavailable = process.env.HAP_E2E_PHONE_UNAVAILABLE ?? process.env.HAP_E2E_PHONE_GW_UNAVAILABLE;
@@ -179,6 +179,7 @@ test('Touch ID on the gateway page: set-up, unlock, give, the card in place, an 
     const card = await openCard(mandateProposal);
     // A check key here: the card's button names Touch ID, the same words as the give page (Andreas 2026-11-22).
     await expect(card.getByTestId('btn-approve')).toHaveText('Give this mandate with Touch ID', { timeout: 30_000 });
+    await expectButtonTextFits(card.getByTestId('btn-approve'), 'card, Touch ID give button');
     await shot('t5-card-mandate');
     const urlBefore = page.url();
     await card.getByTestId('btn-approve').click();
