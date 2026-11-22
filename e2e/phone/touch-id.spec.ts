@@ -143,6 +143,15 @@ test('Touch ID on the gateway page: set-up, unlock, give, the card in place, an 
   await shot('t3-give-page');
   await giveTouch.click();
   await expect(page.getByTestId('give-touch-given')).toBeVisible({ timeout: 60_000 });
+  // The result replaces the long form: the page is back at its top, the result card whole below the header.
+  await expect.poll(async () => page.evaluate(() => {
+    const card = document.querySelector('[data-testid="give-done"]');
+    const header = document.querySelector('nav, header');
+    if (!card) return 'no result card';
+    const top = card.getBoundingClientRect().top;
+    const below = header ? header.getBoundingClientRect().bottom : 0;
+    return top >= below - 1 && top < window.innerHeight ? 'in view' : `card top ${Math.round(top)} vs header ${Math.round(below)}`;
+  }), { timeout: 5_000 }).toBe('in view');
   await shot('t4-give-signed');
   await expectStampCentred(page.getByTestId('give-touch-given').locator('.av3-stamp'), 'give page, given with Touch ID');
   await page.getByTestId('give-touch-close').click();
