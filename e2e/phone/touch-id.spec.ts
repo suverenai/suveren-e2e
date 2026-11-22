@@ -131,6 +131,7 @@ test('Touch ID on the gateway page: set-up, unlock, give, the card in place, an 
   if (await page.getByTestId('duration-needed').isVisible().catch(() => false)) await page.locator('button', { hasText: /^24 hours$/ }).click();
   const giveTouch = page.getByTestId('give-touch-button');
   await expect(giveTouch).toBeEnabled({ timeout: 30_000 });
+  await expect(giveTouch).toHaveText('Give this mandate with Touch ID');
   await shot('t3-give-page');
   await giveTouch.click();
   await expect(page.getByTestId('give-touch-given')).toBeVisible({ timeout: 60_000 });
@@ -168,6 +169,8 @@ test('Touch ID on the gateway page: set-up, unlock, give, the card in place, an 
     expect(proposed.isError, proposed.text).toBe(false);
     const mandateProposal = /Proposal ID: (\S+?)\./.exec(proposed.text)![1];
     const card = await openCard(mandateProposal);
+    // A check key here: the card's button names Touch ID, the same words as the give page (Andreas 2026-11-22).
+    await expect(card.getByTestId('btn-approve')).toHaveText('Give this mandate with Touch ID', { timeout: 30_000 });
     await shot('t5-card-mandate');
     const urlBefore = page.url();
     await card.getByTestId('btn-approve').click();
