@@ -16,7 +16,10 @@
  *
  * While a page shows its skeleton, no real card may be visible beside it (a section outside the page gate pops in).
  * Screenshots of every page: greyed out (while it loads) and loaded, kept with the run and in the HTML report.
- * Not covered here: the approval card and the phone app's screens (their skeletons have unit tests in the gateway).
+ * Also: Tickets, Reports, Approvals, the authorise picker and the mandate wizard (the rest of DEC-98/DEC-100), and a
+ * gateway in simulation mode (its banner in the greyed-out frame).
+ * Not covered here: the approval card, the phone app's screens and a ticket's "what was done" panel (no ticket exists in
+ * this journey); they have unit tests in the gateway.
  * The numbers are reported as annotations (cls:<page>) and on stdout, so a run against an older gateway shows the "before".
  */
 import { test, expect, type Page, type TestInfo } from '@playwright/test';
@@ -177,6 +180,20 @@ async function settle(page: Page): Promise<void> {
   await page.waitForTimeout(1_500);
 }
 
+/** One page reached in the app: greyed-out and loaded screenshots, its layout shift and the "no real card beside a skeleton" check. */
+async function measure(page: Page, info: TestInfo, shotName: string, name: string, path: string): Promise<void> {
+  await resetCls(page);
+  await resetMixed(page);
+  await goInPage(page, path);
+  await shotWhileLoading(page, info, shotName);
+  await settle(page);
+  await shot(page, info, `${shotName}-loaded`);
+  const v = await cls(page);
+  report(info, name, v, await shifts(page));
+  expect.soft(v, `${name}: layout shift while it loads`).toBeLessThan(CLS_MAX);
+  expect.soft(await mixedCards(page), `${name}: a real card was on screen beside the skeleton`).toEqual([]);
+}
+
 function report(info: TestInfo, name: string, value: number, detail: Array<{ v: number; at: number }>): void {
   const v = Math.round(value * 10_000) / 10_000;
   info.annotations.push({ type: `cls:${name}`, description: `${v} (${detail.length} shift${detail.length === 1 ? '' : 's'})` });
@@ -248,6 +265,10 @@ test('DEC-98: every main page loads in one go under a slow network (CLS < 0.05),
     { name: 'connectors', path: '/integrations' },
     { name: 'devices', path: '/devices' },
     { name: 'dashboard', path: '/' },
+    // The rest of DEC-98/DEC-100: these showed a plain "Loading…" line and then drew their content.
+    { name: 'tickets', path: '/tickets' },
+    { name: 'reports', path: '/reports' },
+    { name: 'approvals', path: '/approvals' },
   ];
   for (const [i, pg] of pages.entries()) {
     await resetCls(page);
@@ -261,6 +282,9 @@ test('DEC-98: every main page loads in one go under a slow network (CLS < 0.05),
     expect.soft(v, `${pg.name}: layout shift while it loads`).toBeLessThan(CLS_MAX);
     expect.soft(await mixedCards(page), `${pg.name}: a real card was on screen beside the skeleton`).toEqual([]);
   }
+
+  // The authorise picker (New mandate): its grid of areas, greyed out until the profiles are in.
+  await measure(page, info, '10-picker', 'picker', '/mandates?new=1');
 
   // 3. The give page: the Setup mandate's review card, handed over the way the AI's proposal does it.
   const groups = await (await fetch(`${gw}/api/groups`, { headers })).json() as { groups?: Array<{ id: string; name?: string; isPersonal?: boolean }> };
@@ -277,19 +301,77 @@ test('DEC-98: every main page loads in one go under a slow network (CLS < 0.05),
     auth: { profileId: delegation!, groupId: personal!.id, groupName: personal!.name ?? null, domain: 'owner', isPersonal: true },
     gate: { bounds: { profile: delegation!, read_access: 'unlimited', brief_daily_max: 5, mandate_daily_max: 30 }, context: { allowed_profiles: 'records', allowed_modes: 'review' }, gateContent: { intent: 'The AI prepares the mandates its work needs.' }, ttlConfig: { max: 86400 } },
   });
-  await resetCls(page);
-  await resetMixed(page);
-  await goInPage(page, '/mandates/new/sign');
-  await shotWhileLoading(page, info, '07-give');
-  await settle(page);
-  await shot(page, info, '07-give-loaded');
-  const giveCls = await cls(page);
-  report(info, 'give', giveCls, await shifts(page));
-  expect.soft(giveCls, 'give: layout shift while it loads').toBeLessThan(CLS_MAX);
-  expect.soft(await mixedCards(page), 'give: a real card was on screen beside the skeleton').toEqual([]);
+  // The mandate wizard (scope and limits step) from the same hand-over, then the give page.
+  await measure(page, info, '11-wizard', 'wizard', '/mandates/new/intent');
+  await measure(page, info, '12-give', 'give', '/mandates/new/sign');
 
   // DEC-100: no turning mark at any moment of this journey, and the sign-in showed the dashboard greyed out.
   const seen = await page.evaluate(() => { const w = window as unknown as { __spinSeen: boolean; __shellSeen: boolean }; return { spin: w.__spinSeen, shell: w.__shellSeen }; });
   expect.soft(seen.spin, 'DEC-100: the turning mark appeared while loading').toBe(false);
   expect.soft(seen.shell, 'DEC-100: the sign-in showed the dashboard greyed out').toBe(true);
+});
+
+/**
+ * Simulation mode (a gateway of its own with SUVEREN_SIMULATION=1): the banner is on the unlock screen, the dashboard
+ * greyed out after the sign-in carries it from its first frame, and the page does not move down when the real frame
+ * replaces the grey one. Password only (no helper needed for this).
+ */
+test('DEC-100: in simulation mode the banner is there from the first frame after the sign-in (CLS < 0.05)', async ({ page }, info) => {
+  test.setTimeout(180_000);
+  const simPorts = { cp: Number(process.env.HAP_E2E_SKEL_SIM_CP_PORT ?? 19962), mcp: Number(process.env.HAP_E2E_SKEL_SIM_MCP_PORT ?? 19963) };
+  const simDir = mkdtempSync(join(tmpdir(), 'hap-e2e-skeleton-sim-'));
+  const simPm = new ProcessManager();
+  try {
+    const o: StackOptions = {
+      dataDir: simDir, ports: simPorts, secret: newSecret(), asUrl: stack.asUrl,
+      extraEnv: { SUVEREN_DEVICE_KEYS: 'on', SUVEREN_DISABLE_AUTO_INTEGRATIONS: '1', SUVEREN_SIMULATION: '1' },
+    };
+    await startControlPlane(simPm, o, 'skel-sim-cp');
+    await startMcpServer(simPm, o, 'skel-sim-mcp');
+    const saved = gw;
+    gw = `http://localhost:${simPorts.cp}`;
+    try {
+      const health = await (await fetch(`${gw}/health`)).json() as { simulation?: boolean };
+      expect(health.simulation, 'the gateway runs in simulation mode').toBe(true);
+      const p = await newPerson(stack, 'Simulation person');
+      const headers = await signInAndSetPassword(p);
+      const start = await fetch(`${gw}/auth/device/setup/start`, { method: 'POST', headers, body: JSON.stringify({ label: 'Office computer', checkKey: false }) });
+      const sb = (await start.json()) as { setupId: string };
+      expect(start.status, JSON.stringify(sb)).toBe(200);
+      const fin = await fetch(`${gw}/auth/device/setup/finish`, { method: 'POST', headers, body: JSON.stringify({ setupId: sb.setupId, enrolmentCode: await enrolmentCode(stack, db, p) }) });
+      expect(fin.status, await fin.clone().text()).toBe(200);
+
+      await watchPage(page);
+      await slowNetwork(page);
+      await page.goto(`${gw}/login`);
+      await expect(page.locator('#unlock-password')).toBeVisible({ timeout: 30_000 });
+      await expect(page.locator('.simulation-banner'), 'the unlock screen says simulation mode').toBeVisible({ timeout: 10_000 });
+      await page.waitForTimeout(2_000);
+      await shot(page, info, 'sim-01-unlock');
+
+      const holdSignIn = async (route: import('@playwright/test').Route) => { await new Promise((r) => setTimeout(r, 1_500)); await route.fallback(); };
+      await page.route(`${gw}/auth/device/signin`, holdSignIn);
+      await page.locator('#unlock-password').fill(PASSWORD);
+      await resetCls(page);
+      await page.locator('#unlock-password').press('Enter');
+      const shell = page.getByTestId('shell-skeleton-dashboard');
+      await expect(shell, 'the dashboard greyed out while signing in').toBeVisible({ timeout: 15_000 });
+      const bannerInShell = await page.evaluate(() => !!document.querySelector('[data-testid="shell-skeleton-dashboard"] .simulation-banner'));
+      await shot(page, info, 'sim-02-signin-skeleton');
+      expect.soft(bannerInShell, 'the greyed-out frame carries the simulation banner from its first frame').toBe(true);
+      await expect(page.locator('.page-title').first()).toBeVisible({ timeout: 30_000 });
+      await settle(page);
+      await page.unroute(`${gw}/auth/device/signin`, holdSignIn);
+      await shot(page, info, 'sim-03-dashboard');
+      await expect(page.locator('.simulation-banner')).toBeVisible();
+      const v = await cls(page);
+      report(info, 'sim-signin', v, await shifts(page));
+      expect.soft(v, 'simulation: sign-in → dashboard layout shift').toBeLessThan(CLS_MAX);
+    } finally {
+      gw = saved;
+    }
+  } finally {
+    await simPm.killAll();
+    rmSync(simDir, { recursive: true, force: true });
+  }
 });
