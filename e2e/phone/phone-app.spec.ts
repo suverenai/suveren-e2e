@@ -42,6 +42,7 @@ import {
   type Computer, type PhoneStack, type Root,
 } from '../../src/helpers/phone-app';
 import { buildChangeRequest, verifyPhoneAnswer } from '../../src/helpers/change-request';
+import { expectStampCentred } from './stamp-centre';
 
 const unavailable = process.env.HAP_E2E_PHONE_UNAVAILABLE;
 const PROFILES_DIR = process.env.HAP_E2E_PROFILES_DIR ?? join(import.meta.dirname, '..', '..', '..', 'hap-profiles');
@@ -867,6 +868,7 @@ test.describe('stage D3: give a mandate on the phone (plan 4.4 Transport, DEC-86
     expect([200, 201], show(rec)).toContain(rec.status);
     await phone.page.getByTestId('result-check').click();
     await expect(phone.page.getByTestId('decision-stamp')).toContainText('Signed', { timeout: 20_000 });
+    await expectStampCentred(phone.page.getByTestId('decision-stamp'), 'phone app, give signed');
     await phone.context.close();
   });
 
