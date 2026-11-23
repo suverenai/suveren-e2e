@@ -60,13 +60,14 @@ test.describe.serial('Weekly send limit (browser)', () => {
     await page.waitForURL((url) => url.toString().includes('/mandates/new/sign'), { timeout: 10_000 });
     await typeTitle(page, 'Weekly replies');
     if (await page.getByTestId('duration-needed').isVisible().catch(() => false)) await page.locator('button', { hasText: /^24 hours$/ }).click();
-    await expect(page.getByText(/per week|Weekly send limit/i).first()).toBeVisible();
+    // The review step lists the limits by their field names (as for every limit there today).
+    await expect(page.getByText('send_weekly_max', { exact: true })).toBeVisible();
     await page.screenshot({ path: test.info().outputPath('w2-review-weekly.png'), fullPage: true });
 
     await page.locator('button', { hasText: /^Sign mandate/ }).last().click();
     await page.waitForURL((url) => url.toString().includes('/mandates') && !url.toString().includes('/new/'), { timeout: 15_000 });
     await page.locator('text=Weekly replies').first().click();
-    await expect(page.getByText(/per week|Weekly send limit/i).first()).toBeVisible({ timeout: 10_000 });
+    await expect(page.getByText(/send_weekly_max|per week|Weekly send limit/i).first()).toBeVisible({ timeout: 10_000 });
     await page.screenshot({ path: test.info().outputPath('w3-mandate-weekly.png'), fullPage: true });
   });
 });
