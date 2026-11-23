@@ -26,14 +26,14 @@
 import { test, expect, type Browser, type BrowserContext, type CDPSession, type Page } from '@playwright/test';
 import type pg from 'pg';
 import { buildDeviceRecord, buildEntry, deriveRootKey, ed25519PublicKey, encodeCoseEc2, generateRecoveryCode, keyIdOf, rootKeyFromRecoveryCode, signEntry } from '@humanagencyp/hap-core/device-keys';
-import { readFileSync } from 'node:fs';
+import { readFileSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { randomUUID } from 'node:crypto';
 import {
   computeBoundsHash, computeExecutionContextHash, computeIntentHash, computeProfileHash, computeScopeHash, encryptProposalContent, type MandatePayload,
 } from '@humanagencyp/hap-core';
 import { buildReceipt, grantHash, signObject, verifyGrant, type MandateGrant } from '@humanagencyp/hap-core/device-keys';
-import { grantMembersOf, newMandateId } from '../../src/helpers/mandate-grant';
+import { grantMembersOf, newMandateId, signedGrant } from '../../src/helpers/mandate-grant';
 import {
   asKeyHex, chainOf, clearMailboxes, codeOf, computerAnswersJoin, computerWithChain, connectDb, enrolmentCode, headOf, http,
   identityCodeOf, mailboxRow, newJoiner, newPairing, newPerson, newRoot, nowSec, openMailbox,
@@ -1038,6 +1038,133 @@ test.describe('stage D3: change a mandate on the phone (mockup B1, DEC-90)', () 
     const grants = await http(stack.asUrl, 'GET', `/api/mandates/${encodeURIComponent(v.mandateId)}/grants`, { token: v.token });
     expect((grants.json.grants as Array<{ mandate_version: number }>).filter((r) => r.mandate_version === 2)).toHaveLength(0);
     await v.phone.context.close();
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════════════════════════════════
+// The phone's home screen (Andreas on his iPhone, 2026-11-23): Waiting holds only waiting items, the empty text sits right under
+// its heading, "Your mandates" shows the gateway's titles and the end as a date and time.
+// ═══════════════════════════════════════════════════════════════════════════════════════════════
+
+/** A live mandate of the computer's person, granted on the computer (its check) and signed by the Authority Server, as a gateway does. */
+async function liveMandate(comp: Computer, o: { profileDir: string; bounds: Record<string, string | number>; scope: Record<string, string>; title: string; intent: string }): Promise<{ authorizationId: string; title: string }> {
+  const dir = join(PROFILES_DIR, o.profileDir);
+  const newest = readdirSync(dir).filter((f) => f.endsWith('.profile.json')).sort((a, b) => parseFloat(a) - parseFloat(b)).pop()!;
+  const profile = JSON.parse(readFileSync(join(dir, newest), 'utf8'));
+  const bounds = { profile: profile.id, ...o.bounds };
+  const groups = await http(stack.asUrl, 'GET', '/api/groups', { apiKey: comp.apiKey });
+  const groupId = (groups.json.groups as Array<{ id: string; isPersonal?: boolean }>).find((g) => g.isPersonal)!.id;
+  const chain = await chainOf(stack, comp, comp.root.did);
+  const token = await sessionFor(stack, comp.root, comp.dev, chain.head);
+  const mandateId = newMandateId();
+  const authorizationId = `authz_${randomUUID()}`;
+  const expiresAt = nowSec() + 6 * 3600;
+  const request = {
+    profile_id: profile.id, profile_hash: computeProfileHash(profile), group_id: groupId, bounds,
+    bounds_hash: computeBoundsHash(bounds as never, profile), scope_hash: computeScopeHash(o.scope as never, profile),
+    domain: 'owner', did: comp.root.did, mandate_owners: [{ did: comp.root.did }], commitment_mode: 'review',
+    gate_content_hashes: { intent: computeIntentHash(o.intent) }, execution_context_hash: computeExecutionContextHash(profile),
+    supported_versions: ['0.8', '0.7'], title: o.title,
+  };
+  const payload = {
+    mandate_id: mandateId, version: '0.8', profile_id: request.profile_id, profile_hash: request.profile_hash, bounds_hash: request.bounds_hash,
+    scope_hash: request.scope_hash, execution_context_hash: request.execution_context_hash, issuer: 'did:key:z', mandate_owners: request.mandate_owners,
+    gate_content_hashes: request.gate_content_hashes, commitment_mode: request.commitment_mode, issued_at: nowSec(), expires_at: expiresAt,
+  } as unknown as MandatePayload;
+  const grant = await http(stack.asUrl, 'POST', `/api/mandates/${encodeURIComponent(mandateId)}/grants`, {
+    token, body: await signedGrant({ dev: comp.dev, ownerDid: comp.root.did, head: chain.head, mandateId, version: 1, members: grantMembersOf(payload, { authorizationId, groupId, replaces: null, chainDids: [comp.root.did] }) }),
+  });
+  expect(grant.status, show(grant)).toBe(201);
+  const m = await http(stack.asUrl, 'POST', '/api/as/mandate', { apiKey: comp.apiKey, body: { ...request, authorization_id: authorizationId, mandate_id: mandateId, mandate_version: 1, expires_at: expiresAt } });
+  expect(m.status, show(m)).toBeLessThan(300);
+  return { authorizationId, title: o.title };
+}
+
+test.describe('the phone\'s home screen (Andreas 2026-11-23)', () => {
+  test.skip(chromiumOnly, NO_VIRTUAL_AUTHENTICATOR);
+
+  test('nothing waiting: the empty text right under "Waiting for you", no notes there, "Your mandates" with the gateway\'s titles and the end as date and time', async ({ browser }) => {
+    const phone = await joinedPhone(browser, 'Home Phone', 'Office Mac');
+    const comp = phone.person;
+    const setupTitle = 'Setup: calendar, master-data, charge, publish, customers, purchase, deploy, records, email, reporting, files, sales, invoicing';
+    await liveMandate(comp, { profileDir: 'delegation', bounds: { read_access: 'unlimited', brief_daily_max: 5, mandate_daily_max: 30 }, scope: { allowed_profiles: 'records', allowed_modes: 'review' }, title: setupTitle, intent: 'The AI prepares the mandates its work needs.' });
+    await liveMandate(comp, { profileDir: 'sales', bounds: { read_access: 'unlimited', value_max: 1000, discount_max: 10, order_value_daily_max: 5000, quote_daily_max: 10, send_daily_max: 10, order_daily_max: 0, setup_daily_max: 0 }, scope: { currency: 'EUR' }, title: 'Records · Meeting notes', intent: 'Keep short notes from meetings.' });
+    // What the gateway's Mandates page shows as a mandate's title: the Authority Server's row title (`item.title`).
+    const mine = await http(stack.asUrl, 'GET', '/api/mandates/mine?status=active', { apiKey: comp.apiKey });
+    const gatewayTitles = (mine.json.mandates as Array<{ title?: string }>).map((r) => r.title).filter(Boolean).sort();
+    expect(gatewayTitles).toEqual([setupTitle, 'Records · Meeting notes'].sort());
+
+    await phone.page.goto(stack.appUrl);
+    await phone.page.getByRole('button', { name: 'Open with a touch' }).click();
+    const own = phone.page.getByTestId('own-mandate');
+    await expect(own).toHaveCount(2, { timeout: 30_000 });
+    const empty = phone.page.getByTestId('list-empty');
+    await expect(empty).toHaveText('Nothing is waiting for you.');
+    // Right under the heading and its line: above "Your mandates", nothing between but the intro line.
+    const heading = phone.page.getByRole('heading', { name: 'Waiting for you' });
+    const section = phone.page.getByTestId('own-mandates');
+    const [hb, eb, sb] = await Promise.all([heading.boundingBox(), empty.boundingBox(), section.boundingBox()]);
+    expect(eb!.y).toBeGreaterThan(hb!.y);
+    expect(eb!.y).toBeLessThan(sb!.y);
+    // No mandate notes under "Waiting for you" (between the heading and "Your mandates").
+    await expect(phone.page.getByText(/was given on/)).toHaveCount(0);
+    // The titles are the gateway's, without "The mandate for"; the end is a date and time, never "today".
+    const titles = (await phone.page.getByTestId('own-mandate-title').allTextContents()).sort();
+    expect(titles).toEqual(gatewayTitles);
+    for (const u of await phone.page.getByTestId('own-mandate-until').allTextContents()) {
+      expect(u).toMatch(/^Active until .*\d{4}.*\d{1,2}:\d{2}/);
+      expect(u).not.toMatch(/today/i);
+    }
+    // "Your mandates" is a section heading: smaller than the screen's heading.
+    const sizes = await phone.page.evaluate(() => ({
+      h1: parseFloat(getComputedStyle(document.querySelector('.device-screen h1')!).fontSize),
+      h2: parseFloat(getComputedStyle(document.querySelector('[data-testid="own-mandates"] h2')!).fontSize),
+    }));
+    expect(sizes.h2).toBeLessThan(sizes.h1);
+    // The tabs are inside the screen, not above it.
+    const tabs = await phone.page.getByTestId('app-nav').boundingBox();
+    expect(tabs!.y).toBeGreaterThanOrEqual(0);
+    const path = test.info().outputPath('home-1-nothing-waiting.png');
+    await phone.page.screenshot({ path, fullPage: true });
+    await test.info().attach('home-1-nothing-waiting', { path, contentType: 'image/png' });
+
+    // A mandate to give waits: it is the waiting item, the empty text is gone, and it sits above "Your mandates".
+    const state = await verifiedChain(stack, comp, comp.root.did);
+    const chain = await chainOf(stack, comp, comp.root.did);
+    const token = await sessionFor(stack, comp.root, comp.dev, chain.head);
+    const profile = JSON.parse(readFileSync(join(PROFILES_DIR, 'sales', '0.4.profile.json'), 'utf8'));
+    const bounds = { profile: profile.id, read_access: 'unlimited', value_max: 1000, discount_max: 10, order_value_daily_max: 5000, quote_daily_max: 10, send_daily_max: 10, order_daily_max: 0, setup_daily_max: 0 };
+    const scope = { currency: 'EUR' };
+    const intent = 'Follow up quotes that wait two days.';
+    const groups = await http(stack.asUrl, 'GET', '/api/groups', { apiKey: comp.apiKey });
+    const groupId = (groups.json.groups as Array<{ id: string; isPersonal?: boolean }>).find((g) => g.isPersonal)!.id;
+    const mandateId = newMandateId();
+    const payload = {
+      mandate_id: mandateId, version: '0.8', profile_id: profile.id, profile_hash: computeProfileHash(profile), bounds_hash: computeBoundsHash(bounds as never, profile),
+      scope_hash: computeScopeHash(scope as never, profile), execution_context_hash: computeExecutionContextHash(profile), issuer: 'did:key:z',
+      mandate_owners: [{ did: comp.root.did }], gate_content_hashes: { intent: computeIntentHash(intent) }, commitment_mode: 'review',
+      issued_at: nowSec(), expires_at: nowSec() + 3600,
+    } as unknown as MandatePayload;
+    const place = { authorization_id: `authz_${randomUUID()}`, group_id: groupId, replaces: null, chain_dids: [comp.root.did] };
+    const content = { v: 2, mandate_id: mandateId, mandate_version: 1, scope, intent, give: { op: 'grant', profile, bounds, payload, place, title: 'Quotes', prepared_at: nowSec() } };
+    const readers = Object.values(state.devices).filter((d) => d.removed_seq === null).map((d) => ({ did: d.key_id, publicKey: b64uDecode(d.read_pub) }));
+    const sealed = await encryptProposalContent(content, readers);
+    const prep = await http(stack.asUrl, 'POST', '/api/mandates/prepared', { token, body: { mandate_id: mandateId, mandate_version: 1, ciphertext: sealed.content.ciphertext, device_keys: sealed.content.encrypted_keys } });
+    expect(prep.status, show(prep)).toBe(201);
+    await phone.page.getByRole('button', { name: 'Refresh' }).click();
+    // The give opens full screen by itself (DEC-86); Cancel goes back to the list, where it is the one waiting row.
+    const card = phone.page.getByTestId('give-card');
+    await expect(card).toBeVisible({ timeout: 30_000 });
+    await card.getByRole('button', { name: 'Cancel' }).click();
+    const row = phone.page.getByTestId('give-row');
+    await expect(row).toBeVisible({ timeout: 15_000 });
+    await expect(phone.page.getByTestId('list-empty')).toHaveCount(0);
+    const [rb, sb2] = await Promise.all([row.boundingBox(), phone.page.getByTestId('own-mandates').boundingBox()]);
+    expect(rb!.y).toBeLessThan(sb2!.y);
+    const path2 = test.info().outputPath('home-2-one-waiting.png');
+    await phone.page.screenshot({ path: path2, fullPage: true });
+    await test.info().attach('home-2-one-waiting', { path: path2, contentType: 'image/png' });
+    await phone.context.close();
   });
 });
 
