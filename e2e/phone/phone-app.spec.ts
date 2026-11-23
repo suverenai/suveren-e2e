@@ -127,11 +127,17 @@ async function computerTakesIt(comp: Computer, token: string, mandateId: string,
 /** After the touch: "Signing…" while the computer takes it in, then "Signed" by itself — never the not-received warning first
  *  (dev lane 2026-11-23: the warning came after 4 s, the person tried again, the gateway had it seconds later). */
 async function signedWithoutAlarm(page: Page, take: Promise<void>): Promise<void> {
-  const alarm = page.getByTestId('decision-unknown');
+  // Record it if the warning appears at any moment, even for one frame (a check at the end could miss one that came and went).
+  await page.evaluate(() => {
+    const w = window as unknown as { __sawAlarm?: boolean };
+    w.__sawAlarm = false;
+    new MutationObserver(() => { if (document.querySelector('[data-testid="decision-unknown"]')) w.__sawAlarm = true; })
+      .observe(document.body, { childList: true, subtree: true });
+  });
   await expect(page.getByTestId('decision-working')).toBeVisible({ timeout: 15_000 });
   await take;
   await expect(page.getByTestId('decision-stamp')).toContainText('Signed', { timeout: 15_000 });
-  await expect(alarm).toHaveCount(0);
+  expect(await page.evaluate(() => (window as unknown as { __sawAlarm?: boolean }).__sawAlarm), 'no "not received" warning while the computer takes it in').toBe(false);
 }
 
 /** Hold a QR in front of the phone's camera, then press the app's own "Scan the code". */
@@ -874,14 +880,10 @@ test.describe('stage D3: give a mandate on the phone (plan 4.4 Transport, DEC-86
     await expect(card.getByTestId('mandate-summary')).toBeVisible();
     await card.getByTestId('btn-give').click();
     // The computer takes it in after 6 s (its background check runs every 5 s): the phone keeps "Signing…" and then shows "Signed".
-    let sawAlarm = false;
-    const watch = phone.page.getByTestId('decision-unknown').waitFor({ timeout: 20_000 }).then(() => { sawAlarm = true; }, () => {});
     await signedWithoutAlarm(phone.page, computerTakesIt(comp, token, mandateId, 1, 6_000));
-    await watch;
-    expect(sawAlarm, 'no "not received" warning while the computer takes it in').toBe(false);
     // "Signed" times away after a moment (the panel's rule after a decision): look at it while it is on screen.
-    await phone.page.screenshot({ path: test.info().outputPath('g1-phone-signed-after-computer.png'), fullPage: true });
     await expectStampCentred(phone.page.getByTestId('decision-stamp'), 'phone app, give signed');
+    await phone.page.screenshot({ path: test.info().outputPath('g1-phone-signed-after-computer.png'), fullPage: true });
 
     // At the Authority Server: one grant, by the phone, WITH its check, whose members are exactly the ones rebuilt from the mandate.
     const grants = await http(stack.asUrl, 'GET', `/api/mandates/${encodeURIComponent(mandateId)}/grants`, { token });
