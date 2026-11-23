@@ -879,7 +879,9 @@ test.describe('stage D3: give a mandate on the phone (plan 4.4 Transport, DEC-86
     await signedWithoutAlarm(phone.page, computerTakesIt(comp, token, mandateId, 1, 6_000));
     await watch;
     expect(sawAlarm, 'no "not received" warning while the computer takes it in').toBe(false);
+    // "Signed" times away after a moment (the panel's rule after a decision): look at it while it is on screen.
     await phone.page.screenshot({ path: test.info().outputPath('g1-phone-signed-after-computer.png'), fullPage: true });
+    await expectStampCentred(phone.page.getByTestId('decision-stamp'), 'phone app, give signed');
 
     // At the Authority Server: one grant, by the phone, WITH its check, whose members are exactly the ones rebuilt from the mandate.
     const grants = await http(stack.asUrl, 'GET', `/api/mandates/${encodeURIComponent(mandateId)}/grants`, { token });
@@ -892,7 +894,6 @@ test.describe('stage D3: give a mandate on the phone (plan 4.4 Transport, DEC-86
     const members = grantMembersOf(payload, { authorizationId, groupId, replaces: null, chainDids: [comp.root.did] });
     await verifyGrant({ grant: rows[0].grant, sig: rows[0].sig, check: rows[0].check as never }, { chain: await verifiedChain(stack, comp, comp.root.did), mandateFields: members, expect: { ops: ['grant'], mandate_id: mandateId, mandate_version: 1 } });
 
-    await expectStampCentred(phone.page.getByTestId('decision-stamp'), 'phone app, give signed');
     await phone.context.close();
   });
 
