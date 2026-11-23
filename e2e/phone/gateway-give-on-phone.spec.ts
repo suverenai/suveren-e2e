@@ -115,7 +115,8 @@ async function phoneSession(p: Person, recoveryCode: string, phone: Phone): Prom
   return s.json.token as string;
 }
 
-/** The phone grants the one prepared give it has not granted yet, over exactly what it opened. Returns what it opened. */
+/** The phone grants the one prepared give it has not granted yet, over exactly what it opened. Returns what it opened.
+ *  `done` holds `<mandate id>:<version>`: a change keeps the mandate id and moves the version. */
 async function phoneGrantsNext(p: Person, recoveryCode: string, phone: Phone, readPriv: Uint8Array, done: Set<string>, what: string, tamper?: (m: Record<string, any>) => Record<string, any>): Promise<Record<string, any>> {
   const token = await phoneSession(p, recoveryCode, phone);
   const c = await until(`${what} reaches the phone`, async () => {
@@ -126,7 +127,7 @@ async function phoneGrantsNext(p: Person, recoveryCode: string, phone: Phone, re
         phone.record.key_id, readPriv,
       );
       const args = opened.arguments as Record<string, any>;
-      if (!done.has(args.mandate_id)) return args;
+      if (!done.has(`${args.mandate_id}:${args.mandate_version}`)) return args;
     }
     return undefined;
   }, 60_000);
@@ -142,7 +143,7 @@ async function phoneGrantsNext(p: Person, recoveryCode: string, phone: Phone, re
     token, body: { grant, sig: await signObject(grant, phone.seed), check: await assertion(phone, await objectHash(grant)) },
   });
   if (!tamper) expect(stored.status, show(stored)).toBe(201);
-  done.add(c.mandate_id);
+  done.add(`${c.mandate_id}:${c.mandate_version}`);
   return c;
 }
 
@@ -281,7 +282,7 @@ test('a computer without Touch ID: the give page sends the mandate to the phone,
   // ── An AI-PROPOSED mandate on the same gateway (found on the dev lane 2026-11-20: every one was refused at execution with
   // "nothing was approved under that fingerprint", because the executor's ticket_id was hashed into the approval fingerprint).
   // Same person, same gateway, same phone: one chain gateway per run.
-  const granted = new Set<string>([c.mandate_id]);
+  const granted = new Set<string>([`${c.mandate_id}:${c.mandate_version}`]);
   // 1. The Setup mandate the AI needs: given on the page, granted on the phone (the path above).
   const delegation = newestProfileId('delegation');
   await page.evaluate(({ auth, gate }) => {

@@ -16,7 +16,7 @@ import { join } from 'node:path';
 import { ErpLocalStack, ERP_MANIFEST_PATH, P, proposalIdOf, resultJson } from '../src/helpers/erp-local-stack.js';
 import { ViesStub } from '../src/helpers/vies-stub.js';
 import { PROFILES_DIR } from '../src/helpers/gateway-stack.js';
-import { openFirstApprovalInPanel } from '../src/helpers/gateway-ui.js';
+import { openFirstApprovalInPanel, waitForPanelStill } from '../src/helpers/gateway-ui.js';
 
 const SHOTS = process.env.HAP_E2E_SHOTS_DIR;
 const MASTER_DATA = `${P}/master-data@0.1`;
@@ -58,6 +58,11 @@ async function openCard(): Promise<{ page: Page; tile: ReturnType<Page['locator'
     const el = document.querySelector('[data-testid="approval-preview"]');
     return !!el && el.getAttribute('data-preview-status') !== 'loading';
   }, null, { timeout: 30_000 });
+  // The card is still settling right after the preview read: the panel's slide, and the card's own load gate opening (DEC-98)
+  // replace its parts. A click then can land on a part being replaced ("element is not stable", then "detached": one failure in
+  // 25 runs, e2e 45132219585). Wait until the panel stands still and no part of the card is still loading.
+  await waitForPanelStill(page);
+  await page.waitForFunction(() => !document.querySelector('[data-testid="approval-panel"] [data-gate="loading"]'), null, { timeout: 30_000 });
   const card = page.getByTestId('approval-panel').locator('[data-testid="approval-card"]').first();
   return { page, card, tile: card.getByTestId('sealed-values') };
 }
