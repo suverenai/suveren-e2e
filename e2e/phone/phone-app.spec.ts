@@ -946,6 +946,48 @@ test.describe('stage D3: give a mandate on the phone (plan 4.4 Transport, DEC-86
     await phone.context.close();
   });
 
+  test('opened with a touch over a slow network (150 ms per request, as a phone over Tailscale): the waiting give is on screen within 2.5 s', async ({ browser }) => {
+    const phone = await joinedPhone(browser, 'Slow Phone', 'Office Mac');
+    const comp = phone.person;
+    const chain = await chainOf(stack, comp, comp.root.did);
+    const state = await verifiedChain(stack, comp, comp.root.did);
+    const token = await sessionFor(stack, comp.root, comp.dev, chain.head);
+    const profile = JSON.parse(readFileSync(join(PROFILES_DIR, 'sales', '0.4.profile.json'), 'utf8'));
+    const bounds = { profile: profile.id, read_access: 'unlimited', value_max: 1000, discount_max: 10, order_value_daily_max: 5000, quote_daily_max: 10, send_daily_max: 10, order_daily_max: 0, setup_daily_max: 0 };
+    const scope = { currency: 'EUR' };
+    const intent = 'Follow up quotes that wait two days.';
+    const groups = await http(stack.asUrl, 'GET', '/api/groups', { apiKey: comp.apiKey });
+    const groupId = (groups.json.groups as Array<{ id: string; isPersonal?: boolean }>).find((g) => g.isPersonal)!.id;
+    const mandateId = newMandateId();
+    const payload = {
+      mandate_id: mandateId, version: '0.8', profile_id: profile.id, profile_hash: computeProfileHash(profile), bounds_hash: computeBoundsHash(bounds as never, profile),
+      scope_hash: computeScopeHash(scope as never, profile), execution_context_hash: computeExecutionContextHash(profile), issuer: 'did:key:z',
+      mandate_owners: [{ did: comp.root.did }], gate_content_hashes: { intent: computeIntentHash(intent) }, commitment_mode: 'review',
+      issued_at: nowSec(), expires_at: nowSec() + 3600,
+    } as unknown as MandatePayload;
+    const content = { v: 2, mandate_id: mandateId, mandate_version: 1, scope, intent, give: { op: 'grant', profile, bounds, payload, place: { authorization_id: `authz_${randomUUID()}`, group_id: groupId, replaces: null, chain_dids: [comp.root.did] }, title: 'Quotes', prepared_at: nowSec() } };
+    const readers = Object.values(state.devices).filter((d) => d.removed_seq === null).map((d) => ({ did: d.key_id, publicKey: b64uDecode(d.read_pub) }));
+    const sealed = await encryptProposalContent(content, readers);
+    expect((await http(stack.asUrl, 'POST', '/api/mandates/prepared', { token, body: { mandate_id: mandateId, mandate_version: 1, ciphertext: sealed.content.ciphertext, device_keys: sealed.content.encrypted_keys } })).status).toBe(201);
+
+    // Every request to the Authority Server takes 150 ms more (a phone over Tailscale), and is counted.
+    let requests = 0;
+    await phone.page.route(`${stack.asUrl}/**`, async (route) => { requests++; await new Promise((r) => setTimeout(r, 150)); await route.fallback(); });
+    await phone.page.goto(stack.appUrl);
+    const openBtn = phone.page.getByRole('button', { name: 'Open with a touch' });
+    await expect(openBtn).toBeVisible({ timeout: 20_000 });
+    requests = 0;
+    const t0 = Date.now();
+    await openBtn.click();
+    await expect(phone.page.getByTestId('give-card')).toBeVisible({ timeout: 20_000 });
+    const ms = Date.now() - t0;
+    test.info().annotations.push({ type: 'open-to-card-ms', description: `${ms} ms, ${requests} requests` });
+    console.log(`[PHONE-TIMING] open with a touch -> give on screen: ${ms} ms, ${requests} requests at +150 ms`);
+    await phone.page.screenshot({ path: test.info().outputPath('t1-slow-open-card.png'), fullPage: true });
+    expect(ms, `on screen after ${ms} ms (${requests} requests)`).toBeLessThanOrEqual(2_500);
+    await phone.context.close();
+  });
+
   test('a give whose limits differ from what the mandate names is not offered: no button, nothing signed', async ({ browser }) => {
     const phone = await joinedPhone(browser, 'Careful Phone', 'Other Mac');
     const comp = phone.person;
