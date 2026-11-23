@@ -26,7 +26,7 @@ import { SSEClientTransport } from '@modelcontextprotocol/sdk/client/sse.js';
 import type pg from 'pg';
 import { readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { buildEntry, entryHash, signEntry, rootKeyFromRecoveryCode, buildGrant, signObject, objectHash, verifyChain, type ChainEntry } from '@humanagencyp/hap-core/device-keys';
+import { buildEntry, entryHash, signEntry, rootKeyFromRecoveryCode, buildGrant, buildDecision, signObject, objectHash, verifyChain, type ChainEntry } from '@humanagencyp/hap-core/device-keys';
 import { decryptProposalContent, type MandatePayload } from '@humanagencyp/hap-core';
 import { grantMembersOf } from '../../src/helpers/mandate-grant';
 import { newPhone, assertion, phoneSigninBody, type Phone } from '../../src/helpers/phone-passkey';
@@ -130,12 +130,12 @@ async function phoneGrantsNext(p: Person, recoveryCode: string, phone: Phone, re
     }
     return undefined;
   }, 60_000);
-  expect(c.give.op).toBe('grant');
+  expect(['grant', 'change']).toContain(c.give.op);
   const members = grantMembersOf(c.give.payload as MandatePayload, { authorizationId: c.give.place.authorization_id, groupId: c.give.place.group_id, replaces: c.give.place.replaces, chainDids: c.give.place.chain_dids });
   const root = await rootKeyFromRecoveryCode(recoveryCode);
   const state = await verifyChain({ expectedRootDid: root.did, entries: await chainEntries(p.userId) });
   const grant = buildGrant({
-    op: 'grant', owner_did: root.did, key_id: phone.record.key_id, chain_seq: state.head.seq, chain_head: state.head.hash,
+    op: c.give.op, owner_did: root.did, key_id: phone.record.key_id, chain_seq: state.head.seq, chain_head: state.head.hash,
     mandate_id: c.mandate_id, mandate_version: c.mandate_version, granted_at: nowSec(), nonce: b64uEncode(crypto.getRandomValues(new Uint8Array(16))),
   }, tamper ? tamper(members as Record<string, any>) as typeof members : members);
   const stored = await http(stack.asUrl, 'POST', `/api/mandates/${encodeURIComponent(c.mandate_id)}/grants`, {
@@ -297,7 +297,7 @@ test('a computer without Touch ID: the give page sends the mandate to the phone,
   await expect(page.getByTestId('give-phone-send')).toBeEnabled({ timeout: 30_000 });
   await page.getByTestId('give-phone-send').click();
   await expect(page.getByTestId('give-phone-waiting')).toBeVisible({ timeout: 30_000 });
-  await phoneGrantsNext(p, sb.recoveryCode, phone, read.priv, granted, 'the Setup give');
+  const setupGive = await phoneGrantsNext(p, sb.recoveryCode, phone, read.priv, granted, 'the Setup give');
   // The give page ends with the one shared result (whichever device gave it): "Signed", then Close to the mandate list.
   await expect(page.getByTestId('give-done')).toBeVisible({ timeout: 60_000 });
   await expect(page.getByTestId('give-done').getByText('Signed')).toBeVisible();
@@ -422,6 +422,64 @@ test('a computer without Touch ID: the give page sends the mandate to the phone,
       const r = await callTool(agent, 'list-authorizations', {});
       return /records@/.test(r.text) ? true : undefined;
     }, 90_000);
+
+    // 7. An AI-proposed CHANGE, given ONLY on the phone (dev lane 2026-11-23: approved on the phone, the change proposal was executed
+    //    and refused — "setup refused to run it" — and the mandate stayed as it was). Nothing is pressed on this computer.
+    const notesId = await until('the Records mandate id', async () => {
+      const r = await callTool(agent, 'list-authorizations', { domain: 'records' });
+      return /Mandate id: (authz_[0-9a-f-]{36})/.exec(r.text)?.[1];
+    }, 60_000);
+    const asked = await callTool(agent, 'setup__change_mandate', {
+      mandate_id: notesId, limits: { archive_access: 'allowed' }, intent: 'Keep the notes of the quotes. Archive test notes once done.',
+    });
+    expect(asked.isError, asked.text).toBe(false);
+    const changeId = /Proposal ID: (\S+?)\./.exec(asked.text)?.[1];
+    expect(changeId, asked.text).toBeTruthy();
+    // On this computer the card offers only the give (this computer has no check key: on the phone), never an Approve that would run it.
+    const changeCard = await openCard(changeId!);
+    await expect(changeCard.getByTestId('btn-approve')).toHaveText('Give this mandate on your phone', { timeout: 30_000 });
+    await shot('c1-change-card-on-computer');
+
+    // The phone already holds the changed mandate: prepared by the gateway when the proposal arrived, naming it, with the version it
+    // continues (the phone shows the old value crossed out from that). The phone gives it with its touch.
+    const changeGive = await phoneGrantsNext(p, sb.recoveryCode, phone, read.priv, granted, 'the AI-proposed change');
+    expect(changeGive.give.op).toBe('change');
+    expect(changeGive.give.proposal_id).toBe(changeId);
+    expect(changeGive.give.bounds.archive_access).toBe('allowed');
+    expect(changeGive.give.previous?.bounds?.archive_access).toBe('none');
+    expect(changeGive.intent).toBe('Keep the notes of the quotes. Archive test notes once done.');
+
+    // The gateway's background completion checks the phone's grant and puts the changed mandate in force: no page involved.
+    await until('the changed mandate is live for the AI', async () => {
+      const r = await callTool(agent, 'list-authorizations', { domain: 'records' });
+      return /archive_access: allowed/.test(r.text) ? r : undefined;
+    }, 90_000);
+
+    // The phone then closes the AI's request as `replaced`, signed with its device key (what the app does after a give it carried out).
+    const token = await phoneSession(p, sb.recoveryCode, phone);
+    const got = await http(stack.asUrl, 'GET', `/api/proposals/${encodeURIComponent(changeId!)}`, { token });
+    expect(got.status, show(got)).toBe(200);
+    const prop = got.json.proposal as Record<string, any>;
+    const rootK = await rootKeyFromRecoveryCode(sb.recoveryCode);
+    const head = (await verifyChain({ expectedRootDid: rootK.did, entries: await chainEntries(p.userId) })).head;
+    const decision = buildDecision({
+      approver_did: rootK.did, key_id: phone.record.key_id, chain_seq: head.seq, chain_head: head.hash, proposal_id: changeId!,
+      mandate_id: setupGive.mandate_id, action: prop.tool, action_type: prop.actionType ?? prop.action_type, decision: 'reject',
+      content_hash: prop.contentHash, proposal_content_hash: prop.contentHash, decided_at: nowSec(), nonce: b64uEncode(crypto.getRandomValues(new Uint8Array(16))),
+    } as never);
+    const closedByPhone = await http(stack.asUrl, 'POST', `/api/proposals/${encodeURIComponent(changeId!)}/resolve`, {
+      token, body: { domain: 'owner', action: 'reject', outcome: 'replaced', content_hash: prop.contentHash, proposalContentHash: prop.contentHash, device_decision: { decision, sig: await signObject(decision, phone.seed) } },
+    });
+    expect(closedByPhone.status, show(closedByPhone)).toBe(200);
+
+    // The card on the computer goes away by itself, and the AI hears "replaced", never a refusal.
+    await expect(cardOf(changeId!).filter({ visible: true })).toHaveCount(0, { timeout: 60_000 });
+    await shot('c2-computer-after-phone-gave');
+    const changeClosed = await until('the change proposal is closed', async () => {
+      const r = await callTool(agent, 'check-pending-commitments', { proposal_id: changeId });
+      return /pending|awaiting/i.test(r.text) ? undefined : r;
+    }, 60_000);
+    expect(changeClosed.text).not.toMatch(/setup refused to run it|nothing was done/);
   } finally {
     await agent.close().catch(() => undefined);
   }

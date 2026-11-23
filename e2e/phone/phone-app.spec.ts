@@ -872,6 +872,61 @@ test.describe('stage D3: give a mandate on the phone (plan 4.4 Transport, DEC-86
     await phone.context.close();
   });
 
+  test('an open app shows what a push announces at once (dev lane 2026-11-23: the card came ~5 s after the notice), not at its next refresh', async ({ browser }) => {
+    const phone = await joinedPhone(browser, 'Open Phone', 'Office Mac');
+    const comp = phone.person;
+    await phone.context.grantPermissions(['notifications'], { origin: stack.appUrl });
+    await phone.page.goto(stack.appUrl);
+    await phone.page.getByRole('button', { name: 'Open with a touch' }).click();
+    await expect(phone.page.getByRole('tab', { name: 'Requests' }).or(phone.page.getByRole('button', { name: 'Requests', exact: true })).first()).toBeVisible({ timeout: 20_000 });
+    await phone.page.evaluate(() => navigator.serviceWorker.ready.then(() => true));
+
+    // The computer prepares a give while the app is open (the gateway's `sendToPhone`).
+    const chain = await chainOf(stack, comp, comp.root.did);
+    const state = await verifiedChain(stack, comp, comp.root.did);
+    const token = await sessionFor(stack, comp.root, comp.dev, chain.head);
+    const profile = JSON.parse(readFileSync(join(PROFILES_DIR, 'sales', '0.4.profile.json'), 'utf8'));
+    const bounds = { profile: profile.id, read_access: 'unlimited', value_max: 1000, discount_max: 10, order_value_daily_max: 5000, quote_daily_max: 10, send_daily_max: 10, order_daily_max: 0, setup_daily_max: 0 };
+    const scope = { currency: 'EUR' };
+    const intent = 'Follow up quotes that wait two days.';
+    const groups = await http(stack.asUrl, 'GET', '/api/groups', { apiKey: comp.apiKey });
+    const groupId = (groups.json.groups as Array<{ id: string; isPersonal?: boolean }>).find((g) => g.isPersonal)!.id;
+    const mandateId = newMandateId();
+    const payload = {
+      mandate_id: mandateId, version: '0.8', profile_id: profile.id, profile_hash: computeProfileHash(profile), bounds_hash: computeBoundsHash(bounds as never, profile),
+      scope_hash: computeScopeHash(scope as never, profile), execution_context_hash: computeExecutionContextHash(profile), issuer: 'did:key:z',
+      mandate_owners: [{ did: comp.root.did }], gate_content_hashes: { intent: computeIntentHash(intent) }, commitment_mode: 'review',
+      issued_at: nowSec(), expires_at: nowSec() + 3600,
+    } as unknown as MandatePayload;
+    const content = { v: 2, mandate_id: mandateId, mandate_version: 1, scope, intent, give: { op: 'grant', profile, bounds, payload, place: { authorization_id: `authz_${randomUUID()}`, group_id: groupId, replaces: null, chain_dids: [comp.root.did] }, title: 'Quotes', prepared_at: nowSec() } };
+    const readers = Object.values(state.devices).filter((d) => d.removed_seq === null).map((d) => ({ did: d.key_id, publicKey: b64uDecode(d.read_pub) }));
+    const sealed = await encryptProposalContent(content, readers);
+    const prep = await http(stack.asUrl, 'POST', '/api/mandates/prepared', { token, body: { mandate_id: mandateId, mandate_version: 1, ciphertext: sealed.content.ciphertext, device_keys: sealed.content.encrypted_keys } });
+    expect(prep.status, show(prep)).toBe(201);
+
+    // Without a push the open app does not see it yet (its own refresh is every 30 s): the push is what makes it appear.
+    await phone.page.waitForTimeout(1_500);
+    await expect(phone.page.getByTestId('give-card')).toHaveCount(0);
+
+    // The push, delivered to the app's own service worker as the browser's push service would (Chromium's DevTools protocol).
+    const cdp = await phone.context.newCDPSession(phone.page);
+    const registrationId = await new Promise<string>((resolve) => {
+      cdp.on('ServiceWorker.workerRegistrationUpdated', (e: { registrations: Array<{ registrationId: string; scopeURL: string; isDeleted: boolean }> }) => {
+        const r = e.registrations.find((x) => !x.isDeleted && x.scopeURL.startsWith(new URL(stack.appUrl).origin));
+        if (r) resolve(r.registrationId);
+      });
+      void cdp.send('ServiceWorker.enable');
+    });
+    const t0 = Date.now();
+    await cdp.send('ServiceWorker.deliverPushMessage', { origin: new URL(stack.appUrl).origin, registrationId, data: JSON.stringify({ ids: ['prop_push_1'] }) });
+    await expect(phone.page.getByTestId('give-card')).toBeVisible({ timeout: 1_000 });
+    const ms = Date.now() - t0;
+    test.info().annotations.push({ type: 'push-to-card-ms', description: String(ms) });
+    await phone.page.screenshot({ path: test.info().outputPath('p1-card-after-push.png'), fullPage: true });
+    expect(ms, 'the card is on screen within a second of the push').toBeLessThanOrEqual(1_000);
+    await phone.context.close();
+  });
+
   test('a give whose limits differ from what the mandate names is not offered: no button, nothing signed', async ({ browser }) => {
     const phone = await joinedPhone(browser, 'Careful Phone', 'Other Mac');
     const comp = phone.person;
