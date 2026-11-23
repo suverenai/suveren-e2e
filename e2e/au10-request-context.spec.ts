@@ -41,7 +41,7 @@ import {
   registerOnSP, signInToGateway, handleOnboarding, activateIntegration,
   spApiAttest, latestProfileId, gatewayDataDir,
   openApprovalCard,
-  selectQueueView,, waitForPageGate } from './fixtures';
+  selectQueueView, waitForPageGate } from './fixtures';
 import { DatabaseSync } from 'node:sqlite';
 import { randomUUID } from 'node:crypto';
 import { hashGateContent, computeBoundsHash, computeScopeHash } from '../src/helpers/crypto.js';

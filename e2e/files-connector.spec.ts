@@ -19,7 +19,7 @@ import {
   test, expect,
   SP_URL, GW_URL, GW_MCP_URL, INTERNAL_SECRET,
   registerOnSP, signInToGateway, handleOnboarding, activateIntegration, spApiAttest, latestProfileId, gatewayDataDir,
-  openApprovalCard,, waitForPageGate } from './fixtures';
+  openApprovalCard, waitForPageGate } from './fixtures';
 import { hashGateContent, computeBoundsHash, computeScopeHash } from '../src/helpers/crypto.js';
 import { mp4, pdfAnnotated, png, sha256 } from '../src/helpers/file-fixtures.js';
 import { typeTitle } from '../src/helpers/give-page';

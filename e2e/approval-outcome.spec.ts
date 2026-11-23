@@ -19,7 +19,7 @@ import { join } from 'node:path';
 import type { APIRequestContext, Page } from '@playwright/test';
 import {
   test, expect, SP_URL, GW_MCP_URL, INTERNAL_SECRET,
-  registerOnSP, signInToGateway, handleOnboarding, activateIntegration, spApiAttest, spApiReceipt, latestProfileId,, waitForPageGate } from './fixtures';
+  registerOnSP, signInToGateway, handleOnboarding, activateIntegration, spApiAttest, spApiReceipt, latestProfileId, waitForPageGate } from './fixtures';
 import { hashGateContent, computeBoundsHash, computeScopeHash } from '../src/helpers/crypto.js';
 
 const PROFILE = latestProfileId('customers');

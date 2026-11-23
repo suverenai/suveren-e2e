@@ -19,7 +19,7 @@ import {
   test, expect,
   SP_URL, GW_URL, GW_MCP_URL, INTERNAL_SECRET,
   registerOnSP, signInToGateway, handleOnboarding, activateIntegration,
-  spApiAttest, latestProfileId,, waitForPageGate } from './fixtures';
+  spApiAttest, latestProfileId, waitForPageGate } from './fixtures';
 import { hashGateContent, computeBoundsHash, computeScopeHash } from '../src/helpers/crypto.js';
 
 const CUSTOMERS_PROFILE = latestProfileId('customers');
