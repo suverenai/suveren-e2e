@@ -6,6 +6,23 @@
 import type { Locator, Page } from 'playwright';
 
 /**
+ * Waits until the approval panel is not sliding. The gateway marks a slide with `apr-has-anim` on <body> for its
+ * duration (ApprovalPanelHost: SLIDE_MS + 80 ms). Two checks a frame apart, because a route change starts the slide
+ * in an effect just after the URL changes. Older gateways without the class pass at once.
+ */
+export async function waitForPanelStill(page: Page, timeout = 5_000): Promise<void> {
+  const still = () => document.body ? !document.body.classList.contains('apr-has-anim') : true;
+  const end = Date.now() + timeout;
+  while (Date.now() < end) {
+    if (await page.evaluate(still).catch(() => true)) {
+      await page.waitForTimeout(100);
+      if (await page.evaluate(still).catch(() => true)) return;
+    }
+    await page.waitForTimeout(50);
+  }
+}
+
+/**
  * The approval card for `proposalId` on the Approvals page, opened (approval
  * card v3, UI spec §17). Rows in the list carry `data-proposal-id`; the open
  * card is `[data-testid="approval-card"][data-proposal-id]`. From another open
@@ -19,6 +36,10 @@ export async function openApprovalById(page: Page, proposalId: string, timeout =
   const card = panel.locator(`[data-testid="approval-card"][data-proposal-id="${proposalId}"]`);
   const end = Date.now() + timeout;
   while (Date.now() < end) {
+    // The panel may still be sliding: it opens by itself on one page, and going to another page sends it away
+    // (ApprovalPanelHost). A card seen mid-slide is gone a moment later (CI 45102801215: the card was found, then
+    // "outside of the viewport", then detached). Look only once the panel is still.
+    await waitForPanelStill(page);
     if (await card.isVisible().catch(() => false)) return card;
     const open = (await panel.getAttribute('aria-hidden').catch(() => 'true')) === 'false';
     if (open) {
