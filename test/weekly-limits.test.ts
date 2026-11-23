@@ -168,16 +168,18 @@ describe.skipIf(!available)('weekly limits: publish@0.9 and email@0.11 (real sta
   describe('a team configured for email@0.10: email@0.11 is not enabled until an admin saves it (today\'s carry-over rule)', () => {
     it('a mandate under 0.11 is refused, naming the new field send_weekly_max and the version it would carry over from', async () => {
       const EMAIL_10 = `${P}/email@0.10`;
-      const team = await sp.createGroup(owner.apiKey, `Weekly Team ${Date.now()}`);
+      // Its own account: joining a team pauses the Personal workspace the other cases use.
+      const admin = await sp.register('Tess Team', `tess-weekly-${Date.now()}@test.local`) as unknown as Account;
+      const team = await sp.createGroup(admin.apiKey, `Weekly Team ${Date.now()}`);
       const teamId = team.group.id;
-      await sp.setProfileConfig(owner.apiKey, teamId, EMAIL_10, { approvers: [owner.user.id] });
+      await sp.setProfileConfig(admin.apiKey, teamId, EMAIL_10, { approvers: [admin.user.id] });
       const keys = ['profile', 'read_access', 'recipient_max', 'send_daily_max', 'send_weekly_max', 'read_max_age_days', 'setup_daily_max'];
       const b = { profile: EMAIL_11, read_access: 'unlimited', recipient_max: 1, send_daily_max: 5, send_weekly_max: 3, setup_daily_max: 0 };
-      const r = await sp.submitMandateRaw(owner.apiKey, {
+      const r = await sp.submitMandateRaw(admin.apiKey, {
         authorization_id: `authz_${crypto.randomUUID()}`,
         profile_id: EMAIL_11, profile_hash: profileHashFor(EMAIL_11, PROFILES_DIR), group_id: teamId, bounds: b,
         bounds_hash: computeBoundsHash(b, keys), scope_hash: computeScopeHash({ allowed_domains: DOMAIN }, ['allowed_recipients', 'allowed_domains', 'allowed_attachment_sources']),
-        domain: owner.user.id, did: owner.user.did, commitment_mode: 'automatic',
+        domain: admin.user.id, did: admin.user.did, commitment_mode: 'automatic',
         gate_content_hashes: hashGateContent({ intent: 'E2E: team weekly.' }), execution_context_hash: hashExecutionContext({ m: EMAIL_11 }),
       });
       expect(r.status, JSON.stringify(r.body)).toBeGreaterThanOrEqual(400);
