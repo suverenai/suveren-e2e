@@ -80,3 +80,18 @@ export function profileHashFor(profileId: string, profilesDir: string): string {
 export function executionContextHashFor(profileId: string, profilesDir: string): string {
   return computeExecutionContextHash(loadProfile(profileId, profilesDir) as { executionContextSchema?: unknown });
 }
+
+/**
+ * The newest version of a profile in the checkout's index.json, as a full id
+ * (`github.com/.../email@0.11`). What a gateway proposes by default ("the newest
+ * version"), so a test that means "the default" does not pin a number that the
+ * next profile release changes.
+ */
+export function newestProfileId(shortName: string, profilesDir: string): string {
+  const index = JSON.parse(readFileSync(join(profilesDir, 'index.json'), 'utf8')) as { profiles: Record<string, string> };
+  const ids = Object.keys(index.profiles).filter((id) => id.replace(/@[^@]*$/, '').endsWith(`/${shortName}`));
+  if (!ids.length) throw new Error(`no ${shortName} profile in ${profilesDir}/index.json`);
+  const ver = (id: string) => id.slice(id.lastIndexOf('@') + 1).split('.').map(Number);
+  ids.sort((a, b) => { const x = ver(a), y = ver(b); for (let i = 0; i < Math.max(x.length, y.length); i++) { const d = (x[i] ?? 0) - (y[i] ?? 0); if (d) return d; } return 0; });
+  return ids[ids.length - 1];
+}
