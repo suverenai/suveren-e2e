@@ -26,7 +26,7 @@ import { SSEClientTransport } from '@modelcontextprotocol/sdk/client/sse.js';
 import type pg from 'pg';
 import { readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { buildEntry, entryHash, signEntry, rootKeyFromRecoveryCode, buildGrant, buildDecision, signObject, objectHash, verifyChain, type ChainEntry } from '@humanagencyp/hap-core/device-keys';
+import { buildEntry, entryHash, signEntry, rootKeyFromRecoveryCode, buildGrant, signObject, objectHash, verifyChain, type ChainEntry } from '@humanagencyp/hap-core/device-keys';
 import { decryptProposalContent, type MandatePayload } from '@humanagencyp/hap-core';
 import { grantMembersOf } from '../../src/helpers/mandate-grant';
 import { newPhone, assertion, phoneSigninBody, type Phone } from '../../src/helpers/phone-passkey';
@@ -298,7 +298,7 @@ test('a computer without Touch ID: the give page sends the mandate to the phone,
   await expect(page.getByTestId('give-phone-send')).toBeEnabled({ timeout: 30_000 });
   await page.getByTestId('give-phone-send').click();
   await expect(page.getByTestId('give-phone-waiting')).toBeVisible({ timeout: 30_000 });
-  const setupGive = await phoneGrantsNext(p, sb.recoveryCode, phone, read.priv, granted, 'the Setup give');
+  await phoneGrantsNext(p, sb.recoveryCode, phone, read.priv, granted, 'the Setup give');
   // The give page ends with the one shared result (whichever device gave it): "Signed", then Close to the mandate list.
   await expect(page.getByTestId('give-done')).toBeVisible({ timeout: 60_000 });
   await expect(page.getByTestId('give-done').getByText('Signed')).toBeVisible();
@@ -453,31 +453,21 @@ test('a computer without Touch ID: the give page sends the mandate to the phone,
     expect(changeGive.give.previous?.bounds?.archive_access).toBe('none');
     expect(changeGive.intent).toBe('Keep the notes of the quotes. Archive test notes once done.');
 
-    // The gateway's background completion checks the phone's grant and puts the changed mandate in force: no page involved.
+    // The computer takes the phone's grant in (it checks every second while a give waits), puts the change in force and closes the
+    // AI's request as `replaced` itself: the card on the computer is gone within 3 s (dev lane 2026-11-23: it stayed ~10 s).
+    const tGranted = Date.now();
+    await expect(cardOf(changeId!).filter({ visible: true })).toHaveCount(0, { timeout: 3_000 });
+    test.info().annotations.push({ type: 'card-gone-after-grant-ms', description: String(Date.now() - tGranted) });
     await until('the changed mandate is live for the AI', async () => {
       const r = await callTool(agent, 'list-authorizations', { domain: 'records' });
       return /archive_access: allowed/.test(r.text) ? r : undefined;
-    }, 90_000);
-
-    // The phone then closes the AI's request as `replaced`, signed with its device key (what the app does after a give it carried out).
+    }, 30_000);
+    // The request is already closed when the phone would close it (the app then leaves it as it is).
     const token = await phoneSession(p, sb.recoveryCode, phone);
     const got = await http(stack.asUrl, 'GET', `/api/proposals/${encodeURIComponent(changeId!)}`, { token });
     expect(got.status, show(got)).toBe(200);
-    const prop = got.json.proposal as Record<string, any>;
-    const rootK = await rootKeyFromRecoveryCode(sb.recoveryCode);
-    const head = (await verifyChain({ expectedRootDid: rootK.did, entries: await chainEntries(p.userId) })).head;
-    const decision = buildDecision({
-      approver_did: rootK.did, key_id: phone.record.key_id, chain_seq: head.seq, chain_head: head.hash, proposal_id: changeId!,
-      mandate_id: setupGive.mandate_id, action: prop.tool, action_type: prop.actionType ?? prop.action_type, decision: 'reject',
-      content_hash: prop.contentHash, proposal_content_hash: prop.contentHash, decided_at: nowSec(), nonce: b64uEncode(crypto.getRandomValues(new Uint8Array(16))),
-    } as never);
-    const closedByPhone = await http(stack.asUrl, 'POST', `/api/proposals/${encodeURIComponent(changeId!)}/resolve`, {
-      token, body: { domain: 'owner', action: 'reject', outcome: 'replaced', content_hash: prop.contentHash, proposalContentHash: prop.contentHash, device_decision: { decision, sig: await signObject(decision, phone.seed) } },
-    });
-    expect(closedByPhone.status, show(closedByPhone)).toBe(200);
+    expect((got.json.proposal as Record<string, any>).status).not.toBe('pending');
 
-    // The card on the computer goes away by itself.
-    await expect(cardOf(changeId!).filter({ visible: true })).toHaveCount(0, { timeout: 60_000 });
     // The Approvals list and the nav badge say the same, at the same moment (dev lane 2026-11-23: "Nothing waiting" beside a 1).
     await goInPage(page, '/approvals');
     await expect(page.getByTestId('queue-empty')).toBeVisible({ timeout: 60_000 });
