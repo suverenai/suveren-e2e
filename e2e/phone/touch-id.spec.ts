@@ -115,12 +115,16 @@ test('Touch ID on the gateway page: set-up, unlock, give, the card in place, an 
   // held a moment so that step is on screen long enough to be seen.
   const holdSignIn = async (route: import('@playwright/test').Route) => { await new Promise((r) => setTimeout(r, 1_500)); await route.fallback(); };
   await page.route(`${gw}/auth/device/signin`, holdSignIn);
+  // The page asks the status first and calls sign-in only when the gateway has not signed in by itself in the background
+  // meanwhile (unlock-driver.ts afterSession): hold the status too, or the step can be too short to be seen (a race).
+  await page.route(`${gw}/auth/device/status`, holdSignIn);
   await page.getByRole('button', { name: 'Unlock with Touch ID' }).click();
   await expect(page.getByTestId('shell-skeleton-dashboard'), 'DEC-100: the dashboard greyed out after the touch').toBeVisible({ timeout: 15_000 });
   await expect(page.locator('.brand-spin'), 'DEC-100: no turning mark').toHaveCount(0);
   await shot('t1b-between-touch-and-dashboard');
   await expect(page.locator('.page-title').first()).toBeVisible({ timeout: 30_000 });
   await page.unroute(`${gw}/auth/device/signin`, holdSignIn);
+  await page.unroute(`${gw}/auth/device/status`, holdSignIn);
   await shot('t2-unlocked-with-touch');
 
   // S2: the Setup mandate, given on the give page with Touch ID.

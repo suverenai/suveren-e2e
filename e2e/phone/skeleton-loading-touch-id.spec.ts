@@ -245,6 +245,9 @@ test('DEC-98: every main page loads in one go under a slow network (CLS < 0.05),
   // is held a moment longer so the step between is on screen long enough to be seen.
   const holdSignIn = async (route: import('@playwright/test').Route) => { await new Promise((r) => setTimeout(r, 1_500)); await route.fallback(); };
   await page.route(`${gw}/auth/device/signin`, holdSignIn);
+  // The page asks the status first and calls sign-in only when the gateway has not signed in by itself in the background
+  // meanwhile (unlock-driver.ts afterSession): hold the status too, or the step can be too short to be seen (a race).
+  await page.route(`${gw}/auth/device/status`, holdSignIn);
   await page.locator('#unlock-password').fill(PASSWORD);
   await resetCls(page);
   await page.locator('#unlock-password').press('Enter');
@@ -253,6 +256,7 @@ test('DEC-98: every main page loads in one go under a slow network (CLS < 0.05),
   await expect(page.locator('.page-title').first()).toBeVisible({ timeout: 30_000 });
   await settle(page);
   await page.unroute(`${gw}/auth/device/signin`, holdSignIn);
+  await page.unroute(`${gw}/auth/device/status`, holdSignIn);
   await shot(page, info, '01c-signin-dashboard');
   const signinCls = await cls(page);
   report(info, 'signin', signinCls, await shifts(page));
@@ -351,6 +355,9 @@ test('DEC-100: in simulation mode the banner is there from the first frame after
 
       const holdSignIn = async (route: import('@playwright/test').Route) => { await new Promise((r) => setTimeout(r, 1_500)); await route.fallback(); };
       await page.route(`${gw}/auth/device/signin`, holdSignIn);
+      // The page asks the status first and calls sign-in only when the gateway has not signed in by itself in the background
+      // meanwhile (unlock-driver.ts afterSession): hold the status too, or the step can be too short to be seen (a race).
+      await page.route(`${gw}/auth/device/status`, holdSignIn);
       await page.locator('#unlock-password').fill(PASSWORD);
       await resetCls(page);
       await page.locator('#unlock-password').press('Enter');
@@ -362,6 +369,7 @@ test('DEC-100: in simulation mode the banner is there from the first frame after
       await expect(page.locator('.page-title').first()).toBeVisible({ timeout: 30_000 });
       await settle(page);
       await page.unroute(`${gw}/auth/device/signin`, holdSignIn);
+      await page.unroute(`${gw}/auth/device/status`, holdSignIn);
       await shot(page, info, 'sim-03-dashboard');
       await expect(page.locator('.simulation-banner')).toBeVisible();
       const v = await cls(page);
