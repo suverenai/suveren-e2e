@@ -126,4 +126,30 @@ test.describe.serial('Weekly send limit (browser)', () => {
     expect(bounds.send_daily_max).toBe(2);
     expect('send_weekly_max' in bounds).toBe(false);
   });
+
+  test('generic: an optional DAILY limit left empty is not set either; a required limit left empty keeps Continue off', async ({ request }) => {
+    test.setTimeout(90_000);
+    await openEmailForm();
+    // A required limit (here the test-data loads, shown in simulation, required in email@0.11) emptied: Continue waits.
+    const setup = page.locator('#bounds-field-setup_daily_max');
+    await setup.fill('');
+    await expect(page.getByTestId('required-limits-empty')).toBeVisible();
+    await expect(page.locator('button:has-text("Next")')).toBeDisabled();
+    await page.screenshot({ path: test.info().outputPath('w5-required-empty.png'), fullPage: true });
+    await setup.fill('0');
+    await expect(page.getByTestId('required-limits-empty')).toHaveCount(0);
+    // email's send_daily_max is optional: left empty it is no daily limit; the weekly one is set.
+    await page.locator('#bounds-field-send_daily_max').fill('');
+    await expect(page.locator('#bounds-field-send_daily_max')).toHaveAttribute('placeholder', 'No limit');
+    await page.locator('#bounds-field-send_weekly_max').fill('3');
+    await expect(page.getByTestId('at-least-one-hint')).toHaveText(FORM_HINT);
+    const before = await activeCount(request);
+    await toReview('Weekly only');
+    await expect(reviewRow('Emails per week')).toBeVisible();
+    await expect(reviewRow('Emails per day')).toHaveCount(0);
+    await sign();
+    const bounds = await signedBounds(request, before);
+    expect(bounds.send_weekly_max).toBe(3);
+    expect('send_daily_max' in bounds).toBe(false);
+  });
 });
