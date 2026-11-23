@@ -406,6 +406,9 @@ test('a computer without Touch ID: the give page sends the mandate to the phone,
     // The stamp sits in the middle of the card above Close, not at its bottom (Andreas, dev test 2026-11-22).
     await expectStampCentredAtSizes(page, card.getByTestId('give-touch-given').locator('.av3-stamp'), 'card, given on the phone', shot, 's3-stamp');
     expect(page.url()).toBe(urlBefore);
+    // The person closes the result, as on the dev lane (the card stays with its stamp until Close, DEC-88).
+    await card.getByTestId('give-touch-close').click();
+    await expect(cardOf(proposalId!).filter({ visible: true })).toHaveCount(0, { timeout: 30_000 });
 
     // The proposal is closed as replaced by the person's own mandate (never executed as a second one), and nothing was refused.
     const closed = await until('the proposal is closed', async () => {

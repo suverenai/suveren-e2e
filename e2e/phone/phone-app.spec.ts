@@ -875,11 +875,9 @@ test.describe('stage D3: give a mandate on the phone (plan 4.4 Transport, DEC-86
   test('an open app shows what a push announces at once (dev lane 2026-11-23: the card came ~5 s after the notice), not at its next refresh', async ({ browser }) => {
     const phone = await joinedPhone(browser, 'Open Phone', 'Office Mac');
     const comp = phone.person;
-    await phone.context.grantPermissions(['notifications'], { origin: stack.appUrl });
     await phone.page.goto(stack.appUrl);
     await phone.page.getByRole('button', { name: 'Open with a touch' }).click();
     await expect(phone.page.getByRole('tab', { name: 'Requests' }).or(phone.page.getByRole('button', { name: 'Requests', exact: true })).first()).toBeVisible({ timeout: 20_000 });
-    await phone.page.evaluate(() => navigator.serviceWorker.ready.then(() => true));
 
     // The computer prepares a give while the app is open (the gateway's `sendToPhone`).
     const chain = await chainOf(stack, comp, comp.root.did);
@@ -908,17 +906,11 @@ test.describe('stage D3: give a mandate on the phone (plan 4.4 Transport, DEC-86
     await phone.page.waitForTimeout(1_500);
     await expect(phone.page.getByTestId('give-card')).toHaveCount(0);
 
-    // The push, delivered to the app's own service worker as the browser's push service would (Chromium's DevTools protocol).
-    const cdp = await phone.context.newCDPSession(phone.page);
-    const registrationId = await new Promise<string>((resolve) => {
-      cdp.on('ServiceWorker.workerRegistrationUpdated', (e: { registrations: Array<{ registrationId: string; scopeURL: string; isDeleted: boolean }> }) => {
-        const r = e.registrations.find((x) => !x.isDeleted && x.scopeURL.startsWith(new URL(stack.appUrl).origin));
-        if (r) resolve(r.registrationId);
-      });
-      void cdp.send('ServiceWorker.enable');
-    });
+    // The push. Seam: this browser blocks service workers (a cached shell would hide a rebuilt app, newPhone above), so the message
+    // the app's service worker sends to open windows on a push (public/sw.js `tellOpenWindows`, covered by apps/approve
+    // sw-push.test.ts) is dispatched on the app's service-worker container here; what the app does with it is its own code.
     const t0 = Date.now();
-    await cdp.send('ServiceWorker.deliverPushMessage', { origin: new URL(stack.appUrl).origin, registrationId, data: JSON.stringify({ ids: ['prop_push_1'] }) });
+    await phone.page.evaluate(() => navigator.serviceWorker.dispatchEvent(new MessageEvent('message', { data: { t: 'pushed' } })));
     await expect(phone.page.getByTestId('give-card')).toBeVisible({ timeout: 1_000 });
     const ms = Date.now() - t0;
     test.info().annotations.push({ type: 'push-to-card-ms', description: String(ms) });
