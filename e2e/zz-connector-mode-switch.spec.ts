@@ -19,7 +19,7 @@
  * (local) system, and journey-1 expects the practice CRM to be paused.
  * Selectors use roles and the visible texts, not markup details.
  */
-import { test, expect, ensureUsersRegistered, ALICE, signInToGateway, handleOnboarding, cardTitlePattern } from './fixtures';
+import { test, expect, ensureUsersRegistered, ALICE, signInToGateway, handleOnboarding, cardTitlePattern, waitForPageGate } from './fixtures';
 
 /** A running connector moves to "In use" as a collapsed card: open it if the button is not there yet. */
 async function openEdit(card: import('@playwright/test').Locator) {
@@ -36,6 +36,7 @@ test('CRM: Test data -> On this computer -> Test data, no reload', async ({ page
   await page.waitForLoadState('networkidle');
   await page.click('.sidebar-item:has-text("Connectors")');
   await page.waitForURL('**/integrations');
+  await waitForPageGate(page);
 
   const card = page.locator('.card', { has: page.locator('.card-title', { hasText: cardTitlePattern('CRM') }) }).first();
   await card.waitFor({ state: 'visible', timeout: 15_000 });

@@ -19,8 +19,7 @@ import {
   test, expect,
   SP_URL, GW_URL, GW_MCP_URL, INTERNAL_SECRET,
   registerOnSP, signInToGateway, handleOnboarding, activateIntegration,
-  spApiAttest, latestProfileId,
-} from './fixtures';
+  spApiAttest, latestProfileId, waitForPageGate } from './fixtures';
 import { hashGateContent, computeBoundsHash, computeScopeHash } from '../src/helpers/crypto.js';
 
 const CUSTOMERS_PROFILE = latestProfileId('customers');
@@ -98,6 +97,7 @@ test.describe.serial('Approval panel (real stack, simulation gateway)', () => {
     await activateIntegration(page, 'CRM');
     await reviewMandate(request, apiKey, did);
     await page.click('.sidebar-item:has-text("Dashboard")');
+    await waitForPageGate(page);
     await expect(page.locator('.page-title')).toHaveText('Dashboard');
     // The default: approvals open by themselves.
     expect(await autoOpenSetting(page, apiKey)).toBe(true);

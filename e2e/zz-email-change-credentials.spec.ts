@@ -6,7 +6,7 @@
  * The Client ID here is a placeholder: no Google call is made.
  */
 import http from 'node:http';
-import { test, expect, ensureUsersRegistered, ALICE, signInToGateway, handleOnboarding, cardTitlePattern, GW_URL } from './fixtures';
+import { test, expect, ensureUsersRegistered, ALICE, signInToGateway, handleOnboarding, cardTitlePattern, GW_URL, waitForPageGate } from './fixtures';
 
 /**
  * Save the Email settings on a connection of its own.
@@ -46,6 +46,7 @@ test('Email: Change Credentials opens the saved Gmail settings for editing', asy
 
   await page.click('.sidebar-item:has-text("Connectors")');
   await page.waitForURL('**/integrations');
+  await waitForPageGate(page);
   const card = page.locator('.card', { has: page.locator('.card-title', { hasText: cardTitlePattern('Email') }) }).first();
   await card.waitFor({ state: 'visible', timeout: 15_000 });
   // Wait until the card has read its saved credentials. Before that answer it is closed, and the same render

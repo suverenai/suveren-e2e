@@ -19,8 +19,7 @@ import {
   test, expect,
   SP_URL, GW_URL, GW_MCP_URL, INTERNAL_SECRET,
   registerOnSP, signInToGateway, handleOnboarding, activateIntegration, spApiAttest, latestProfileId, gatewayDataDir,
-  openApprovalCard,
-} from './fixtures';
+  openApprovalCard, waitForPageGate } from './fixtures';
 import { hashGateContent, computeBoundsHash, computeScopeHash } from '../src/helpers/crypto.js';
 import { mp4, pdfAnnotated, png, sha256 } from '../src/helpers/file-fixtures.js';
 import { typeTitle } from '../src/helpers/give-page';
@@ -289,6 +288,7 @@ test.describe.serial('Files connector: selector and approval card', () => {
       await setFolder(blocked);
       await page.click('.sidebar-item:has-text("Connectors")');
       await page.waitForURL('**/integrations**');
+      await waitForPageGate(page);
       const card = page.locator('details.su-cn', { has: page.locator('h3.card-title', { hasText: /^Files/ }) });
       await expect(card).toHaveCount(1, { timeout: 30_000 });
       // It opens by itself and reads "Needs attention", not "Running".
@@ -299,6 +299,7 @@ test.describe.serial('Files connector: selector and approval card', () => {
       await expect(card.locator('dt', { hasText: 'Files says' })).toBeVisible();
 
       await page.click('.sidebar-item:has-text("Dashboard")');
+      await waitForPageGate(page);
       const row = page.locator('.dash-att-row', { hasText: 'Files needs attention' });
       await expect(row).toBeVisible({ timeout: 30_000 });
       await expect(row).toContainText(reason);
@@ -310,6 +311,7 @@ test.describe.serial('Files connector: selector and approval card', () => {
     // Back on a usable folder: the card is plain "Running" again.
     await page.click('.sidebar-item:has-text("Connectors")');
     await page.waitForURL('**/integrations**');
+    await waitForPageGate(page);
     const card = page.locator('details.su-cn', { has: page.locator('h3.card-title', { hasText: /^Files/ }) });
     await expect(card.locator(':scope > summary')).toContainText('Running', { timeout: 30_000 });
     await expect(card.getByTestId('connector-problem')).toHaveCount(0);

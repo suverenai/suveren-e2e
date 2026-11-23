@@ -32,6 +32,7 @@ import { grantMembersOf } from '../../src/helpers/mandate-grant';
 import { newPhone, assertion, phoneSigninBody, type Phone } from '../../src/helpers/phone-passkey';
 import { newReadKey } from '../../src/helpers/device-chain';
 import { connectDb, enrolmentCode, http, newPerson, nowSec, show, stackFromEnv, until, b64uEncode, type PhoneStack, type Person } from '../../src/helpers/phone-app';
+import { expectStampCentred, expectStampCentredAtSizes, expectButtonTextFits } from './stamp-centre';
 
 const unavailable = process.env.HAP_E2E_PHONE_UNAVAILABLE ?? process.env.HAP_E2E_PHONE_GW_UNAVAILABLE;
 test.skip(!!unavailable, `chain gateway not available: ${unavailable}`);
@@ -229,6 +230,9 @@ test('a computer without Touch ID: the give page sends the mandate to the phone,
   // This computer cannot give it: the footer offers the phone.
   const send = page.getByTestId('give-phone-send');
   await expect(send).toBeEnabled({ timeout: 30_000 });
+  // The button says how it is given (Andreas 2026-11-22), the same words as on the card.
+  await expect(send).toHaveText('Give this mandate on your phone');
+  await expectButtonTextFits(send, 'give page, phone button');
   await send.click();
   await expect(page.getByTestId('give-phone-waiting')).toBeVisible({ timeout: 30_000 });
 
@@ -381,6 +385,9 @@ test('a computer without Touch ID: the give page sends the mandate to the phone,
     await expect(summary).toBeVisible();
     await expect(summary).toContainText(':');
     expect(await summary.textContent(), 'no bare values').not.toMatch(/^none · none/);
+    // No check key here: the card's button says the mandate is given on the phone (Andreas 2026-11-22).
+    await expect(card.getByTestId('btn-approve')).toHaveText('Give this mandate on your phone', { timeout: 30_000 });
+    await expectButtonTextFits(card.getByTestId('btn-approve'), 'card, phone give button');
     await shot('s1-card-before');
     const urlBefore = page.url();
     await card.getByTestId('btn-approve').click();
@@ -396,6 +403,8 @@ test('a computer without Touch ID: the give page sends the mandate to the phone,
     await expect(card.getByTestId('give-touch-given')).toBeVisible({ timeout: 60_000 });
     await expect(card.getByTestId('give-touch-given').getByText('Signed')).toBeVisible();
     await shot('s3-card-given');
+    // The stamp sits in the middle of the card above Close, not at its bottom (Andreas, dev test 2026-11-22).
+    await expectStampCentredAtSizes(page, card.getByTestId('give-touch-given').locator('.av3-stamp'), 'card, given on the phone', shot, 's3-stamp');
     expect(page.url()).toBe(urlBefore);
 
     // The proposal is closed as replaced by the person's own mandate (never executed as a second one), and nothing was refused.

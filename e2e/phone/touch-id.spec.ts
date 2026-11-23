@@ -26,6 +26,7 @@ import { join } from 'node:path';
 import { connectDb, enrolmentCode, newPerson, until, stackFromEnv, type PhoneStack, type Person } from '../../src/helpers/phone-app';
 import { GatewayClient } from '../../src/helpers/gateway-client';
 import { RECORDS_INTEGRATION, recordTitles } from '../../src/helpers/gateway-stack';
+import { expectStampCentred, expectStampCentredAtSizes, expectButtonTextFits } from './stamp-centre';
 
 const helper = process.env.HAP_E2E_HELPER_APP;
 const unavailable = process.env.HAP_E2E_PHONE_UNAVAILABLE ?? process.env.HAP_E2E_PHONE_GW_UNAVAILABLE;
@@ -138,10 +139,21 @@ test('Touch ID on the gateway page: set-up, unlock, give, the card in place, an 
   if (await page.getByTestId('duration-needed').isVisible().catch(() => false)) await page.locator('button', { hasText: /^24 hours$/ }).click();
   const giveTouch = page.getByTestId('give-touch-button');
   await expect(giveTouch).toBeEnabled({ timeout: 30_000 });
+  await expect(giveTouch).toHaveText('Give this mandate with Touch ID');
   await shot('t3-give-page');
   await giveTouch.click();
   await expect(page.getByTestId('give-touch-given')).toBeVisible({ timeout: 60_000 });
+  // The result replaces the long form: the page is back at its top, the result card whole below the header.
+  await expect.poll(async () => page.evaluate(() => {
+    const card = document.querySelector('[data-testid="give-done"]');
+    const header = document.querySelector('nav, header');
+    if (!card) return 'no result card';
+    const top = card.getBoundingClientRect().top;
+    const below = header ? header.getBoundingClientRect().bottom : 0;
+    return top >= below - 1 && top < window.innerHeight ? 'in view' : `card top ${Math.round(top)} vs header ${Math.round(below)}`;
+  }), { timeout: 5_000 }).toBe('in view');
   await shot('t4-give-signed');
+  await expectStampCentred(page.getByTestId('give-touch-given').locator('.av3-stamp'), 'give page, given with Touch ID');
   await page.getByTestId('give-touch-close').click();
 
   const agent = new Client({ name: 'touch-id-scenarios', version: '1.0.0' }, { capabilities: {} });
@@ -174,6 +186,9 @@ test('Touch ID on the gateway page: set-up, unlock, give, the card in place, an 
     expect(proposed.isError, proposed.text).toBe(false);
     const mandateProposal = /Proposal ID: (\S+?)\./.exec(proposed.text)![1];
     const card = await openCard(mandateProposal);
+    // A check key here: the card's button names Touch ID, the same words as the give page (Andreas 2026-11-22).
+    await expect(card.getByTestId('btn-approve')).toHaveText('Give this mandate with Touch ID', { timeout: 30_000 });
+    await expectButtonTextFits(card.getByTestId('btn-approve'), 'card, Touch ID give button');
     await shot('t5-card-mandate');
     const urlBefore = page.url();
     await card.getByTestId('btn-approve').click();
@@ -181,6 +196,7 @@ test('Touch ID on the gateway page: set-up, unlock, give, the card in place, an 
     await expect(card.getByTestId('give-touch-given')).toBeVisible({ timeout: 60_000 });
     await expect(card.getByTestId('give-touch-given').getByText('Signed')).toBeVisible();
     await shot('t6-card-given-with-touch');
+    await expectStampCentredAtSizes(page, card.getByTestId('give-touch-given').locator('.av3-stamp'), 'card, given with Touch ID', shot, 't6-stamp');
     expect(page.url(), 'the give runs on the card').toBe(urlBefore);
     await card.getByTestId('give-touch-close').click();
     await until('the Records mandate is live for the AI', async () => (/records@/.test((await callTool(agent, 'list-authorizations', {})).text) ? true : undefined), 90_000);
