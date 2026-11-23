@@ -79,9 +79,15 @@ export async function openAllTickets(page: Page): Promise<void> {
 export async function openFirstApprovalInPanel(page: Page): Promise<void> {
   const panel = page.getByTestId('approval-panel');
   const head = page.locator('[data-testid="approval-row"] .appr-item-head').first();
-  await head.or(panel.locator('[data-testid="approval-card"]')).first().waitFor({ timeout: 30_000 });
-  if ((await panel.getAttribute('aria-hidden')) !== 'false') {
-    await head.click({ timeout: 10_000 }).catch(() => {});
+  const shown = panel.locator('[data-testid="approval-card"]').filter({ visible: true }).first();
+  await head.or(shown).first().waitFor({ timeout: 30_000 });
+  // The panel can open by itself on the page before (the dashboard after sign-in) and leave on the move here: a card seen
+  // in it at that moment is on its way out (ApprovalPanelHost closes it on a route change). Decide only once it stands still.
+  // (e2e 45132219585 and 45146535249: the card was gone, "sealed-values" never found.)
+  await waitForPanelStill(page);
+  if (!(await shown.isVisible()) || (await panel.getAttribute('aria-hidden')) !== 'false') {
+    await head.click({ timeout: 10_000 });
+    await waitForPanelStill(page);
   }
-  await panel.locator('[data-testid="approval-card"]').first().waitFor({ timeout: 20_000 });
+  await shown.waitFor({ state: 'visible', timeout: 20_000 });
 }
