@@ -1,8 +1,8 @@
 /**
  * Weekly limits in the browser (Andreas, 2026-11-23): email@0.11's `send_weekly_max`
- * ("Weekly send limit", the last 7 days). The give form shows the field with the
- * profile's own label, the review step names it with its value, and the signed
- * mandate shows it on the Mandates page. Labels come from the profile, never from code.
+ * (the last 7 days). The give form shows the field as "Emails per week" (the connector's
+ * limit words + the window), the review step names it, and the signed mandate shows it on
+ * the Mandates page. Words come from the profile and manifest, never from code.
  *
  * Simulation gateway (the Email connector runs on its practice mailbox). Skipped when
  * the hap-profiles checkout has no email@0.11 (CI input `profiles_ref`).
@@ -44,7 +44,8 @@ test.describe.serial('Weekly send limit (browser)', () => {
 
     const weekly = page.locator('#bounds-field-send_weekly_max');
     await expect(weekly).toBeVisible({ timeout: 15_000 });
-    await expect(page.locator('label[for="bounds-field-send_weekly_max"]')).toContainText('Weekly send limit');
+    // The label is built from the connector's limit words ("emails") and the window ("per week").
+    await expect(page.locator('label[for="bounds-field-send_weekly_max"]')).toHaveText(/Emails per week/);
     await page.locator('#bounds-field-send_daily_max').fill('2');
     await weekly.fill('3');
     const domains = page.locator('#context-field-allowed_domains');
@@ -59,13 +60,13 @@ test.describe.serial('Weekly send limit (browser)', () => {
     await page.waitForURL((url) => url.toString().includes('/mandates/new/sign'), { timeout: 10_000 });
     await typeTitle(page, 'Weekly replies');
     if (await page.getByTestId('duration-needed').isVisible().catch(() => false)) await page.locator('button', { hasText: /^24 hours$/ }).click();
-    await expect(page.getByText(/Weekly send limit/).first()).toBeVisible();
+    await expect(page.getByText(/per week|Weekly send limit/i).first()).toBeVisible();
     await page.screenshot({ path: test.info().outputPath('w2-review-weekly.png'), fullPage: true });
 
     await page.locator('button', { hasText: /^Sign mandate/ }).last().click();
     await page.waitForURL((url) => url.toString().includes('/mandates') && !url.toString().includes('/new/'), { timeout: 15_000 });
     await page.locator('text=Weekly replies').first().click();
-    await expect(page.getByText(/Weekly send limit/).first()).toBeVisible({ timeout: 10_000 });
+    await expect(page.getByText(/per week|Weekly send limit/i).first()).toBeVisible({ timeout: 10_000 });
     await page.screenshot({ path: test.info().outputPath('w3-mandate-weekly.png'), fullPage: true });
   });
 });
