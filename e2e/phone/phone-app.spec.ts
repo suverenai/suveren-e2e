@@ -108,6 +108,32 @@ async function newPhone(browser: Browser, o: { passkeys: boolean }): Promise<Pho
   return { context, page, cdp };
 }
 
+/**
+ * The computer takes the phone's grant in, as a gateway does: it finds the grant at the Authority Server and answers with its signed
+ * receipt. `afterMs`: how long the computer takes (the gateway's background check runs every 5 s).
+ */
+async function computerTakesIt(comp: Computer, token: string, mandateId: string, version: number, afterMs: number): Promise<void> {
+  const row = await until(`the phone's grant of ${mandateId} v${version}`, async () => {
+    const g = await http(stack.asUrl, 'GET', `/api/mandates/${encodeURIComponent(mandateId)}/grants`, { token });
+    return ((g.json?.grants ?? []) as Array<{ mandate_version: number; grant: MandateGrant }>).find((r) => r.mandate_version === version);
+  }, 30_000);
+  await new Promise((r) => setTimeout(r, afterMs));
+  const now = await chainOf(stack, comp, comp.root.did);
+  const receipt = buildReceipt({ mandate_id: mandateId, mandate_version: version, grant_hash: await grantHash(row.grant), key_id: comp.dev.record.key_id, chain_seq: now.head.seq, chain_head: now.head.hash, received_at: nowSec() });
+  const rec = await http(stack.asUrl, 'POST', `/api/mandates/${encodeURIComponent(mandateId)}/receipts`, { token, body: { receipt, sig: await signObject(receipt, comp.dev.seed) } });
+  expect([200, 201], show(rec)).toContain(rec.status);
+}
+
+/** After the touch: "Signing…" while the computer takes it in, then "Signed" by itself — never the not-received warning first
+ *  (dev lane 2026-11-23: the warning came after 4 s, the person tried again, the gateway had it seconds later). */
+async function signedWithoutAlarm(page: Page, take: Promise<void>): Promise<void> {
+  const alarm = page.getByTestId('decision-unknown');
+  await expect(page.getByTestId('decision-working')).toBeVisible({ timeout: 15_000 });
+  await take;
+  await expect(page.getByTestId('decision-stamp')).toContainText('Signed', { timeout: 15_000 });
+  await expect(alarm).toHaveCount(0);
+}
+
 /** Hold a QR in front of the phone's camera, then press the app's own "Scan the code". */
 async function scan(page: Page, text: string): Promise<void> {
   await page.evaluate((m) => { (window as unknown as { __qr: boolean[][] }).__qr = m; }, qrMatrix(text));
@@ -847,8 +873,13 @@ test.describe('stage D3: give a mandate on the phone (plan 4.4 Transport, DEC-86
     await expect(card.getByTestId('give-intent')).toHaveText(intent);
     await expect(card.getByTestId('mandate-summary')).toBeVisible();
     await card.getByTestId('btn-give').click();
-    // No computer answers yet: the one not-received state (problem first, Check again).
-    await expect(phone.page.getByTestId('decision-unknown')).toBeVisible({ timeout: 30_000 });
+    // The computer takes it in after 6 s (its background check runs every 5 s): the phone keeps "Signing…" and then shows "Signed".
+    let sawAlarm = false;
+    const watch = phone.page.getByTestId('decision-unknown').waitFor({ timeout: 20_000 }).then(() => { sawAlarm = true; }, () => {});
+    await signedWithoutAlarm(phone.page, computerTakesIt(comp, token, mandateId, 1, 6_000));
+    await watch;
+    expect(sawAlarm, 'no "not received" warning while the computer takes it in').toBe(false);
+    await phone.page.screenshot({ path: test.info().outputPath('g1-phone-signed-after-computer.png'), fullPage: true });
 
     // At the Authority Server: one grant, by the phone, WITH its check, whose members are exactly the ones rebuilt from the mandate.
     const grants = await http(stack.asUrl, 'GET', `/api/mandates/${encodeURIComponent(mandateId)}/grants`, { token });
@@ -861,13 +892,6 @@ test.describe('stage D3: give a mandate on the phone (plan 4.4 Transport, DEC-86
     const members = grantMembersOf(payload, { authorizationId, groupId, replaces: null, chainDids: [comp.root.did] });
     await verifyGrant({ grant: rows[0].grant, sig: rows[0].sig, check: rows[0].check as never }, { chain: await verifiedChain(stack, comp, comp.root.did), mandateFields: members, expect: { ops: ['grant'], mandate_id: mandateId, mandate_version: 1 } });
 
-    // The computer received it: its signed receipt; Check again on the phone then shows the gateway's own result.
-    const now = await chainOf(stack, comp, comp.root.did);
-    const receipt = buildReceipt({ mandate_id: mandateId, mandate_version: 1, grant_hash: await grantHash(rows[0].grant), key_id: comp.dev.record.key_id, chain_seq: now.head.seq, chain_head: now.head.hash, received_at: nowSec() });
-    const rec = await http(stack.asUrl, 'POST', `/api/mandates/${encodeURIComponent(mandateId)}/receipts`, { token, body: { receipt, sig: await signObject(receipt, comp.dev.seed) } });
-    expect([200, 201], show(rec)).toContain(rec.status);
-    await phone.page.getByTestId('result-check').click();
-    await expect(phone.page.getByTestId('decision-stamp')).toContainText('Signed', { timeout: 20_000 });
     await expectStampCentred(phone.page.getByTestId('decision-stamp'), 'phone app, give signed');
     await phone.context.close();
   });
@@ -988,7 +1012,7 @@ test.describe('stage D3: change a mandate on the phone (mockup B1, DEC-90)', () 
     const card = phone.page.getByTestId('give-card');
     await expect(card.getByTestId('give-title')).toHaveText('Give the mandate for Quotes', { timeout: 20_000 });
     await card.getByTestId('btn-give').click();
-    await expect(phone.page.getByTestId('decision-unknown')).toBeVisible({ timeout: 30_000 });
+    await signedWithoutAlarm(phone.page, computerTakesIt(comp, token, mandateId, 1, 0));
     return { phone, comp, token, state, profile, bounds, scope, intent, groupId, mandateId, authz1, mk, p1 };
   }
 
@@ -1010,8 +1034,11 @@ test.describe('stage D3: change a mandate on the phone (mockup B1, DEC-90)', () 
     const old = row.locator('.mc-old');
     await expect(old).toBeVisible();
     expect(await old.evaluate((el) => getComputedStyle(el).textDecorationLine)).toContain('line-through');
+    // the differences stand apart from the line above them, as on the gateway (dev lane screenshot: glued)
+    expect(await card.getByTestId('change-diff').evaluate((el) => parseFloat(getComputedStyle(el).marginTop))).toBeGreaterThan(0);
+    await v.phone.page.screenshot({ path: test.info().outputPath('g2-phone-change-card.png'), fullPage: true });
     await card.getByTestId('btn-give').click();
-    await expect(v.phone.page.getByTestId('decision-unknown')).toBeVisible({ timeout: 30_000 });
+    await signedWithoutAlarm(v.phone.page, computerTakesIt(v.comp, v.token, v.mandateId, 2, 3_000));
 
     const grants = await http(stack.asUrl, 'GET', `/api/mandates/${encodeURIComponent(v.mandateId)}/grants`, { token: v.token });
     const rows = grants.json.grants as Array<{ op: string; mandate_version: number; grant: MandateGrant; sig: string; check: unknown }>;
