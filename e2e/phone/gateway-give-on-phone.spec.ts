@@ -476,14 +476,20 @@ test('a computer without Touch ID: the give page sends the mandate to the phone,
     });
     expect(closedByPhone.status, show(closedByPhone)).toBe(200);
 
-    // The card on the computer goes away by itself, and the AI hears "replaced", never a refusal.
+    // The card on the computer goes away by itself.
     await expect(cardOf(changeId!).filter({ visible: true })).toHaveCount(0, { timeout: 60_000 });
+    // The Approvals list and the nav badge say the same, at the same moment (dev lane 2026-11-23: "Nothing waiting" beside a 1).
+    await goInPage(page, '/approvals');
+    await expect(page.getByTestId('queue-empty')).toBeVisible({ timeout: 60_000 });
+    await expect(page.getByTestId('nav-count-proposals')).toHaveCount(0, { timeout: 2_000 });
     await shot('c2-computer-after-phone-gave');
+    // The AI hears that ITS change is in force, with the new mandate's id — never "the person signed their own version".
     const changeClosed = await until('the change proposal is closed', async () => {
       const r = await callTool(agent, 'check-pending-commitments', { proposal_id: changeId });
       return /pending|awaiting/i.test(r.text) ? undefined : r;
     }, 60_000);
-    expect(changeClosed.text).not.toMatch(/setup refused to run it|nothing was done/);
+    expect(changeClosed.text).not.toMatch(/setup refused to run it|nothing was done|own version/);
+    expect(changeClosed.text).toMatch(new RegExp(`Proposal ${changeId} was GIVEN: the person gave the change you proposed with their touch, exactly as proposed\\. It is in force now as authz_[0-9a-f-]{36}\\.`));
   } finally {
     await agent.close().catch(() => undefined);
   }
