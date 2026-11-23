@@ -152,4 +152,24 @@ test.describe.serial('Weekly send limit (browser)', () => {
     expect(bounds.send_weekly_max).toBe(3);
     expect('send_daily_max' in bounds).toBe(false);
   });
+
+  test('DEC-106: CRM deletes per day start at 0 (customers@0.12); with the other limits filled, Continue is on', async () => {
+    test.setTimeout(90_000);
+    await activateIntegration(page, 'CRM');
+    await page.click('.sidebar-item:has-text("Mandates")');
+    await page.waitForURL('**/mandates**');
+    await page.click('button:has-text("New mandate")');
+    await page.waitForSelector('.profile-grid:not([data-testid="picker-skeleton"])', { timeout: 10_000 });
+    await page.locator('.card', { has: page.locator('text=CRM') }).first().locator('button:has-text("Give a mandate")').click();
+    await page.waitForURL((url) => url.toString().includes('/mandates/new/intent'), { timeout: 10_000 });
+    const deletes = page.locator('#bounds-field-delete_daily_max');
+    await expect(deletes).toBeVisible({ timeout: 15_000 });
+    await expect(deletes).toHaveValue('0');
+    // writes per day has no default (a volume limit): Continue waits for it, then is on.
+    await expect(page.getByTestId('required-limits-empty')).toBeVisible();
+    await page.locator('#bounds-field-write_daily_max').fill('5');
+    await expect(page.getByTestId('required-limits-empty')).toHaveCount(0);
+    await expect(page.locator('button:has-text("Next")')).toBeEnabled();
+    await page.screenshot({ path: test.info().outputPath('w6-crm-deletes-default.png'), fullPage: true });
+  });
 });

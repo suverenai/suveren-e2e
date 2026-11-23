@@ -693,15 +693,13 @@ export async function createAuthorization(
   // Wait for /mandates/new/intent (bounds step)
   await page.waitForURL(url => url.toString().includes('/mandates/new/intent'), { timeout: 10_000 });
 
-  // Bounds step: click stepper + buttons to set values
-  for (const [, value] of Object.entries(opts.bounds)) {
-    const numValue = parseInt(value, 10);
-    const plusBtn = page.locator('.stepper-btn').last();
-    for (let i = 0; i < numValue; i++) {
-      await plusBtn.click();
-    }
+  // Bounds step: each named limit into its own field. (This used to click the LAST stepper
+  // n times, whichever limit that was, and leave the named one empty — harmless while an
+  // empty required limit was signed as 0; since 2026-11-23 the form keeps Continue off then.)
+  for (const [key, value] of Object.entries(opts.bounds)) {
+    await page.locator(`#bounds-field-${key}`).fill(value);
   }
-  await fillRequiredLimitsLeftEmpty(page);
+  await expect(page.getByTestId('required-limits-empty'), 'a required limit is still empty').toHaveCount(0);
   await page.locator('button:has-text("Next")').click();
 
   // Intent step — target the intent textarea specifically (the assistant draft
@@ -903,21 +901,4 @@ async function showApprovalInPanel(page: Page, hasText: string | RegExp): Promis
 /** The approval card (in the panel) whose content contains `hasText`. */
 export async function openApprovalCard(page: Page, hasText: string | RegExp): Promise<Locator> {
   return showApprovalInPanel(page, hasText);
-}
-
-/**
- * A REQUIRED limit left empty keeps the form's Continue off (2026-11-23: before, it
- * was signed as 0 without anyone choosing it). A test that does not care about those
- * limits does what a person would: types 0 into each one the form names. Optional
- * limits (placeholder "No limit") stay empty — not set.
- */
-export async function fillRequiredLimitsLeftEmpty(page: Page): Promise<void> {
-  if (!(await page.getByTestId('required-limits-empty').isVisible().catch(() => false))) return;
-  const inputs = page.locator('input[id^="bounds-field-"]');
-  for (let i = 0; i < await inputs.count(); i++) {
-    const input = inputs.nth(i);
-    if ((await input.inputValue()) !== '' || (await input.getAttribute('placeholder')) === 'No limit') continue;
-    await input.fill('0');
-  }
-  await expect(page.getByTestId('required-limits-empty')).toHaveCount(0);
 }

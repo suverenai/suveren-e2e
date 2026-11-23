@@ -190,6 +190,27 @@ describe.skipIf(!available)('weekly limits: publish@0.9 and email@0.11 (real sta
     });
   });
 
+  describe('DEC-106: a team configured for customers@0.11 carries over to 0.12 (only a default changed)', () => {
+    it('a mandate under customers@0.12 is accepted in that team without an admin step', async () => {
+      const C11 = `${P}/customers@0.11`;
+      const C12 = `${P}/customers@0.12`;
+      if (!existsSync(join(PROFILES_DIR, 'customers', '0.12.profile.json'))) return;
+      const admin = await sp.register('Carl Carry', `carl-carry-${Date.now()}@test.local`) as unknown as Account;
+      const team = await sp.createGroup(admin.apiKey, `Carry Team ${Date.now()}`);
+      await sp.setProfileConfig(admin.apiKey, team.group.id, C11, { approvers: [admin.user.id] });
+      const keys = ['profile', 'read_access', 'export_access', 'write_daily_max', 'delete_daily_max', 'setup_daily_max'];
+      const b = { profile: C12, read_access: 'unlimited', export_access: 'none', write_daily_max: 5, delete_daily_max: 0, setup_daily_max: 0 };
+      const r = await sp.submitMandateRaw(admin.apiKey, {
+        authorization_id: `authz_${crypto.randomUUID()}`,
+        profile_id: C12, profile_hash: profileHashFor(C12, PROFILES_DIR), group_id: team.group.id, bounds: b,
+        bounds_hash: computeBoundsHash(b, keys), scope_hash: computeScopeHash({ contact_type: 'customer' }, ['contact_type']),
+        domain: admin.user.id, did: admin.user.did, commitment_mode: 'automatic',
+        gate_content_hashes: hashGateContent({ intent: 'E2E: carry-over to 0.12.' }), execution_context_hash: hashExecutionContext({ m: C12 }),
+      });
+      expect(r.status, JSON.stringify(r.body)).toBeLessThan(300);
+    });
+  });
+
   describe('Email through the gateway (simulation): send_weekly_max 3', () => {
     beforeAll(async () => {
       stack = {
