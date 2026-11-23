@@ -108,18 +108,19 @@ async function shot(page: Page, info: TestInfo, name: string): Promise<void> {
  */
 async function watchForFlashes(context: BrowserContext): Promise<void> {
   await context.addInitScript(() => {
-    const seen = { signIn: false, unlock: false, spinner: false };
+    const seen = { signIn: false, unlock: false, spinner: false, greyed: false };
     (window as unknown as { __seen: typeof seen }).__seen = seen;
     const look = () => {
       const t = document.body?.innerText ?? '';
       if (t.includes('Enter your API key')) seen.signIn = true;
       if (t.includes('Unlock the gateway')) seen.unlock = true;
       if (document.querySelector('.brand-spin')) seen.spinner = true;
+      if (document.querySelector('.skel-area')) seen.greyed = true;
     };
     new MutationObserver(look).observe(document, { childList: true, subtree: true, characterData: true });
   });
 }
-const seen = (page: Page) => page.evaluate(() => (window as unknown as { __seen: { signIn: boolean; unlock: boolean; spinner: boolean } }).__seen);
+const seen = (page: Page) => page.evaluate(() => (window as unknown as { __seen: { signIn: boolean; unlock: boolean; spinner: boolean; greyed: boolean } }).__seen);
 const resetSeen = (page: Page) => page.evaluate(() => { const s = (window as unknown as { __seen: Record<string, boolean> }).__seen; for (const k of Object.keys(s)) s[k] = false; });
 
 /** On the Authority Server's /connect page: the email sign-in (when asked) and "Connect this computer to your account?". */
@@ -159,14 +160,15 @@ test('DEC-93 + DEC-91: a new gateway starts at Connect without an account key, t
   const account = await newAccount('Setup person');
   const gw = await freshGateway('setup-a');
 
-  // 1. /login on a new gateway: the turning Suveren mark, then /start; the account-key sign-in never shows.
+  // 1. /login on a new gateway: the sign-in greyed out (DEC-100, no turning mark), then /start; the account-key sign-in never shows.
   await page.goto(`${gw.url}/login`);
   await page.waitForURL((u) => u.pathname === '/start', { timeout: 20_000 });
   await expect(page.getByRole('heading', { name: 'Connect to your Suveren account' })).toBeVisible();
   await shot(page, info, 'a-start');
   const s1 = await seen(page);
   expect(s1.signIn, 'the account-key sign-in flashed before /start').toBe(false);
-  expect(s1.spinner, 'the turning Suveren mark shows while the gateway is asked').toBe(true);
+  expect(s1.spinner, 'DEC-100: no turning mark while the gateway is asked').toBe(false);
+  expect(s1.greyed, 'DEC-100: the page greyed out while the gateway is asked').toBe(true);
 
   // 2. Connect: the Authority Server's page opens in a new tab; email sign-in with the code; Connect.
   const popupP = context.waitForEvent('page');

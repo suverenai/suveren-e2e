@@ -110,8 +110,16 @@ test('Touch ID on the gateway page: set-up, unlock, give, the card in place, an 
   await page.goto(gw);
   await expect(page.getByRole('button', { name: 'Unlock with Touch ID' })).toBeVisible({ timeout: 30_000 });
   await shot('t1-unlock-screen');
+  // DEC-100: between the touch and the dashboard, the dashboard greyed out (no turning mark). The sign-in request is
+  // held a moment so that step is on screen long enough to be seen.
+  const holdSignIn = async (route: import('@playwright/test').Route) => { await new Promise((r) => setTimeout(r, 1_500)); await route.fallback(); };
+  await page.route(`${gw}/auth/device/signin`, holdSignIn);
   await page.getByRole('button', { name: 'Unlock with Touch ID' }).click();
+  await expect(page.getByTestId('shell-skeleton-dashboard'), 'DEC-100: the dashboard greyed out after the touch').toBeVisible({ timeout: 15_000 });
+  await expect(page.locator('.brand-spin'), 'DEC-100: no turning mark').toHaveCount(0);
+  await shot('t1b-between-touch-and-dashboard');
   await expect(page.locator('.page-title').first()).toBeVisible({ timeout: 30_000 });
+  await page.unroute(`${gw}/auth/device/signin`, holdSignIn);
   await shot('t2-unlocked-with-touch');
 
   // S2: the Setup mandate, given on the give page with Touch ID.
