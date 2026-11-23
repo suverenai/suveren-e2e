@@ -340,12 +340,31 @@ test('a computer without Touch ID: the give page sends the mandate to the phone,
     await expect(badCard.getByTestId('give-phone-waiting')).toBeVisible({ timeout: 60_000 });
     expect(page.url()).toBe(badUrl);
     await phoneGrantsNext(p, sb.recoveryCode, phone, read.priv, granted, 'the give to refuse', (m) => ({ ...m, bounds_hash: `sha256:${'0'.repeat(64)}` }));
-    await expect.poll(async () => (await badCard.getByTestId('give-phone-refused').isVisible()) || (await badCard.getByTestId('give-phone-waiting').isVisible()), { timeout: 30_000 }).toBe(true);
-    await page.waitForTimeout(8_000);
+    // The refusal is a result that stays (DEC-88): the reason at the top of the card, the mandate readable below it, ONE full-width
+    // pinned button. Never "Signed".
+    const refusedTop = badCard.getByTestId('card-give-refused');
+    await expect(refusedTop).toBeVisible({ timeout: 60_000 });
+    await expect(refusedTop).toContainText('does not match');
+    await expect(badCard.locator('article.av3-body')).not.toHaveAttribute('aria-hidden', 'true');
+    await expect(badCard.getByText('Keep a few notes.').first()).toBeVisible();
+    const top = await refusedTop.boundingBox();
+    const bodyText = await badCard.getByText('Keep a few notes.').first().boundingBox();
+    expect(top && bodyText && top.y < bodyText.y, 'the reason sits above the mandate').toBe(true);
+    const closeBtn = badCard.getByTestId('result-dismiss');
+    await expect(closeBtn).toBeVisible();
+    await expect(badCard.locator('footer.av3-foot button')).toHaveCount(1);
+    const foot = await badCard.locator('footer.av3-foot').boundingBox();
+    const btn = await closeBtn.boundingBox();
+    expect(foot && btn && btn.width >= foot.width * 0.85, 'one full-width button').toBe(true);
     await shot('f2-card-after-wrong-grant');
+    await expect(badCard.getByTestId('give-touch-given')).toHaveCount(0);
     await expect(badCard.getByTestId('give-phone-given')).toHaveCount(0);
     await expect(badCard.getByText('Signed')).toHaveCount(0);
-    if (await badCard.getByTestId('give-phone-stop').isVisible().catch(() => false)) await badCard.getByTestId('give-phone-stop').click();
+    // The person closes the failed give (back to the card's buttons) and rejects that proposal, so the next one comes up.
+    await closeBtn.click();
+    await expect(badCard.getByTestId('btn-reject')).toBeVisible({ timeout: 15_000 });
+    await badCard.getByTestId('btn-reject').click();
+    await expect(cardOf(badId!)).toHaveCount(0, { timeout: 30_000 });
 
     // 4. SUCCESS: the AI proposes; the person presses "Give this mandate" ON THE CARD. The give runs in place: same URL, no edit form,
     //    the give's own footer on the card. This computer has no check key (CI has no native helper), so it goes to the phone (DEC-90).
@@ -357,6 +376,11 @@ test('a computer without Touch ID: the give page sends the mandate to the phone,
     const proposalId = /Proposal ID: (\S+?)\./.exec(proposed.text)?.[1];
     expect(proposalId, proposed.text).toBeTruthy();
     const card = await openCard(proposalId!);
+    // The summary line under the title: every value with the profile's own label (UI review; generic from the schema).
+    const summary = card.getByTestId('mandate-summary');
+    await expect(summary).toBeVisible();
+    await expect(summary).toContainText(':');
+    expect(await summary.textContent(), 'no bare values').not.toMatch(/^none · none/);
     await shot('s1-card-before');
     const urlBefore = page.url();
     await card.getByTestId('btn-approve').click();
@@ -369,8 +393,8 @@ test('a computer without Touch ID: the give page sends the mandate to the phone,
     const opened2 = await phoneGrantsNext(p, sb.recoveryCode, phone, read.priv, granted, 'the AI-proposed give');
     expect(opened2.give.bounds.write_daily_max).toBe(50);
     expect(opened2.intent).toBe('Keep the notes of the quotes.');
-    // The card shows "Signed", then the panel moves on as the proposal closes as replaced: either proves the give.
-    await expect.poll(async () => (await card.getByTestId('give-phone-given').isVisible().catch(() => false)) || !(await card.isVisible().catch(() => false)), { timeout: 60_000 }).toBe(true);
+    await expect(card.getByTestId('give-touch-given')).toBeVisible({ timeout: 60_000 });
+    await expect(card.getByTestId('give-touch-given').getByText('Signed')).toBeVisible();
     await shot('s3-card-given');
     expect(page.url()).toBe(urlBefore);
 
