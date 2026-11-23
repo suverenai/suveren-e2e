@@ -265,5 +265,42 @@ describe.skipIf(!available)('weekly limits: publish@0.9 and email@0.11 (real sta
       expect(s.text).toMatch(/send_weekly_max|weekly/i);
       expect(await sentCount()).toBe(before + 3);
     }, 120_000);
+
+    it('a mandate without a weekly limit has none: past 3 this week it still sends, up to its daily limit', async () => {
+      // End the weekly mandate first, so only the new one governs sending.
+      for (const m of await activeEmail()) await as('POST', `/api/authorizations/${m.authorization_id}/revoke`, { reason: 'test' });
+      const rs = await cp.authed(owner.apiKey, 'POST', '/resync-gates');
+      expect(rs.status, await rs.text()).toBeLessThan(300);
+      // No send_weekly_max at all. The daily count is shared by the group (3 sent today), so a
+      // daily limit of 5 leaves two more.
+      const r = await tool('setup__create_mandate', {
+        profile: 'email', limits: { read_access: 'unlimited', recipient_max: 1, send_daily_max: 5, setup_daily_max: 0 },
+        scope: { allowed_domains: DOMAIN }, intent: 'Why — replies, no weekly limit.', mode: 'automatic', duration_hours: 2, title: 'Daily only',
+      });
+      expect(r.denied, r.text).toBe(false);
+      const proposalId = r.text.match(/Proposal ID: ([a-f0-9-]+)/)![1];
+      const c = await as('POST', `/api/proposals/${proposalId}/resolve`, { action: 'commit', domain: 'owner' });
+      expect(c.status, JSON.stringify(c.body)).toBeLessThan(300);
+      const until = Date.now() + 25_000;
+      let m: Awaited<ReturnType<typeof activeEmail>>[number] | undefined;
+      while (Date.now() < until && !m) {
+        m = (await activeEmail())[0];
+        if (!m) await new Promise((res) => setTimeout(res, 500));
+      }
+      expect(m, 'no Email mandate appeared after approval').toBeTruthy();
+      expect(m!.profileId ?? m!.profile_id).toBe(EMAIL_11);
+      expect('send_weekly_max' in (m!.bounds ?? {})).toBe(false);
+      await new Promise((res) => setTimeout(res, 1_000));
+
+      const before = await sentCount();
+      for (let i = 4; i <= 5; i++) {
+        const s = await send(i);
+        expect(s.denied, s.text).toBe(false); // 4th and 5th this week: no weekly limit applies
+      }
+      const s = await send(6);
+      expect(s.denied, s.text).toBe(true);
+      expect(s.text).toMatch(/send_daily_max|per day|daily/i);
+      expect(await sentCount()).toBe(before + 2);
+    }, 120_000);
   });
 });

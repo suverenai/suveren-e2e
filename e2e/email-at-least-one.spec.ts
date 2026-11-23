@@ -40,14 +40,6 @@ test.describe.serial('An Email mandate must name who it may write to (browser)',
     await expect(page.locator('#bounds-field-send_daily_max')).toBeVisible({ timeout: 15_000 });
   }
 
-  /** Allow sending: the daily limit, and the weekly one where the version has it (email@0.11+) —
-   *  an empty count limit is 0 in the form, and 0 lets nothing be sent. */
-  async function allowSending(n: string) {
-    await page.locator('#bounds-field-send_daily_max').fill(n);
-    const weekly = page.locator('#bounds-field-send_weekly_max');
-    if (await weekly.count()) await weekly.fill(n);
-  }
-
   async function toReview(title: string) {
     await page.locator('button:has-text("Next")').click();
     await page.waitForSelector('.intent-textarea', { timeout: 10_000 });
@@ -77,7 +69,7 @@ test.describe.serial('An Email mandate must name who it may write to (browser)',
 
   test('sending allowed, no recipient or domain: the form says at least one; Sign stays off', async () => {
     await openEmailForm();
-    await allowSending('3');
+    await page.locator('#bounds-field-send_daily_max').fill('3');
     await expect(page.getByTestId('at-least-one-hint')).toHaveText(FORM_HINT);
     await toReview('Neither');
     await expect(page.getByTestId('at-least-one-needed')).toHaveText(SIGN_HINT);
@@ -96,7 +88,7 @@ test.describe.serial('An Email mandate must name who it may write to (browser)',
 
   test('sending allowed with a domain: Sign on, the mandate is signed', async () => {
     await openEmailForm();
-    await allowSending('3');
+    await page.locator('#bounds-field-send_daily_max').fill('3');
     const domains = page.locator('#context-field-allowed_domains');
     await domains.fill('kunde-gmbh.example');
     await domains.press('Enter');
