@@ -455,9 +455,23 @@ test('a computer without Touch ID: the give page sends the mandate to the phone,
 
     // The computer takes the phone's grant in (it checks every second while a give waits), puts the change in force and closes the
     // AI's request as `replaced` itself: the card on the computer is gone within 3 s (dev lane 2026-11-23: it stayed ~10 s).
+    // Measured: grant stored -> request closed at the Authority Server -> card gone on the computer.
     const tGranted = Date.now();
-    await expect(cardOf(changeId!).filter({ visible: true })).toHaveCount(0, { timeout: 3_000 });
-    test.info().annotations.push({ type: 'card-gone-after-grant-ms', description: String(Date.now() - tGranted) });
+    const cardGone = expect(cardOf(changeId!).filter({ visible: true })).toHaveCount(0, { timeout: 10_000 }).then(() => Date.now() - tGranted);
+    const phoneToken = await phoneSession(p, sb.recoveryCode, phone);
+    let closedMs = -1;
+    const closedWatch = (async () => {
+      while (Date.now() - tGranted < 15_000) {
+        const g = await http(stack.asUrl, 'GET', `/api/proposals/${encodeURIComponent(changeId!)}`, { token: phoneToken });
+        if (g.status === 200 && (g.json.proposal as Record<string, any>).status !== 'pending') { closedMs = Date.now() - tGranted; return; }
+        await new Promise((r) => setTimeout(r, 100));
+      }
+    })();
+    const goneMs = await cardGone;
+    await closedWatch;
+    test.info().annotations.push({ type: 'grant-to-closed-ms', description: String(closedMs) }, { type: 'grant-to-card-gone-ms', description: String(goneMs) });
+    console.log(`[GIVE-TIMING] grant -> request closed: ${closedMs} ms; grant -> computer card gone: ${goneMs} ms`);
+    expect(goneMs, `the computer card was gone ${goneMs} ms after the grant (closed at ${closedMs} ms)`).toBeLessThanOrEqual(3_000);
     await until('the changed mandate is live for the AI', async () => {
       const r = await callTool(agent, 'list-authorizations', { domain: 'records' });
       return /archive_access: allowed/.test(r.text) ? r : undefined;

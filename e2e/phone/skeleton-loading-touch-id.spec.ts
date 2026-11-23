@@ -176,7 +176,9 @@ async function shotWhileLoading(page: Page, info: TestInfo, name: string): Promi
 async function settle(page: Page): Promise<void> {
   await page.waitForTimeout(1_600);
   await expect(page.locator('.skel-area, .skeleton')).toHaveCount(0, { timeout: 20_000 });
-  await page.waitForLoadState('networkidle').catch(() => undefined);
+  // Bounded: the page polls (/health, the approvals queue) and, with every request slowed by 300-1500 ms, may never be idle for
+  // 500 ms; an unbounded wait then held the test until its 5-minute timeout (e2e 45264582001, macOS, page fully loaded).
+  await page.waitForLoadState('networkidle', { timeout: 10_000 }).catch(() => undefined);
   await page.waitForTimeout(1_500);
 }
 
