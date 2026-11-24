@@ -36,6 +36,10 @@ on:
         description: 'suveren-as ref to test against (branch, tag or SHA). Defaults to main. Its migrations run when the Authority Server starts.'
         required: false
         default: 'main'
+      profiles_ref:
+        description: 'hap-profiles ref the Authority Server and the gateway load (branch, tag or SHA). Defaults to main, which is what suveren.ai serves.'
+        required: false
+        default: 'main'
       device_keys:
         description: 'Device-keys switch (SUVEREN_DEVICE_KEYS) for the Authority Server and the gateway: off, on, or both (two parallel legs).'
         required: false
@@ -48,7 +52,7 @@ on:
 # The refs are part of the group so dispatches for different branches run side
 # by side; the same refs dispatched again replace the earlier run.
 concurrency:
-  group: e2e-${{ github.ref }}-${{ github.event.inputs.as_ref || 'main' }}-${{ github.event.inputs.gateway_ref || 'main' }}-${{ github.event.inputs.device_keys || 'off' }}
+  group: e2e-${{ github.ref }}-${{ github.event.inputs.as_ref || 'main' }}-${{ github.event.inputs.gateway_ref || 'main' }}-${{ github.event.inputs.profiles_ref || 'main' }}-${{ github.event.inputs.device_keys || 'off' }}
   cancel-in-progress: true
 
 jobs:
@@ -74,6 +78,7 @@ jobs:
         with:
           repository: humanagencyprotocol/hap-profiles
           path: hap-profiles
+          ref: ${{ github.event.inputs.profiles_ref || 'main' }}
 
       # profile-conformance and conformance-map both read the spec; the vector
       # suite reads content/<version>/vectors/*.json from here.
@@ -200,6 +205,7 @@ jobs:
         with:
           repository: humanagencyprotocol/hap-profiles
           path: hap-profiles
+          ref: ${{ github.event.inputs.profiles_ref || 'main' }}
 
       - name: Check out hap-records-mcp
         uses: actions/checkout@v6
@@ -375,6 +381,7 @@ jobs:
         with:
           repository: humanagencyprotocol/hap-profiles
           path: hap-profiles
+          ref: ${{ github.event.inputs.profiles_ref || 'main' }}
       - name: Check out hap-records-mcp
         uses: actions/checkout@v6
         with:

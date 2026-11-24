@@ -693,14 +693,13 @@ export async function createAuthorization(
   // Wait for /mandates/new/intent (bounds step)
   await page.waitForURL(url => url.toString().includes('/mandates/new/intent'), { timeout: 10_000 });
 
-  // Bounds step: click stepper + buttons to set values
-  for (const [, value] of Object.entries(opts.bounds)) {
-    const numValue = parseInt(value, 10);
-    const plusBtn = page.locator('.stepper-btn').last();
-    for (let i = 0; i < numValue; i++) {
-      await plusBtn.click();
-    }
+  // Bounds step: each named limit into its own field. (This used to click the LAST stepper
+  // n times, whichever limit that was, and leave the named one empty — harmless while an
+  // empty required limit was signed as 0; since 2026-11-23 the form keeps Continue off then.)
+  for (const [key, value] of Object.entries(opts.bounds)) {
+    await page.locator(`#bounds-field-${key}`).fill(value);
   }
+  await expect(page.getByTestId('required-limits-empty'), 'a required limit is still empty').toHaveCount(0);
   await page.locator('button:has-text("Next")').click();
 
   // Intent step — target the intent textarea specifically (the assistant draft

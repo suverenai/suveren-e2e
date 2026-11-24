@@ -24,4 +24,5 @@ export const SIMULATION_SPECS = [
   'team-roles-caps.spec.ts',
   'ticket-card-email-body.spec.ts',
   'mandate-change-card.spec.ts',
+  'weekly-limits.spec.ts',
 ];
