@@ -19,7 +19,7 @@ import { SPClient } from '../src/helpers/sp-client.js';
 import { GatewayClient } from '../src/helpers/gateway-client.js';
 import { hashGateContent, hashExecutionContext, computeBoundsHash, computeScopeHash } from '../src/helpers/crypto.js';
 import { ControlPlaneClient, newSecret, startControlPlane, startMcpServer, textOf, PROFILES_DIR, type StackOptions } from '../src/helpers/gateway-stack.js';
-import { profileHashFor } from '../src/helpers/profiles.js';
+import { profileHashFor, newestProfileId } from '../src/helpers/profiles.js';
 
 const AS_PORT = 18560;
 const RELAY_PORT = 18561;
@@ -28,7 +28,9 @@ const TEAM = { cp: 18564, mcp: 18565 };
 const AS_URL = `http://localhost:${AS_PORT}`;
 const RELAY_URL = `http://localhost:${RELAY_PORT}`;
 const P = 'github.com/humanagencyprotocol/hap-profiles';
-const CUSTOMERS = `${P}/customers@0.11`;
+// What an AI proposal and the page use by default: the newest version in the loaded profiles (customers@0.12 from DEC-106 on),
+// never a pinned number — a pinned 0.11 made the AI's mandate (0.12) and the expected one differ.
+const CUSTOMERS = newestProfileId('customers', PROFILES_DIR);
 const RECORDS = `${P}/records@0.6`;
 const DELEGATION = `${P}/delegation@0.6`;
 const EMAIL = `${P}/email@0.9`;
