@@ -1,6 +1,6 @@
 /**
  * An AI app that loads the tool list ONCE, when the chat starts, and never again — as ChatGPT
- * Desktop does (Andreas, 2026-11-10: it ignores `tools/list_changed`; he had to restart it twice).
+ * Desktop does (maintainer, 2026-11-10: it ignores `tools/list_changed`; it had to be restarted twice).
  * Tools that appear later — the Setup tools once Setup is signed, a connector that starts after
  * the chat — must still be reachable, through `call-tool`, with every check a direct call has.
  *

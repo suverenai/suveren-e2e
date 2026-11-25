@@ -50,7 +50,7 @@ const GATE_CONTENT = { intent: 'E2E: verification-footer (creds-free) — bounde
 // Publish profile → verb "Published"; ASCII "--" separator (mojibake-immune);
 // "Ticket:" label (gateway 0.36.0, v0.7 vocabulary) — the ticket is the precondition proof, not a "Verify" CTA.
 const FOOTER_MARKER = '-- Published by an AI agent via Suveren. Ticket:';
-// The second footer line promoting the protocol — REMOVED in gateway 0.38.0 (Andreas
+// The second footer line promoting the protocol — REMOVED in gateway 0.38.0 (maintainer
 // 2026-10-21: the footer is the ticket line only). Asserted absent. Source of truth:
 // apps/mcp-server/src/lib/receipt-footer.ts — keep this in step with it.
 const HAP_LINE = '-- Suveren implements HAP, the open Human Agency Protocol: https://www.humanagencyprotocol.org/';

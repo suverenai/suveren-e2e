@@ -10,7 +10,7 @@ import { createHash } from 'node:crypto';
 import { deflateSync } from 'node:zlib';
 
 export const MIB = 1024 * 1024;
-/** Andreas's decision (2026-11-09): at most 18,000,000 bytes (18 MB), at save, per file and per email. */
+/** The maintainer's decision (2026-11-09): at most 18,000,000 bytes (18 MB), at save, per file and per email. */
 export const MAX_BYTES = 18_000_000;
 
 export const sha256 = (buf: Buffer): string => createHash('sha256').update(buf).digest('hex');

@@ -58,7 +58,7 @@ const PROFILES_DIR = join(ROOT, 'hap-profiles');
 const SHARED_BOUNDS = {
   profile: PROFILE_ID, read_access: 'unlimited', recipient_max: 2, send_daily_max: 10, setup_daily_max: 0,
 };
-const SHARED_CONTEXT = { allowed_recipients: 'twin@sublin.app' };
+const SHARED_CONTEXT = { allowed_recipients: 'twin@example.com' };
 const INTENT_A = 'TWIN-A: couple communication — friendly and funny.';
 const INTENT_B = 'TWIN-B: business outreach — formal tone only.';
 

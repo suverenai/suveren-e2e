@@ -87,10 +87,10 @@ describe('Identity Assurance — operator verification → signed subject', () =
   });
 
   it('operator verifies the account (admin only)', async () => {
-    const res = await adminVerify(agent.id, 'Andreas Schadauer');
+    const res = await adminVerify(agent.id, 'Maria Berger');
     expect(res.status).toBe(200);
     expect((await res.json()).identity).toMatchObject({
-      verified_name: 'Andreas Schadauer', method: 'as_vouched', trust_root: 'as',
+      verified_name: 'Maria Berger', method: 'as_vouched', trust_root: 'as',
     });
   });
 
@@ -99,10 +99,10 @@ describe('Identity Assurance — operator verification → signed subject', () =
     const att = decodeMandateBlob(r.blob);
     expect(att.payload.subjects).toHaveLength(1);
     expect(att.payload.subjects![0]).toMatchObject({
-      assurance: 'high', method: 'as_vouched', trust_root: 'as', disclose: { name: 'Andreas Schadauer' },
+      assurance: 'high', method: 'as_vouched', trust_root: 'as', disclose: { name: 'Maria Berger' },
     });
     expect(deriveIdentityLine(att.payload.subjects![0], { operatorName: 'Suveren' }))
-      .toBe("Sent by Andreas Schadauer's AI agent, verified by Suveren");
+      .toBe("Sent by Maria Berger's AI agent, verified by Suveren");
     // the subject is INSIDE the signed payload
     await expect(verifyMandateSignature(att, { trustedIssuers: [encodeDidKey(Buffer.from(spPubkey, 'hex'))] })).resolves.toBeUndefined();
   });

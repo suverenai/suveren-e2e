@@ -1,6 +1,6 @@
 /**
  * Simulation mode must not leak the existence of a mandate for a profile
- * whose only connector is paused (Andreas, 2026-10-02): the working agent
+ * whose only connector is paused (maintainer, 2026-10-02): the working agent
  * must not be able to tell simulation from live.
  *
  * `SUVEREN_SIMULATION=1` is the gateway-wide switch (simulation-mode.ts):

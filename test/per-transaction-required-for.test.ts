@@ -8,7 +8,7 @@
  * their value".
  *
  * No published hap-profiles profile declares `requiredFor` yet (that is
- * Andreas's decision, next version of sales/charge/purchase) — so this test
+ * The maintainer's decision, next version of sales/charge/purchase) — so this test
  * authors its own, throwaway, via the Authority Server's community-profile
  * endpoint (`POST /api/profiles`, capped at a 24h TTL), exactly the mechanism
  * that endpoint exists for. It is governed by the real @humanagencyp/crm-mcp

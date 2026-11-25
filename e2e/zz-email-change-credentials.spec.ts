@@ -2,7 +2,7 @@
  * Email in Gmail mode, credentials saved but no Google sign-in yet (production gateway, real stack).
  * "Change Credentials" must open the saved settings for editing. It used to drop the card back to its
  * first-time form, which showed the default test-data option ("No configuration needed …") and no fields,
- * so a wrong Client ID could not be corrected (found in Andreas's walkthrough, 2026-11-10).
+ * so a wrong Client ID could not be corrected (found in the maintainer's walkthrough, 2026-11-10).
  * The Client ID here is a placeholder: no Google call is made.
  */
 import http from 'node:http';

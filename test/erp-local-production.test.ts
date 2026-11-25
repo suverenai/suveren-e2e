@@ -8,7 +8,7 @@
  * invoice-email-attachment.test.ts (simulation gateway, simulated ERP); the
  * production path "ERP archive PDF -> real email" is covered by the Rehearsal's
  * A3 against a real Gmail test account (passed 2026-11-05). Contract: hap-erp-mcp docs/local-production-contract.md, incl. §11
- * (AM1–AM4), §12 (Andreas's decisions D1–D5) and §13 (F1–F14).
+ * (AM1–AM4), §12 (The maintainer's decisions D1–D5) and §13 (F1–F14).
  *
  * The ONLY stand-in is the EU VIES service: a local HTTP server
  * (src/helpers/vies-stub.ts) the connector reaches through its own setting,

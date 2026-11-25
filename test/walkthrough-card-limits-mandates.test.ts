@@ -1,9 +1,9 @@
 /**
- * Walkthrough 2026-11-11 (Andreas), three problems, on the real stack (Authority
+ * Walkthrough 2026-11-11 (maintainer), three problems, on the real stack (Authority
  * Server + the gateway's control plane AND MCP server + the published crm
  * connector), in a real browser:
  *
- * 1. An update's approval card showed the contact as it is ("Name: Andreas",
+ * 1. An update's approval card showed the contact as it is ("Name: Maria",
  *    revision 1, every field) under "Runs exactly as shown" — not the change.
  *    Now: the changed field old → new, the unchanged fields folded.
  * 2. The CRM mandate card listed "Team limit per day … used" three times with no
@@ -162,8 +162,8 @@ describe.skipIf(!available)('walkthrough 2026-11-11: update card, limit names, M
 
   let contactId = '';
 
-  it('setup: a contact "Andreas" exists at revision 1 (created through an approved proposal)', async () => {
-    const c = await call('crm__create_contact', { name: 'Andreas', type: 'customer', company: 'Sublin' });
+  it('setup: a contact "Maria" exists at revision 1 (created through an approved proposal)', async () => {
+    const c = await call('crm__create_contact', { name: 'Maria', type: 'customer', company: 'Example' });
     expect(c.denied, c.text).toBe(false);
     const id = c.text.match(/Proposal ID: ([a-f0-9-]+)/)?.[1];
     expect(id, c.text).toBeTruthy();
@@ -171,15 +171,15 @@ describe.skipIf(!available)('walkthrough 2026-11-11: update card, limit names, M
     expect(r.ok, await r.text()).toBe(true);
     const until = Date.now() + 30_000;
     while (!contactId && Date.now() < until) {
-      const f = await call('crm__find_contacts', { query: 'Andreas' });
+      const f = await call('crm__find_contacts', { query: 'Maria' });
       contactId = f.text.match(/"id":\s*"([^"]+)"/)?.[1] ?? '';
       if (!contactId) await new Promise((res) => setTimeout(res, 1_000));
     }
     expect(contactId).toBeTruthy();
   }, 90_000);
 
-  it('problem 1: the update card shows Name Andreas → Andreas Schadauer, not the record as it is', async () => {
-    const u = await call('crm__update_contact', { id: contactId, revision: 1, name: 'Andreas Schadauer', contact_type: 'customer' });
+  it('problem 1: the update card shows Name Maria → Maria Berger, not the record as it is', async () => {
+    const u = await call('crm__update_contact', { id: contactId, revision: 1, name: 'Maria Berger', contact_type: 'customer' });
     expect(u.text).toContain('Awaiting commitment');
 
     const page = await signedIn();
@@ -192,10 +192,10 @@ describe.skipIf(!available)('walkthrough 2026-11-11: update card, limit names, M
       const rows = tile.getByTestId('change-row');
       expect(await rows.count()).toBe(1);
       const row = (await rows.first().innerText()).replace(/\s+/g, ' ');
-      expect(row).toMatch(/Name Andreas Andreas Schadauer/);
-      expect(await tile.locator('.compare-now').first().innerText()).toBe('Andreas');
-      expect(await tile.locator('.compare-new').first().innerText()).toBe('Andreas Schadauer');
-      // The value being replaced is struck through (Andreas, 2026-11-11); the new one is not.
+      expect(row).toMatch(/Name Maria Maria Berger/);
+      expect(await tile.locator('.compare-now').first().innerText()).toBe('Maria');
+      expect(await tile.locator('.compare-new').first().innerText()).toBe('Maria Berger');
+      // The value being replaced is struck through (maintainer, 2026-11-11); the new one is not.
       const deco = (sel: string) => tile.locator(sel).first().evaluate((el) => getComputedStyle(el).textDecorationLine);
       expect(await deco('.compare-now')).toContain('line-through');
       expect(await deco('.compare-new')).not.toContain('line-through');

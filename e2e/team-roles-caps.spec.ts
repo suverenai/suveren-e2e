@@ -31,7 +31,7 @@
  * puts the proposal's own CREATOR at the front of `pendingApprovers`,
  * regardless of the team's configured approver list (decision #4, "above-cap
  * = everyone reviews, creator included"). So Tom never needs to be a
- * CONFIGURED team approver (he isn't, here — `approvers: [lisa, andreas]`
+ * CONFIGURED team approver (he isn't, here — `approvers: [lisa, maria]`
  * only) for his own proposal to still name him in pendingApprovers and for
  * the AS to still refuse his own approval (APPROVER_IS_PROPOSER). That is
  * exactly the mockup's screen 3 state B, reached without putting Tom in the
@@ -63,7 +63,7 @@
  *
  * The escalation chain exercises the real flow: the first (within-cap) write
  * executes directly, with no proposal at all; the second (over-cap) write
- * produces a genuine above-cap proposal naming Lisa/Andreas (and Tom, as
+ * produces a genuine above-cap proposal naming Lisa/Maria (and Tom, as
  * creator) — never something Tom can clear by himself.
  */
 import { randomUUID } from 'node:crypto';
@@ -107,10 +107,10 @@ const EMAIL_ESC_KEYS = ['profile', 'read_access', 'recipient_max', 'send_daily_m
 const EMAIL_SCOPE = { allowed_domains: 'example.com' };
 const EMAIL_SCOPE_KEYS = ['allowed_recipients', 'allowed_domains', 'allowed_attachment_sources'];
 
-/** The team's email settings: sending to more than one recipient at once needs 1 approval from Lisa or Andreas. */
-async function emailApprovalCap(request: APIRequestContext, t: { tom: AsUser; lisa: AsUser; andreas: AsUser; groupId: string }): Promise<void> {
-  await putProfileConfig(request, t.andreas, t.groupId, EMAIL_ESC_ID, {
-    grantors: [t.tom.id], approvers: [t.lisa.id, t.andreas.id],
+/** The team's email settings: sending to more than one recipient at once needs 1 approval from Lisa or Maria. */
+async function emailApprovalCap(request: APIRequestContext, t: { tom: AsUser; lisa: AsUser; maria: AsUser; groupId: string }): Promise<void> {
+  await putProfileConfig(request, t.maria, t.groupId, EMAIL_ESC_ID, {
+    grantors: [t.tom.id], approvers: [t.lisa.id, t.maria.id],
     caps: { recipient_max: { value: 1, kind: 'approval' } },
   });
 }
@@ -208,28 +208,28 @@ async function getProposalsForApprover(request: APIRequestContext, apiKey: strin
   return body.proposals ?? [];
 }
 
-/** registers a fresh team (Tom/Lisa/Andreas) with the exact TR5 config this
+/** registers a fresh team (Tom/Lisa/Maria) with the exact TR5 config this
  *  whole file exercises. Called from each top-level describe below (not a
  *  shared `beforeAll`) so that EITHER one is independently runnable and
  *  neither depends on file-level `let` state surviving a worker restart
  *  caused by a DIFFERENT describe's failure (see the file header). */
-async function setUpTeam(request: APIRequestContext): Promise<{ tom: AsUser; lisa: AsUser; andreas: AsUser; groupId: string }> {
+async function setUpTeam(request: APIRequestContext): Promise<{ tom: AsUser; lisa: AsUser; maria: AsUser; groupId: string }> {
   const tom = await registerAsUser(request, 'Tom');
   const lisa = await registerAsUser(request, 'Lisa');
-  const andreas = await registerAsUser(request, 'Andreas');
+  const maria = await registerAsUser(request, 'Maria');
 
-  const team = await createTeam(request, andreas, `TR5 Gateway Team ${Date.now()}`);
+  const team = await createTeam(request, maria, `TR5 Gateway Team ${Date.now()}`);
   const groupId = team.groupId;
-  await joinTeamConfirmed(request, tom, andreas, groupId, team.inviteCode);
-  await joinTeamConfirmed(request, lisa, andreas, groupId, team.inviteCode);
+  await joinTeamConfirmed(request, tom, maria, groupId, team.inviteCode);
+  await joinTeamConfirmed(request, lisa, maria, groupId, team.inviteCode);
 
-  // Tom is the ONLY grantor (may create mandates); Lisa and Andreas are the
+  // Tom is the ONLY grantor (may create mandates); Lisa and Maria are the
   // ONLY approvers (may clear an above-cap proposal). Neither role implies
   // the other — TR5's whole point. Tom is not a configured approver here;
   // see the file header for why he still appears on his own proposal card.
-  await putProfileConfig(request, andreas, groupId, CUSTOMERS_ID, {
+  await putProfileConfig(request, maria, groupId, CUSTOMERS_ID, {
     grantors: [tom.id],
-    approvers: [lisa.id, andreas.id],
+    approvers: [lisa.id, maria.id],
     // approvals omitted — defaults to 1.
     caps: {
       write_daily_max: { value: 1, kind: 'hard' }, // a daily count can only be hard (DEC-71)
@@ -237,7 +237,7 @@ async function setUpTeam(request: APIRequestContext): Promise<{ tom: AsUser; lis
       delete_daily_max: { value: 2, kind: 'hard' },
     },
   });
-  return { tom, lisa, andreas, groupId };
+  return { tom, lisa, maria, groupId };
 }
 
 test.describe('Team roles, caps and read limits — gateway (#119)', () => {
@@ -250,13 +250,13 @@ test.describe('Team roles, caps and read limits — gateway (#119)', () => {
   test.describe.serial('escalation + approval', () => {
     let tom: AsUser;
     let lisa: AsUser;
-    let andreas: AsUser;
+    let maria: AsUser;
     let groupId: string;
     let mcpClient: Client;
     let proposalId: string;
 
     test('setup: a team with a grantor-only member and two approvers, then Tom\'s above-cap mandate', async ({ request, page }) => {
-      ({ tom, lisa, andreas, groupId } = await setUpTeam(request));
+      ({ tom, lisa, maria, groupId } = await setUpTeam(request));
 
       // Sign Tom's browser in FIRST — pushGateContent below asks the MCP
       // server to look the mandate up on the Authority Server using the
@@ -276,7 +276,7 @@ test.describe('Team roles, caps and read limits — gateway (#119)', () => {
       // to it directly, which the UI wizard would normally do on submit.
       // Bypassing the UI here (the broken step) means doing that push too —
       // same two-step shape crm-lifecycle.test.ts uses.
-      await emailApprovalCap(request, { tom, lisa, andreas, groupId });
+      await emailApprovalCap(request, { tom, lisa, maria, groupId });
       const mandate = await tomEmailMandate(request, tom, groupId, "Send email on the team's behalf; to several recipients at once only when approved.");
       expect(mandate.above_cap).toBe(true); // recipient_max=3 exceeds the per-message approval cap (1)
       expect(mandate.commitment_mode).toBe('review_above_cap');
@@ -300,7 +300,7 @@ test.describe('Team roles, caps and read limits — gateway (#119)', () => {
       expect(first.isError, firstText).not.toBe(true);
       expect(firstText).not.toMatch(/Proposal ID:/);
 
-      // Above it (3 recipients in one message): an above-cap proposal naming Lisa/Andreas.
+      // Above it (3 recipients in one message): an above-cap proposal naming Lisa/Maria.
       const second = await mcpClient.callTool({ name: 'mail__send_message', arguments: { to: ['a@example.com', 'b@example.com', 'c@example.com'], subject: 'TR5 Escalated', body: 'Hello all.' } });
       const secondText = (second.content as Array<{ text: string }>)[0].text;
       expect(secondText).toMatch(/Approval required/i);
@@ -317,7 +317,7 @@ test.describe('Team roles, caps and read limits — gateway (#119)', () => {
       expect(proposal, 'Lisa must be a pending approver on this proposal').toBeTruthy();
       const pendingApprovers = (proposal as { pendingApprovers?: string[] }).pendingApprovers ?? [];
       expect(pendingApprovers).toContain(lisa.id);
-      expect(pendingApprovers).toContain(andreas.id);
+      expect(pendingApprovers).toContain(maria.id);
       // Never yourself (TR5): the proposer is not one of the approvers.
       expect(pendingApprovers).not.toContain(tom.id);
     });
@@ -475,10 +475,10 @@ test.describe('Team roles, caps and read limits — gateway (#119)', () => {
     }
 
     test('TEAM mode: a local window far wider than the signed 30-day ceiling does not win — an old message is refused', async ({ request, page }) => {
-      const { tom, andreas, lisa, groupId } = await setUpTeam(request);
+      const { tom, maria, lisa, groupId } = await setUpTeam(request);
       // The team enables the email profile for Tom, with a hard 30-day read cap.
-      await putProfileConfig(request, andreas, groupId, EMAIL_ID, {
-        grantors: [tom.id], approvers: [lisa.id, andreas.id],
+      await putProfileConfig(request, maria, groupId, EMAIL_ID, {
+        grantors: [tom.id], approvers: [lisa.id, maria.id],
         caps: { read_max_age_days: { value: 30, kind: 'hard' } },
       });
       await signInToGateway(page, tom.apiKey);
@@ -654,7 +654,7 @@ test.describe('Team approval from a row (UI spec §12.2)', () => {
         tool: 'mail__send_message',
         tool_args: { to: ['row-a@example.com', 'row-b@example.com'], subject: 'TR5 Row Approval', body: 'Hello both.' },
         execution_context: { recipient_count: 2, action_type: 'send' },
-        pending_approvers: [team.lisa.id, team.andreas.id],
+        pending_approvers: [team.lisa.id, team.maria.id],
         created_by: team.tom.id,
       },
     });
