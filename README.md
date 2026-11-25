@@ -206,7 +206,7 @@ file. Current legitimate examples:
 
 Enforcement, end to end: per-transaction and cumulative bounds; rolling
 daily/weekly and calendar-month windows; TTL expiry and revocation;
-exactly-once receipts (replay, lost response, mismatch); review-mode proposals
+exactly-once tickets (replay, lost response, mismatch); review-mode proposals
 including *approve X, execute Y* refusal; above-cap team escalation and
 approval; team roles and cap configuration; encrypted intent sharing; identity
 assurance; content binding and verification footers; per-ceremony authorization
@@ -247,12 +247,12 @@ and one component of this one is proprietary.)
 
 | Gap | Status |
 |---|---|
-| **Multi-owner approval** | The receipt-time *check* is implemented and tested, but multi-owner ceremonies are **not reachable**: personal groups resolve to one owner, team groups to the attester, and the only endpoint that could require two returns 410. There is no feature to test end to end. Team governance is expressed through above-cap approvers instead. |
+| **Multi-owner approval** | The *check* at ticket time is implemented and tested, but multi-owner ceremonies are **not reachable**: personal groups resolve to one owner, team groups to the attester, and the only endpoint that could require two returns 410. There is no feature to test end to end. Team governance is expressed through above-cap approvers instead. |
 | **Displayed-must-be-bound** | No enforcement. An approval surface shows `bcc` while the binding omits it; defensible only because review-mode proposal matching pins the whole argument set. |
 | **Per-correspondent read overrides** | Specified, not built. |
 | **Owner mandate signatures** | Specification-led; nothing implemented (phased P1–P5 in the ledger). |
-| **Mollie reads** | Its MCP server is remote and publishes no tool list, so anything unclassified is gated as a **write** — safe, but reads consume a write budget and produce receipts. Classifying them needs credentials to capture the live tool list. |
-| **`read_daily_max`** | Declared on the email profile, never enforced — reads carry no receipt, so nothing counts them. Marked `enforced: false`, and `appliesTo: []`. |
+| **Mollie reads** | Its MCP server is remote and publishes no tool list, so anything unclassified is gated as a **write** — safe, but reads consume a write budget and need a ticket. Classifying them needs credentials to capture the live tool list. |
+| **`read_daily_max`** | Declared on the email profile, never enforced — reads carry no ticket, so nothing counts them. Marked `enforced: false`, and `appliesTo: []`. |
 | **Credential-gated suites** | Four suites and the Stripe half of `e2e.test.ts` self-skip in CI (below). |
 
 ## Test processes worth knowing
@@ -336,7 +336,7 @@ decision, not a gap nobody noticed:
 
 - The **gating path** it uses is covered. `identity-assurance` and
   `verification-footer-local` exercise the `publish` profile end to end —
-  bounds, receipts, content binding, the verification footer — using a local
+  bounds, tickets, content binding, the verification footer — using a local
   stand-in connector, so what the Gatekeeper does for a publish-profile write
   is tested without LinkedIn in the loop.
 - What is **not** covered is the connector itself: its argument mapping and
@@ -345,7 +345,7 @@ decision, not a gap nobody noticed:
   category as the credential-gated suites above.
 
 The distinction that matters: a connector bug here cannot bypass the
-Gatekeeper — it is downstream of the receipt. It can only make a call fail or
+Gatekeeper — it runs after the ticket is signed. It can only make a call fail or
 send something malformed. That is why this is acceptable while an untested
 *enforcement* path would not be.
 
