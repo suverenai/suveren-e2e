@@ -7,7 +7,7 @@
  */
 import { existsSync } from 'node:fs';
 import { join } from 'node:path';
-import { test, expect, registerOnSP, signInToGateway, handleOnboarding, gatewayDataDir } from './fixtures';
+import { test, expect, registerOnSP, signInToGateway, handleOnboarding, gatewayDataDir, waitForPageGate } from './fixtures';
 
 // Runs only against a gateway that has the data-folder line (CI runs the
 // journeys against the gateway's main branch, which may not have it yet).
@@ -22,6 +22,7 @@ test('Settings shows "Data folder:" with the gateway\'s real data dir and the ap
   await handleOnboarding(page);
   await page.click('.sidebar-item:has-text("Settings")');
   await page.waitForURL('**/settings');
+  await waitForPageGate(page);
 
   const line = page.locator('.su-datafolder');
   await expect(line).toBeVisible({ timeout: 15_000 });

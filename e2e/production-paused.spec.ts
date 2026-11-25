@@ -6,7 +6,7 @@
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { SSEClientTransport } from '@modelcontextprotocol/sdk/client/sse.js';
 import { join } from 'node:path';
-import { test, expect, GW_MCP_URL, ensureUsersRegistered, ALICE, signInToGateway, handleOnboarding, cardTitlePattern } from './fixtures';
+import { test, expect, GW_MCP_URL, ensureUsersRegistered, ALICE, signInToGateway, handleOnboarding, cardTitlePattern, waitForPageGate } from './fixtures';
 
 const EDIT_PATH = 'presses **Edit settings**, chooses **On this computer** under *Where does CRM get its data?*, presses **Save**';
 
@@ -18,6 +18,7 @@ test('paused in production: the dashboard line, and the AI\'s steps work on the 
   await page.waitForLoadState('networkidle');
   await page.click('.sidebar-item:has-text("Connectors")');
   await page.waitForURL('**/integrations');
+  await waitForPageGate(page);
 
   const card = page.locator('.card', { has: page.locator('.card-title', { hasText: cardTitlePattern('CRM') }) }).first();
   await card.waitFor({ state: 'visible', timeout: 15_000 });
@@ -35,6 +36,7 @@ test('paused in production: the dashboard line, and the AI\'s steps work on the 
 
   // Dashboard: paused the other way round, and it says so.
   await page.click('.sidebar-item:has-text("Dashboard")');
+  await waitForPageGate(page);
   await expect(page.locator('.page-title')).toHaveText('Dashboard');
   const line = page.getByTestId('paused-summary-production');
   // The stack lists both practice connectors, so both are held back.
@@ -59,18 +61,21 @@ test('paused in production: the dashboard line, and the AI\'s steps work on the 
   // Follow exactly those words on the real card: Edit settings, the choice, Save.
   await page.click('.sidebar-item:has-text("Connectors")');
   await page.waitForURL('**/integrations');
+  await waitForPageGate(page);
   const after = page.locator('.card', { has: page.locator('.card-title', { hasText: cardTitlePattern('CRM') }) }).first();
   await after.getByRole('button', { name: 'Edit settings' }).click();
   await after.getByRole('radio', { name: 'On this computer' }).check();
   await after.getByRole('button', { name: /^Save$/ }).click();
   await expect(after.getByText('Running', { exact: true }).first()).toBeVisible({ timeout: 60_000 });
   await page.click('.sidebar-item:has-text("Dashboard")');
+  await waitForPageGate(page);
   // Only ERP is left, in the singular.
   await expect(page.getByTestId('paused-summary-production')).toContainText('1 connector is paused in production — ERP.', { timeout: 30_000 });
 
   // These browser specs share one gateway: put CRM back as it was found, for the specs that follow.
   await page.click('.sidebar-item:has-text("Connectors")');
   await page.waitForURL('**/integrations');
+  await waitForPageGate(page);
   const edit = after.getByRole('button', { name: 'Edit settings' });
   await after.waitFor({ state: 'visible', timeout: 15_000 });
   if (!(await edit.isVisible().catch(() => false))) await after.locator('.card-title').click();

@@ -7,7 +7,7 @@
  * Each test gets a fresh page, so we must login + do all checks in one test,
  * navigating via sidebar clicks (SPA navigation) not page.goto (full reload).
  */
-import { test, expect, ensureUsersRegistered, ALICE, signInToGateway, handleOnboarding, createAuthorization, activateIntegration, SP_URL, GW_URL , ensureProfileEnabledForActiveGroups, latestProfileId, cardTitlePattern} from './fixtures';
+import { test, expect, ensureUsersRegistered, ALICE, signInToGateway, handleOnboarding, createAuthorization, activateIntegration, SP_URL, GW_URL , ensureProfileEnabledForActiveGroups, latestProfileId, cardTitlePattern, waitForPageGate } from './fixtures';
 
 // The version the gateway's Records wizard grants under (newest) — see latestProfileId.
 const RECORDS_PROFILE = latestProfileId('records');
@@ -45,11 +45,13 @@ test.describe.serial('Journey 1: Personal User', () => {
     // (card content depends on integrations loading, which is flaky).
     await page.click('.sidebar-item:has-text("Connectors")');
     await page.waitForURL('**/integrations');
+    await waitForPageGate(page);
     await expect(page.locator('.page-title')).toHaveText('Connectors', { timeout: 10_000 });
 
     // Navigate to Settings (was "AI Assistant" before suveren-gateway #29)
     await page.click('.sidebar-item:has-text("Settings")');
     await page.waitForURL('**/settings');
+    await waitForPageGate(page);
     await expect(page.locator('.page-title, h1').first()).toBeVisible({ timeout: 10_000 });
 
     // Navigate to Approvals (proposals — empty)
@@ -77,6 +79,7 @@ test.describe.serial('Journey 1: Personal User', () => {
     await page.waitForLoadState('networkidle');
     await page.click('.sidebar-item:has-text("Connectors")');
     await page.waitForURL('**/integrations');
+    await waitForPageGate(page);
     const crmCard = page.locator('.card', { has: page.locator('.card-title', { hasText: cardTitlePattern('CRM') }) }).first();
     await crmCard.waitFor({ state: 'visible', timeout: 10_000 });
     // The card says it is paused in production, and why; nothing runs.

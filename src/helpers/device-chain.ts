@@ -3,7 +3,7 @@
  * platform checks (ECDSA P-256 over the object hash), real chain entries built with hap-core's device-keys module.
  * Nothing here is a mock; the objects are signed here and the Authority Server verifies them itself.
  */
-import { webcrypto } from 'node:crypto';
+import { generateKeyPairSync, webcrypto } from 'node:crypto';
 import {
   b64uEncode, buildEntry, buildSignin, deriveRootKey, ecdsaRawToDer, ed25519PublicKey, entryHash, keyIdOf,
   randomBytes, signEntry, signObject, type ChainEntry, type CheckKey, type DeviceRecord,
@@ -56,4 +56,31 @@ export async function signinBody(root: Root, dev: Device, head: { seq: number; h
     chain_seq: head.seq, chain_head: head.hash, issued_at: Math.floor(Date.now() / 1000),
   });
   return { signin, sig: await signObject(signin, dev.seed) };
+}
+
+/** A real X25519 reading key pair (raw 32 bytes each), for a device that must be able to open what is wrapped to it. */
+export function newReadKey(): { pub: Uint8Array; priv: Uint8Array } {
+  const { publicKey, privateKey } = generateKeyPairSync('x25519');
+  const pub = publicKey.export({ format: 'jwk' });
+  const priv = privateKey.export({ format: 'jwk' });
+  return { pub: new Uint8Array(Buffer.from(pub.x as string, 'base64url')), priv: new Uint8Array(Buffer.from(priv.d as string, 'base64url')) };
+}
+
+/** Set the device's reading public key before its first entry is built (a device made by `newDevice` has a random one). */
+export function withReadPub(dev: Device, readPub: Uint8Array): Device {
+  dev.record.read_pub = b64uEncode(readPub);
+  return dev;
+}
+
+/**
+ * An `add` entry signed by the ROOT key (the recovery code's key): valid for `verifyChain` while no device of the chain
+ * holds a check key. The Authority Server's own route refuses a root-signed entry (the recovery hand-off owns those), so a
+ * suite that needs one stored writes it into the throwaway database; the gateway verifies the chain itself.
+ */
+export async function addEntryByRoot(root: Root, prev: ChainEntry, dev: Device): Promise<ChainEntry> {
+  const e = buildEntry({ root_did: root.did, seq: prev.seq + 1, prev: await entryHash(prev), op: 'add', created_at: Math.floor(Date.now() / 1000), signer: 'root', device: dev.record });
+  const h = await entryHash(e);
+  e.sigs = [await signEntry(e, 'root', root.privateSeed), await signEntry(e, dev.record.key_id, dev.seed)];
+  e.checks = dev.record.check ? [{ by: dev.record.key_id, check: await checkOver(dev.checkPriv, h) }] : [];
+  return e;
 }
