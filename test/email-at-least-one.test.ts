@@ -6,7 +6,7 @@
  * email@0.10), the whole gateway (control plane + MCP server), the published
  * email-mcp with its practice mailbox. Nothing is mocked.
  *
- * What must hold (Andreas, 2026-11-11, doc/email-recipients-required-proposal.md):
+ * What must hold (Maria, 2026-11-11, doc/email-recipients-required-proposal.md):
  *  - the AI's proposal of an Email mandate that allows sending with neither field is
  *    refused at the call with the decided sentence, no proposal; with a domain it
  *    becomes a proposal, is created under email@0.10 (the newest version is the

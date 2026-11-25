@@ -1,5 +1,5 @@
 /**
- * Andreas 2026-11-11: ERP updates get the same Now → New card as the CRM. An
+ * Maria 2026-11-11: ERP updates get the same Now → New card as the CRM. An
  * item price change and a customer email change, proposed by the AI under a
  * review-only master-data mandate, on the real stack (Authority Server +
  * gateway + erp-mcp live/local; the only stand-in is the EU VIES service, which
@@ -63,7 +63,7 @@ async function openCard(): Promise<{ page: Page; tile: ReturnType<Page['locator'
 }
 
 /**
- * Round 4 (Andreas 2026-11-11): as calm as the CRM card. The tile shows the
+ * Round 4 (Maria 2026-11-11): as calm as the CRM card. The tile shows the
  * record by its name, the change, and the version sentence; the record's
  * other fields (and values equal to them) are folded under "Unchanged".
  */
@@ -125,7 +125,7 @@ describe.skipIf(!available)('ERP updates show Now → New (real AS + gateway + e
       await fold.locator(':scope > summary').click();
       expect(await fold.innerText()).toMatch(/VAT rate/);
       await fold.locator(':scope > summary').click(); // folded again, as the person first sees it
-      // Round 3 (Andreas 2026-11-11): checks are for findings — no check line repeats the change.
+      // Round 3 (Maria 2026-11-11): checks are for findings — no check line repeats the change.
       const cardText = await card.innerText();
       expect(cardText).not.toMatch(/List price:?\s*120\.00 EUR\s*→\s*130\.00 EUR/);
       expect(cardText).not.toMatch(/List price \(new\)/);
