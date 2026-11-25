@@ -23,8 +23,7 @@ import {
   test, expect,
   SP_URL, GW_MCP_URL, INTERNAL_SECRET,
   registerOnSP, signInToGateway, handleOnboarding, activateIntegration,
-  spApiAttest, latestProfileId,
-} from './fixtures';
+  spApiAttest, latestProfileId, waitForPageGate } from './fixtures';
 import { hashGateContent, computeBoundsHash, computeScopeHash } from '../src/helpers/crypto.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -99,6 +98,7 @@ async function createContacts(names: string[]): Promise<void> {
 
 async function goDashboard(page: Page): Promise<void> {
   await page.click('.sidebar-item:has-text("Dashboard")');
+  await waitForPageGate(page);
   await expect(page.getByTestId('core-cols')).toBeVisible({ timeout: 30_000 });
 }
 
@@ -286,6 +286,7 @@ test.describe.serial('Core objects — dashboard, tickets, approvals (real stack
     // Connectors: one card for the CRM, with the area as a chip.
     await page.click('.sidebar-item:has-text("Connectors")');
     await page.waitForURL('**/integrations');
+    await waitForPageGate(page);
     const crmCard = page.locator('.card', { has: page.locator('.card-title', { hasText: /^CRM/ }) }).first();
     const chip = crmCard.locator('[data-testid="integration-areas"] [data-area="customers"]');
     await expect(chip).toContainText(area, { timeout: 30_000 });
