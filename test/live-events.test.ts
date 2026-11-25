@@ -120,7 +120,7 @@ async function waitFor(fn: () => Promise<boolean>, ms: number): Promise<void> {
 
 beforeAll(async () => {
   pm.buildGateway();
-  await pm.startSP(SP_PORT, { env: { SUVEREN_LIVE_EVENTS: 'on', SUVEREN_EVENTS_MAX_STREAM_S: String(MAX_STREAM_S) } });
+  await pm.startSP(SP_PORT, { env: { SUVEREN_LIVE_EVENTS: 'on', SUVEREN_DEPLOYMENT: 'test', SUVEREN_EVENTS_MAX_STREAM_S: String(MAX_STREAM_S) } });
   sp = new SPClient(`http://localhost:${SP_PORT}`);
   proxy = await startProxy();
 
