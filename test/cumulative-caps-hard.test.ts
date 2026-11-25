@@ -1,5 +1,5 @@
 /**
- * DEC-71 (Maria, 2026-11-19; suveren-as #142): a team cap on a CUMULATIVE bound (a daily or
+ * DEC-71 (maintainer, 2026-11-19; suveren-as #142): a team cap on a CUMULATIVE bound (a daily or
  * monthly total, a count per day) is always a hard limit. "Needs approval above the limit" works per
  * single action only (v0.8 protocol, Commitment Modes rule 7).
  *

@@ -1,5 +1,5 @@
 /**
- * Walkthrough 2026-11-11 (Maria), three problems, on the real stack (Authority
+ * Walkthrough 2026-11-11 (maintainer), three problems, on the real stack (Authority
  * Server + the gateway's control plane AND MCP server + the published crm
  * connector), in a real browser:
  *
@@ -195,7 +195,7 @@ describe.skipIf(!available)('walkthrough 2026-11-11: update card, limit names, M
       expect(row).toMatch(/Name Maria Maria Berger/);
       expect(await tile.locator('.compare-now').first().innerText()).toBe('Maria');
       expect(await tile.locator('.compare-new').first().innerText()).toBe('Maria Berger');
-      // The value being replaced is struck through (Maria, 2026-11-11); the new one is not.
+      // The value being replaced is struck through (maintainer, 2026-11-11); the new one is not.
       const deco = (sel: string) => tile.locator(sel).first().evaluate((el) => getComputedStyle(el).textDecorationLine);
       expect(await deco('.compare-now')).toContain('line-through');
       expect(await deco('.compare-new')).not.toContain('line-through');

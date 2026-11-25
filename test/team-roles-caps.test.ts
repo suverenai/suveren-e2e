@@ -4,7 +4,7 @@
  *
  * Direction: content/0.7/review.md — "Group roles: who may grant, who
  * approves above the cap" and "A group can cap reads and capability
- * switches" (hap-protocol #14). Written from the DECISIONS (Maria,
+ * switches" (hap-protocol #14). Written from the DECISIONS (maintainer,
  * 2026-10-14), not from the implementation's code or its unit test — this file calls the
  * real running AS over HTTP exactly as a gateway or another conformant
  * client would, the same style as the existing team-approval.test.ts.
