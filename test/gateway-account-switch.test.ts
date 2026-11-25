@@ -1,6 +1,6 @@
 /**
  * Signing in to a gateway that already belongs to someone (security review
- * 2026-11, finding A3 — the part Andreas approved 2026-11-12).
+ * 2026-11, finding A3 — the part Maria approved 2026-11-12).
  *
  * Real Authority Server, real gateway (control plane + MCP server), two real
  * accounts: Anna owns the gateway, Mallory has a valid key of her own.

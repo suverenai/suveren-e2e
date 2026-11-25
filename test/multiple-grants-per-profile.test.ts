@@ -56,12 +56,12 @@ const CONTEXT_KEY_ORDER = ['allowed_recipients', 'allowed_domains'];
 // Two grants under the SAME profile, distinct on bounds, scope, and intent.
 const GRANT_A = {
   bounds: { profile: PROFILE_ID, read_access: 'unlimited', recipient_max: 5, send_daily_max: 20, setup_daily_max: 0 },
-  context: { allowed_recipients: 'alpha@sublin.app' },
+  context: { allowed_recipients: 'alpha@example.com' },
   gateContent: { intent: 'AUTHORITY-ALPHA: send team updates within bounds.' },
 };
 const GRANT_B = {
   bounds: { profile: PROFILE_ID, read_access: 'unlimited', recipient_max: 1, send_daily_max: 5, setup_daily_max: 0 },
-  context: { allowed_recipients: 'bravo@sublin.app' },
+  context: { allowed_recipients: 'bravo@example.com' },
   gateContent: { intent: 'AUTHORITY-BRAVO: read-only inbox digest.' },
 };
 
@@ -178,8 +178,8 @@ describe('Multiple authorizations per profile', () => {
     expect(text).toContain('AUTHORITY-BRAVO');
 
     // Distinct scope preserved per grant.
-    expect(text).toContain('alpha@sublin.app');
-    expect(text).toContain('bravo@sublin.app');
+    expect(text).toContain('alpha@example.com');
+    expect(text).toContain('bravo@example.com');
 
     // Distinct bounds preserved per grant.
     expect(text).toContain('recipient_max: 5');
