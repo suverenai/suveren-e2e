@@ -496,8 +496,8 @@ test('a computer without Touch ID: the give page sends the mandate to the phone,
     expect(changeClosed.text).toMatch(new RegExp(`Proposal ${changeId} was GIVEN: the person gave the change you proposed with their touch, exactly as proposed\\. It is in force now as authz_[0-9a-f-]{36}\\.`));
 
     // ── On hold (approved mockup v2, DEC-109/110/111): what the gateway holds back, each card with its button. Provoked in the
-    // throwaway database (seams): the Quotes mandate's grants removed ("given without your touch"); the Setup mandate's sealed body
-    // replaced by another mandate's ("does not match what you confirmed", the alarm). The verdicts are the gateway's own.
+    // throwaway database (seams): the Quotes mandate's grants removed ("given without your touch"); the Setup mandate's stored grant
+    // altered ("does not match what you confirmed", the alarm). The verdicts are the gateway's own.
     const quotesAuthz = c.give.place.authorization_id as string;
     const quotesMandate = c.mandate_id as string;
     const setupRow = (await db.query(
@@ -507,8 +507,13 @@ test('a computer without Touch ID: the give page sends the mandate to the phone,
     )).rows[0] as { authorization_id: string; mandate_id: string };
     expect(setupRow, 'a second mandate to tamper with').toBeTruthy();
     await db.query(`delete from mandate_grants where authorization_id = $1`, [quotesAuthz]);
-    const quotesBody = (await db.query(`select ciphertext, device_keys from mandate_bodies where mandate_id = $1 order by mandate_version desc limit 1`, [quotesMandate])).rows[0] as { ciphertext: string; device_keys: unknown };
-    await db.query(`update mandate_bodies set ciphertext = $2, device_keys = $3::jsonb where mandate_id = $1`, [setupRow.mandate_id, quotesBody.ciphertext, JSON.stringify(quotesBody.device_keys)]);
+    // The Setup mandate's stored grant now names another authorization (what the server holds is not what was granted): the
+    // gateway's own check refuses it as `grant_other_authorization`. (The sealed body is kept on the computer once read, so a
+    // server-side body swap would not reach the check.)
+    await db.query(
+      `update mandate_grants set "grant" = jsonb_set("grant", '{authorization_id}', to_jsonb('authz_00000000-0000-4000-8000-000000000000'::text)) where mandate_id = $1`,
+      [setupRow.mandate_id],
+    );
     const heldNow = async () => {
       await fetch(`${gw}/resync-gates`, { method: 'POST', headers }).catch(() => undefined);
       const r = await fetch(`${gw}/api/mandate/held-back`, { headers });
