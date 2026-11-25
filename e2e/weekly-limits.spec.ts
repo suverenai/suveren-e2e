@@ -1,5 +1,5 @@
 /**
- * Weekly limits in the browser (Andreas, 2026-11-23): email@0.11's optional
+ * Weekly limits in the browser (maintainer, 2026-11-23): email@0.11's optional
  * `send_weekly_max` (the last 7 days).
  *
  *  - The form names the field as it names every limit — the connector's limit words

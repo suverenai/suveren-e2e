@@ -18,7 +18,7 @@ export async function expectStampCentred(stamp: Locator, what: string): Promise<
     return { areaTop: c.top, areaBottom: bottom, contentCentre: (top + end) / 2 };
   });
   expect(m, `${what}: the stamp is inside a card`).not.toBeNull();
-  // Its small line ("Recorded", …) uses the body font, not the mono font (Andreas 2026-11-22).
+  // Its small line ("Recorded", …) uses the body font, not the mono font (maintainer 2026-11-22).
   const line = stamp.locator('.av3-stamp-t').first();
   if (await line.count()) {
     const [lineFont, bodyFont] = await line.evaluate((el) => [getComputedStyle(el).fontFamily, getComputedStyle(document.body).fontFamily]);

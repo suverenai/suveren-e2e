@@ -8,7 +8,7 @@
  * Seams: the account-key sign-in and the set-up run through the gateway's API (the set-up screens have their own journey); no
  * person touches a sensor (the software backend signs without a prompt).
  *
- * Scenarios (Andreas, 2026-11-20 "real-world tests"):
+ * Scenarios (maintainer, 2026-11-20 "real-world tests"):
  *   S1 set-up with a check key, Touch ID unlock on, the page unlocked with Touch ID
  *   S2 the Setup mandate given on the give page with Touch ID
  *   S3 the AI proposes a Records mandate; the person gives it ON THE CARD in place with Touch ID; it is live for the AI
@@ -190,7 +190,7 @@ test('Touch ID on the gateway page: set-up, unlock, give, the card in place, an 
     expect(proposed.isError, proposed.text).toBe(false);
     const mandateProposal = /Proposal ID: (\S+?)\./.exec(proposed.text)![1];
     const card = await openCard(mandateProposal);
-    // A check key here: the card's button names Touch ID, the same words as the give page (Andreas 2026-11-22).
+    // A check key here: the card's button names Touch ID, the same words as the give page (maintainer 2026-11-22).
     await expect(card.getByTestId('btn-approve')).toHaveText('Give this mandate with Touch ID', { timeout: 30_000 });
     await expectButtonTextFits(card.getByTestId('btn-approve'), 'card, Touch ID give button');
     await shot('t5-card-mandate');

@@ -231,7 +231,7 @@ test('a computer without Touch ID: the give page sends the mandate to the phone,
   // This computer cannot give it: the footer offers the phone.
   const send = page.getByTestId('give-phone-send');
   await expect(send).toBeEnabled({ timeout: 30_000 });
-  // The button says how it is given (Andreas 2026-11-22), the same words as on the card.
+  // The button says how it is given (maintainer 2026-11-22), the same words as on the card.
   await expect(send).toHaveText('Give this mandate on your phone');
   await expectButtonTextFits(send, 'give page, phone button');
   await send.click();
@@ -386,7 +386,7 @@ test('a computer without Touch ID: the give page sends the mandate to the phone,
     await expect(summary).toBeVisible();
     await expect(summary).toContainText(':');
     expect(await summary.textContent(), 'no bare values').not.toMatch(/^none · none/);
-    // No check key here: the card's button says the mandate is given on the phone (Andreas 2026-11-22).
+    // No check key here: the card's button says the mandate is given on the phone (maintainer 2026-11-22).
     await expect(card.getByTestId('btn-approve')).toHaveText('Give this mandate on your phone', { timeout: 30_000 });
     await expectButtonTextFits(card.getByTestId('btn-approve'), 'card, phone give button');
     await shot('s1-card-before');
@@ -404,7 +404,7 @@ test('a computer without Touch ID: the give page sends the mandate to the phone,
     await expect(card.getByTestId('give-touch-given')).toBeVisible({ timeout: 60_000 });
     await expect(card.getByTestId('give-touch-given').getByText('Signed')).toBeVisible();
     await shot('s3-card-given');
-    // The stamp sits in the middle of the card above Close, not at its bottom (Andreas, dev test 2026-11-22).
+    // The stamp sits in the middle of the card above Close, not at its bottom (maintainer, dev test 2026-11-22).
     await expectStampCentredAtSizes(page, card.getByTestId('give-touch-given').locator('.av3-stamp'), 'card, given on the phone', shot, 's3-stamp');
     expect(page.url()).toBe(urlBefore);
     // The person closes the result, as on the dev lane (the card stays with its stamp until Close, DEC-88).

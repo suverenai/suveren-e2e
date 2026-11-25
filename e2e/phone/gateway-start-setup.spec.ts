@@ -244,7 +244,7 @@ test('DEC-93 + DEC-91: a new gateway starts at Connect without an account key, t
   await shot(page2, info, 'b-chain-exists');
   await page2.close();
 
-  // 6b. The stale-"Done" fix (AS fix/connect-stale-done), the case Andreas met: in ONE browser, a Connect that was confirmed
+  // 6b. The stale-"Done" fix (AS fix/connect-stale-done), the case the maintainer met: in ONE browser, a Connect that was confirmed
   //     but whose gateway never finished, then a Connect from another new gateway. The second must offer Connect at once
   //     (one click, still signed in), never "Done" left over from the first, and that gateway goes on to the password.
   const other = await context.browser()!.newContext();

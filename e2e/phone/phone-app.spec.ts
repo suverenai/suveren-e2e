@@ -1114,7 +1114,7 @@ test.describe('stage D3: change a mandate on the phone (mockup B1, DEC-90)', () 
 });
 
 // ═══════════════════════════════════════════════════════════════════════════════════════════════
-// The phone's home screen (Andreas on his iPhone, 2026-11-23): Waiting holds only waiting items, the empty text sits right under
+// The phone's home screen (the maintainer on an iPhone, 2026-11-23): Waiting holds only waiting items, the empty text sits right under
 // its heading, "Your mandates" shows the gateway's titles and the end as a date and time.
 // ═══════════════════════════════════════════════════════════════════════════════════════════════
 
@@ -1152,7 +1152,7 @@ async function liveMandate(comp: Computer, o: { profileDir: string; bounds: Reco
   return { authorizationId, title: o.title };
 }
 
-test.describe('the phone\'s home screen (Andreas 2026-11-23)', () => {
+test.describe('the phone\'s home screen (maintainer 2026-11-23)', () => {
   test.skip(chromiumOnly, NO_VIRTUAL_AUTHENTICATOR);
 
   test('nothing waiting: the empty text right under "Waiting for you", no notes there, "Your mandates" with the gateway\'s titles and the end as date and time', async ({ browser }) => {

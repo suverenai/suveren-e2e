@@ -1,5 +1,5 @@
 /**
- * Weekly limits (Andreas, 2026-11-23): publish@0.9 `post_weekly_max` and email@0.11
+ * Weekly limits (maintainer, 2026-11-23): publish@0.9 `post_weekly_max` and email@0.11
  * `send_weekly_max`, both `cumulative_count` with `window: "weekly"` — the last 7 days,
  * rolling (protocol 0.7/0.8, Cumulative Bounds).
  *
