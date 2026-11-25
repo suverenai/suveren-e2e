@@ -494,6 +494,68 @@ test('a computer without Touch ID: the give page sends the mandate to the phone,
     }, 60_000);
     expect(changeClosed.text).not.toMatch(/setup refused to run it|nothing was done|own version/);
     expect(changeClosed.text).toMatch(new RegExp(`Proposal ${changeId} was GIVEN: the person gave the change you proposed with their touch, exactly as proposed\\. It is in force now as authz_[0-9a-f-]{36}\\.`));
+
+    // ── On hold (approved mockup v2, DEC-109/110/111): what the gateway holds back, each card with its button. Provoked in the
+    // throwaway database (seams): the Quotes mandate's grants removed ("given without your touch"); the Setup mandate's sealed body
+    // replaced by another mandate's ("does not match what you confirmed", the alarm). The verdicts are the gateway's own.
+    const quotesAuthz = c.give.place.authorization_id as string;
+    const quotesMandate = c.mandate_id as string;
+    const setupRow = (await db.query(
+      `select authorization_id, mandate_id from mandate_grants where user_id = $1 and mandate_id <> $2 and op in ('grant','change')
+         and authorization_id in (select authorization_id from mandate_grants g2 where g2.user_id = $1) order by stored_at asc limit 1`,
+      [p.userId, quotesMandate],
+    )).rows[0] as { authorization_id: string; mandate_id: string };
+    expect(setupRow, 'a second mandate to tamper with').toBeTruthy();
+    await db.query(`delete from mandate_grants where authorization_id = $1`, [quotesAuthz]);
+    const quotesBody = (await db.query(`select ciphertext, device_keys from mandate_bodies where mandate_id = $1 order by mandate_version desc limit 1`, [quotesMandate])).rows[0] as { ciphertext: string; device_keys: unknown };
+    await db.query(`update mandate_bodies set ciphertext = $2, device_keys = $3::jsonb where mandate_id = $1`, [setupRow.mandate_id, quotesBody.ciphertext, JSON.stringify(quotesBody.device_keys)]);
+    const heldNow = async () => {
+      await fetch(`${gw}/resync-gates`, { method: 'POST', headers }).catch(() => undefined);
+      const r = await fetch(`${gw}/api/mandate/held-back`, { headers });
+      return r.ok ? ((await r.json()) as { held: Array<{ authorizationId: string; code: string; workspace?: string; ownerIsYou: boolean }> }).held : [];
+    };
+    const verdicts = await until('the gateway holds both back', async () => {
+      const h = await heldNow();
+      return h.some((x) => x.authorizationId === quotesAuthz) && h.some((x) => x.authorizationId === setupRow.authorization_id) ? h : undefined;
+    }, 90_000);
+    test.info().annotations.push({ type: 'held-verdicts', description: JSON.stringify(verdicts) });
+    await goInPage(page, '/mandates');
+    const touchCard = page.locator('[data-testid="held-card"][data-reason="touch_missing"]');
+    await expect(touchCard).toBeVisible({ timeout: 30_000 });
+    await expect(touchCard.getByTestId('held-reason')).toHaveText('This was given without your touch. Give it again so your AI can use it.');
+    await expect(touchCard.getByTestId('held-give-again')).toHaveText('Give again');
+    await expect(touchCard.getByTestId('held-end')).toHaveCount(0);
+    const alarmCard = page.locator('[data-testid="held-card"][data-reason="alarm"]');
+    await expect(alarmCard).toBeVisible({ timeout: 30_000 });
+    await expect(alarmCard.getByTestId('held-reason')).toHaveText('✕ This mandate does not match what you confirmed.');
+    // A Personal workspace: no admin line.
+    await expect(alarmCard.getByTestId('held-step')).toHaveText('Your AI cannot use it. If you did not change it yourself, end it.');
+    await expect(alarmCard.getByTestId('held-give-again')).toBeVisible();
+    await expect(alarmCard.getByTestId('held-end')).toBeVisible();
+    await expect(page.getByText('On hold: Your AI cannot use these yet')).toBeVisible();
+    await page.getByTestId('held-list').scrollIntoViewIfNeeded();
+    await shot('h1-on-hold-desktop');
+    await page.setViewportSize({ width: 390, height: 844 });
+    await page.getByTestId('held-list').scrollIntoViewIfNeeded();
+    await shot('h2-on-hold-phone-width');
+    await page.setViewportSize({ width: 1280, height: 900 });
+    // End on the alarm card opens the gateway's End screen for that mandate (Keep leaves it).
+    await alarmCard.getByTestId('held-end').click();
+    await expect(page.getByTestId('end-mandate')).toBeVisible({ timeout: 15_000 });
+    await shot('h3-on-hold-end');
+    await page.getByTestId('end-keep').click();
+    await expect(page.getByTestId('end-mandate')).toHaveCount(0, { timeout: 15_000 });
+    // Give again (touch missing): the give flow opens with ONLY what this gateway verified when it was given — the intent —
+    // and none of the server's limits; it replaces the held mandate once given.
+    await goInPage(page, '/mandates');
+    await expect(touchCard).toBeVisible({ timeout: 30_000 });
+    await touchCard.getByTestId('held-give-again').click();
+    await page.waitForURL((u) => u.pathname === '/mandates/new/intent', { timeout: 15_000 });
+    const handed = await page.evaluate(() => ({ gate: JSON.parse(sessionStorage.getItem('agentGate') ?? '{}'), replaces: sessionStorage.getItem('agentEditReplaces') }));
+    expect(handed.replaces).toBe(quotesAuthz);
+    expect(handed.gate.gateContent?.intent).toBe('Quotes wait two days.');
+    expect(Object.keys(handed.gate.bounds ?? {}).filter((k) => k !== 'profile')).toEqual([]);
+    await shot('h4-give-again-opened');
   } finally {
     await agent.close().catch(() => undefined);
   }
