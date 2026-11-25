@@ -538,6 +538,11 @@ test('a computer without Touch ID: the give page sends the mandate to the phone,
     await expect(alarmCard.getByTestId('held-give-again')).toBeVisible();
     await expect(alarmCard.getByTestId('held-end')).toBeVisible();
     await expect(page.getByText('On hold: Your AI cannot use these yet')).toBeVisible();
+    // The card carries the mandate's own title; a mandate on hold is not also listed or counted as Active (only Notes is).
+    await expect(touchCard.locator('strong').first()).toHaveText('Quotes');
+    await expect(alarmCard.locator('strong').first()).toHaveText('Setup');
+    await expect(page.getByText(/^Active \(1\)$/)).toBeVisible({ timeout: 15_000 });
+    await expect(page.locator('[data-testid="mandate-card"]').filter({ hasText: 'Quotes' })).toHaveCount(0);
     await page.getByTestId('held-list').scrollIntoViewIfNeeded();
     await shot('h1-on-hold-desktop');
     await page.setViewportSize({ width: 390, height: 844 });
