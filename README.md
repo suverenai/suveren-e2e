@@ -166,23 +166,29 @@ or a field that really is still called that.
 
 ## Where the tests are
 
-Counts are what the runners report (parameterised cases expand at runtime, so
+Counts measured 2026-11-25 (gateway at v0.46.0, others at main). Counts are what the runners report (parameterised cases expand at runtime, so
 grepping the files under-counts).
 
 | Repo | Location | Cases | Runs in CI |
 |---|---|---|---|
-| **suveren-e2e** | `test/` (vitest, real stack) | 233 + 32 skipped | ✅ `e2e.yml` |
-| | `e2e/` (Playwright, browser journeys) | 31 | ✅ same workflow |
+| **suveren-e2e** | `test/` (vitest, real stack) | 955 + 30 skipped | ✅ `e2e.yml` |
+| | `e2e/` (Playwright, browser journeys) | 96 + 15 skipped (two projects) | ✅ same workflow |
 | | `conformance/` (the MUST map — data, not tests) | — | ✅ checked by `test/conformance-map.test.ts` |
-| **suveren-as** | `src/__tests__/` | 284 | ✅ `ci.yml` |
-| **suveren-gateway** | `apps/mcp-server/test/` | 486 | ✅ `test.yml` |
-| | `apps/control-plane/src/__tests__/` | 155 | ✅ same |
-| | `apps/ui/src/**` | 120 | ✅ same |
-| **hap-core** | `test/` | 197 | ✅ `ci.yml` |
-| **hap-records-mcp** | `src/` | 4 | ✅ `ci.yml` |
-| **hap-deploy-mcp** | `src/` | 9 | ✅ `ci.yml` |
+| **suveren-as** | `apps/as/src/__tests__/` | 1633 + 25 skipped | ✅ `ci.yml` |
+| **suveren-gateway** | `apps/mcp-server/test/` | 2905 | ✅ `test.yml` |
+| | `apps/control-plane/src/__tests__/` | 1346 | ✅ same |
+| | `apps/ui/src/**` | 949 | ✅ same |
+| | `apps/approve/src/**` (phone app) | 400 | ✅ same |
+| | `packages/approval-card`, `pairing`, `unlock-helper` | 629, 23, 30 | ✅ same |
+| **hap-core** | `test/` | 734 (5 more files read the spec's vectors checkout) | ✅ `ci.yml` |
+| **hap-crm-mcp** | `src/` | 155 | ✅ `ci.yml` |
+| **hap-email-mcp** | `src/` | 104 | ✅ `ci.yml` |
+| **hap-erp-mcp** | `src/`, `test/` | 510 + 13 skipped | ✅ `ci.yml` |
+| **hap-deploy-mcp** | `src/` | 34 | ✅ `ci.yml` |
+| **hap-records-mcp** | `src/` | 5 | ✅ `ci.yml` |
+| **hap-files-mcp** | — | not measured | — |
 | **hap-profiles** | — | 0 | validated from here (below) |
-| **hap-crm-mcp**, **hap-linkedin-mcp**, **hap-googlecalendar-mcp** | — | 0 | see *Connectors without a suite* |
+| **hap-linkedin-mcp**, **hap-googlecalendar-mcp** | — | 0 | see *Connectors without a suite* |
 
 `hap-profiles` has no test tooling of its own. Two suites here hold it to its
 contract instead, because the checks are cross-repo by nature:
