@@ -329,6 +329,10 @@ export class ProcessManager {
     if (login.status !== 200) {
       throw new Error(`Gateway sign-in failed (${login.status}): ${JSON.stringify(login.body)}`);
     }
+    // The gateway registers this account's reader key on the Authority Server AFTER it answered the sign-in, without
+    // waiting (suveren-gateway apps/control-plane/src/routes/auth.ts, "Auto-register E2EE public key"). A suite that
+    // reads GET /api/users/:id/pubkey right away raced it (an intermittent 404). Ready means registered.
+    await waitForReaderKey(opts.spUrl, opts.spApiKey);
     console.error(`[E2E] Gateway ready and signed in (control plane :${cpPort}, MCP :${opts.port}).`);
     return proc;
   }
@@ -556,4 +560,21 @@ function freePort(): Promise<number> {
       srv.close(() => resolve(port));
     });
   });
+}
+
+/** Polls the Authority Server until the account behind `apiKey` has a reader key (GET /api/users/me/pubkey → 200). */
+export async function waitForReaderKey(asUrl: string, apiKey: string, deadlineMs = 20_000): Promise<void> {
+  const end = Date.now() + deadlineMs;
+  let last = 'no answer';
+  while (Date.now() < end) {
+    try {
+      const r = await fetch(`${asUrl.replace(/\/$/, '')}/api/users/me/pubkey`, { headers: { 'x-api-key': apiKey }, signal: AbortSignal.timeout(5_000) });
+      if (r.status === 200) return;
+      last = `HTTP ${r.status}`;
+    } catch (e) {
+      last = e instanceof Error ? e.message : String(e);
+    }
+    await new Promise((r) => setTimeout(r, 250));
+  }
+  throw new Error(`The gateway signed in, but its reader key was not registered on the Authority Server within ${deadlineMs / 1000}s (last: ${last}).`);
 }

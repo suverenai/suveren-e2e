@@ -16,6 +16,7 @@ import { resolveAsDir, resolveNextBin } from '../src/helpers/as-dir';
 import { localProfilesForAs } from '../src/helpers/local-profiles';
 import { profileHashFor } from '../src/helpers/profiles';
 import { assertPortFree, stopTracked, trackProcess } from '../src/helpers/process-registry';
+import { typeTitle } from '../src/helpers/give-page';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -449,6 +450,19 @@ const writeLastGatewayKey = (key: string): void => {
 };
 const ANOTHER_ACCOUNT = 'This gateway is signed in to another account';
 
+/**
+ * DEC-98: Dashboard, Settings, Connectors, Devices, Mandates and the give page hold their content behind one page gate
+ * (grey until every part is in, at most ~4 s). Wait until this page's gate is open before reading what it shows, so a
+ * short assertion timeout never races the gate. The gate says it in `data-gate` (loading | open). A page without a gate
+ * (an older gateway) passes at once.
+ */
+export async function waitForPageGate(page: Page, timeout = 30_000): Promise<void> {
+  await page.waitForFunction(() => {
+    const gates = Array.from(document.querySelectorAll('.load-gate'));
+    return gates.every((g) => g.getAttribute('data-gate') !== 'loading');
+  }, undefined, { timeout });
+}
+
 export async function signInToGateway(page: Page, apiKey: string): Promise<void> {
   const lastGatewayKey = readLastGatewayKey();
   if (lastGatewayKey && lastGatewayKey !== apiKey) {
@@ -458,7 +472,8 @@ export async function signInToGateway(page: Page, apiKey: string): Promise<void>
       throw new Error(`signing the previous account out failed: ${out.status()} ${await out.text()}`);
     }
   }
-  await page.goto(`${GW_URL}/login`, { waitUntil: 'networkidle' });
+  // `?account-key`: the ordinary sign-in, never moved on to the one-time start page of a new gateway (DEC-93).
+  await page.goto(`${GW_URL}/login?account-key`, { waitUntil: 'networkidle' });
   await page.locator('input[type="password"]').waitFor({ state: 'visible', timeout: 10_000 });
   await page.locator('input[type="password"]').fill(apiKey);
 
@@ -503,7 +518,8 @@ export async function signInToGateway(page: Page, apiKey: string): Promise<void>
       await page.waitForTimeout(61_000);
       // Start from a fresh login page: the old "Too many login attempts"
       // message would otherwise still be visible and be read as a new 429.
-      await page.goto(`${GW_URL}/login`, { waitUntil: 'networkidle' });
+      // `?account-key`: the ordinary sign-in, never moved on to the one-time start page of a new gateway (DEC-93).
+  await page.goto(`${GW_URL}/login?account-key`, { waitUntil: 'networkidle' });
       await page.locator('input[type="password"]').fill(apiKey);
       await signInBtn.click();
       continue;
@@ -558,6 +574,7 @@ export async function activateIntegration(page: Page, integrationName: string): 
   await page.waitForLoadState('networkidle');
   await expect(page.locator('.page-title')).toBeVisible({ timeout: 10_000 });
   await page.click('.sidebar-item:has-text("Connectors")');
+  await waitForPageGate(page);
   // Wait for the route + page to settle before looking for cards — otherwise we
   // race the SPA navigation and match `.card` on the Dashboard "Get Started" panel.
   await page.waitForURL('**/integrations');
@@ -676,14 +693,13 @@ export async function createAuthorization(
   // Wait for /mandates/new/intent (bounds step)
   await page.waitForURL(url => url.toString().includes('/mandates/new/intent'), { timeout: 10_000 });
 
-  // Bounds step: click stepper + buttons to set values
-  for (const [, value] of Object.entries(opts.bounds)) {
-    const numValue = parseInt(value, 10);
-    const plusBtn = page.locator('.stepper-btn').last();
-    for (let i = 0; i < numValue; i++) {
-      await plusBtn.click();
-    }
+  // Bounds step: each named limit into its own field. (This used to click the LAST stepper
+  // n times, whichever limit that was, and leave the named one empty — harmless while an
+  // empty required limit was signed as 0; since 2026-11-23 the form keeps Continue off then.)
+  for (const [key, value] of Object.entries(opts.bounds)) {
+    await page.locator(`#bounds-field-${key}`).fill(value);
   }
+  await expect(page.getByTestId('required-limits-empty'), 'a required limit is still empty').toHaveCount(0);
   await page.locator('button:has-text("Next")').click();
 
   // Intent step — target the intent textarea specifically (the assistant draft
@@ -704,7 +720,7 @@ export async function createAuthorization(
   }
 
   // Fill title
-  await page.locator('input[placeholder*="e.g."]').fill(opts.title);
+  await typeTitle(page, opts.title);
 
   // The form makes the person choose how long; these tests take the shortest common choice.
   if (await page.getByTestId('duration-needed').isVisible().catch(() => false)) await page.locator('button', { hasText: /^24 hours$/ }).click();

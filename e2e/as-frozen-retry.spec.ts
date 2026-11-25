@@ -4,16 +4,19 @@
  * signing in again. And the gateway itself must give up on the hung call instead of waiting forever.
  */
 import { execSync } from 'node:child_process';
-import { test, expect, registerOnSP, signInToGateway, handleOnboarding } from './fixtures';
+import { test, expect, registerOnSP, signInToGateway, handleOnboarding, waitForPageGate } from './fixtures';
 
 test('a frozen Authority Server: told what is going on, recovers without a reload or a new sign-in', async ({ page }) => {
   test.setTimeout(180_000);
   const apiKey = await registerOnSP(page, 'Frozen AS');
   await signInToGateway(page, apiKey);
   await handleOnboarding(page);
+  // While the mandates load: the page's skeleton (DEC-98), or the "Loading..." line of a gateway before it.
+  const loading = page.getByTestId('mandates-skeleton').or(page.getByText('Loading...')).filter({ visible: true });
   await page.click('.sidebar-item:has-text("Mandates")');
-  await expect(page.getByText('Loading...')).toHaveCount(0, { timeout: 30_000 });
+  await expect(loading).toHaveCount(0, { timeout: 30_000 });
   await page.click('.sidebar-item:has-text("Dashboard")');
+  await waitForPageGate(page);
   // Not reloaded = this marker survives to the end.
   await page.evaluate(() => { (window as unknown as { __noReload: boolean }).__noReload = true; });
 
@@ -22,7 +25,7 @@ test('a frozen Authority Server: told what is going on, recovers without a reloa
   execSync(`kill -STOP ${pid}`);
   try {
     await page.click('.sidebar-item:has-text("Mandates")');
-    await expect(page.getByText('Loading...')).toBeVisible();
+    await expect(loading).toBeVisible();
 
     // Two tries of 15 seconds, then the person is told.
     const notice = page.getByTestId('connection-notice');
@@ -40,7 +43,7 @@ test('a frozen Authority Server: told what is going on, recovers without a reloa
   }
 
   await expect(page.getByTestId('connection-notice')).toHaveCount(0, { timeout: 60_000 });
-  await expect(page.getByText('Loading...')).toHaveCount(0, { timeout: 15_000 });
+  await expect(loading).toHaveCount(0, { timeout: 15_000 });
   await expect(page.locator('.page-title', { hasText: 'Mandates' })).toBeVisible();
   expect(page.url()).not.toContain('/login');
   expect(await page.evaluate(() => (window as unknown as { __noReload?: boolean }).__noReload)).toBe(true);

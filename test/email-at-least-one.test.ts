@@ -32,7 +32,7 @@ import { SPClient } from '../src/helpers/sp-client.js';
 import { GatewayClient } from '../src/helpers/gateway-client.js';
 import { hashGateContent, hashExecutionContext, computeBoundsHash, computeScopeHash } from '../src/helpers/crypto.js';
 import { ControlPlaneClient, newSecret, startControlPlane, startMcpServer, textOf, PROFILES_DIR, type StackOptions } from '../src/helpers/gateway-stack.js';
-import { profileHashFor } from '../src/helpers/profiles.js';
+import { profileHashFor, newestProfileId } from '../src/helpers/profiles.js';
 
 // 18700–18709 belong to this file.
 const AS_PORT = 18700;
@@ -41,6 +41,8 @@ const AS_URL = `http://localhost:${AS_PORT}`;
 const P = 'github.com/humanagencyprotocol/hap-profiles';
 const EMAIL_10 = `${P}/email@0.10`;
 const EMAIL_09 = `${P}/email@0.9`;
+/** The default an AI proposal is created under: the newest Email version (0.10 or later — the rule holds from 0.10 on). */
+const EMAIL_DEFAULT = newestProfileId('email', PROFILES_DIR);
 const DELEGATION = `${P}/delegation@0.6`;
 const available = existsSync(join(PROFILES_DIR, 'email', '0.10.profile.json')) && existsSync(join(PROFILES_DIR, 'delegation', '0.6.profile.json'));
 if (!available) console.warn('[EMAIL AT-LEAST-ONE E2E] SKIPPED — needs hap-profiles email@0.10 and delegation@0.6.');
@@ -195,21 +197,21 @@ describe.skipIf(!available)('an Email mandate must name who it may write to (rea
     expect(await pendingCount()).toBe(before);
   });
 
-  it('a read-only 0.10 mandate (send limit 0) needs neither field', async () => {
+  it('a read-only mandate (send limit 0) needs neither field', async () => {
     const r = await tool('setup__create_mandate', { profile: 'email', limits: { ...LIMITS, send_daily_max: 0 }, scope: {}, intent: 'Why — read the mailbox only.', mode: 'automatic', duration_hours: 2, title: 'Read only' });
     expect(r.denied, r.text).toBe(false);
     const m = await approveNewEmail(r.text);
-    expect(m.profileId ?? m.profile_id).toBe(EMAIL_10);
+    expect(m.profileId ?? m.profile_id).toBe(EMAIL_DEFAULT);
     await revoke(m.authorization_id);
   });
 
   let domainMandate = '';
-  it('with a domain it becomes a proposal, is created under email@0.10 (the default) and sends inside the domain', async () => {
+  it('with a domain it becomes a proposal, is created under the newest Email version (the default) and sends inside the domain', async () => {
     const r = await tool('setup__create_mandate', { profile: 'email', limits: LIMITS, scope: { allowed_domains: DOMAIN }, intent: 'Why — reply to the customer.', mode: 'automatic', duration_hours: 2, title: 'Customer replies' });
     expect(r.denied, r.text).toBe(false);
     expect(r.text).toMatch(/Awaiting commitment/);
     const m = await approveNewEmail(r.text);
-    expect(m.profileId ?? m.profile_id).toBe(EMAIL_10);
+    expect(m.profileId ?? m.profile_id).toBe(EMAIL_DEFAULT);
     domainMandate = m.authorization_id;
 
     const sent = await sentCount();

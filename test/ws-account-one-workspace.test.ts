@@ -43,7 +43,7 @@ const mcpInternal = new GatewayClient(`http://localhost:${MCP_PORT}`, stack.secr
 type User = { apiKey: string; user: { id: string; did: string } };
 let anna: User; // team admin
 let bernd: User; // Personal, then asks to join
-let team: { group: { id: string; name: string }; inviteCode: string };
+let team: { group: { id: string; inviteCode: string }; inviteCode: string };
 let personalMandate: string;
 let agent: Client;
 let browser: Browser;
@@ -85,7 +85,7 @@ describe.skipIf(!available)('an account is Personal or in one team (real stack +
     await pm.startSP(AS_PORT);
     anna = await sp.register('Anna Admin', `ws-anna-${Date.now()}@test.local`);
     bernd = await sp.register('Bernd Member', `ws-bernd-${Date.now()}@test.local`);
-    team = await sp.createGroup(anna.apiKey, TEAM_NAME) as typeof team;
+    team = await sp.createGroup(anna.apiKey, TEAM_NAME);
 
     // Bernd's gateway, with a Personal records mandate (automatic).
     await startControlPlane(pm, stack);

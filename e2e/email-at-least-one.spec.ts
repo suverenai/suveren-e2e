@@ -12,6 +12,7 @@
 import { test, expect, SP_URL, GW_MCP_URL, INTERNAL_SECRET, registerOnSP, signInToGateway, handleOnboarding, activateIntegration, spApiAttest } from './fixtures';
 import type { Page } from '@playwright/test';
 import { hashGateContent, computeBoundsHash, computeScopeHash } from '../src/helpers/crypto.js';
+import { typeTitle } from '../src/helpers/give-page';
 
 const P = 'github.com/humanagencyprotocol/hap-profiles';
 const EMAIL_09 = `${P}/email@0.9`;
@@ -45,7 +46,7 @@ test.describe.serial('An Email mandate must name who it may write to (browser)',
     await page.fill('.intent-textarea', `At-least-one e2e: ${title}`);
     await page.locator('button:has-text("Continue to Review")').click();
     await page.waitForURL((url) => url.toString().includes('/mandates/new/sign'), { timeout: 10_000 });
-    await page.locator('input[placeholder*="e.g."]').fill(title);
+    await typeTitle(page, title);
     if (await page.getByTestId('duration-needed').isVisible().catch(() => false)) await page.locator('button', { hasText: /^24 hours$/ }).click();
   }
 

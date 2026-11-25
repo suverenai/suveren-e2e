@@ -37,7 +37,7 @@ import { SPClient } from '../src/helpers/sp-client.js';
 import { GatewayClient } from '../src/helpers/gateway-client.js';
 import { hashGateContent, hashExecutionContext, computeBoundsHash, computeScopeHash } from '../src/helpers/crypto.js';
 import { ControlPlaneClient, newSecret, startControlPlane, startMcpServer, textOf, PROFILES_DIR, type StackOptions } from '../src/helpers/gateway-stack.js';
-import { profileHashFor } from '../src/helpers/profiles.js';
+import { profileHashFor, newestProfileId } from '../src/helpers/profiles.js';
 
 // 18540–18549 belong to this file.
 const AS_PORT = 18540;
@@ -275,7 +275,9 @@ describe.skipIf(!available)('delegation: the AI proposes a mandate, a person app
       await sp.setProfileConfig(tom.apiKey, teamId, DELEGATION, { approvers: [bernd.user.id] });
       await sp.setProfileConfig(tom.apiKey, teamId, `${P}/sales@0.4`, { approvers: [tom.user.id, bernd.user.id] });
       await sp.setProfileConfig(tom.apiKey, teamId, `${P}/customers@0.9`, { approvers: [tom.user.id] });
-      await sp.setProfileConfig(tom.apiKey, teamId, `${P}/email@0.9`, {
+      // The version the AI's proposal is created under (the newest). A config saved only for an older
+      // version does not carry over once a newer one adds a limit — test/weekly-limits.test.ts covers that.
+      await sp.setProfileConfig(tom.apiKey, teamId, newestProfileId('email', PROFILES_DIR), {
         approvers: [bernd.user.id],
         caps: { read_max_age_days: { value: 30, kind: 'hard' }, send_daily_max: { value: 3, kind: 'hard' } },
       });

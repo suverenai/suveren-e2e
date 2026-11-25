@@ -58,7 +58,9 @@ async function openCard(): Promise<{ page: Page; tile: ReturnType<Page['locator'
     const el = document.querySelector('[data-testid="approval-preview"]');
     return !!el && el.getAttribute('data-preview-status') !== 'loading';
   }, null, { timeout: 30_000 });
-  const card = page.getByTestId('approval-panel').locator('[data-testid="approval-card"]').first();
+  // The card's own load gate (DEC-98) may still be replacing its parts after the preview read: wait until none is loading.
+  await page.waitForFunction(() => !document.querySelector('[data-testid="approval-panel"] [data-gate="loading"]'), null, { timeout: 30_000 });
+  const card = page.getByTestId('approval-panel').locator('[data-testid="approval-card"]').filter({ visible: true }).first();
   return { page, card, tile: card.getByTestId('sealed-values') };
 }
 
