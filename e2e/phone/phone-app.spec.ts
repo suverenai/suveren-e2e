@@ -874,9 +874,9 @@ test.describe('stage D3: give a mandate on the phone (plan 4.4 Transport, DEC-86
     await phone.page.getByRole('button', { name: 'Open with a touch' }).click();
     const card = phone.page.getByTestId('give-card');
     await expect(card).toBeVisible({ timeout: 20_000 });
-    await expect(card.getByTestId('give-title')).toHaveText('Give the mandate for Quotes');
+    await expect(card.getByTestId('give-title')).toHaveText('Sales · Quotes');
     await expect(card.getByTestId('give-from')).toContainText('Prepared on Office Mac');
-    await expect(card.getByTestId('give-intent')).toHaveText(intent);
+    await expect(card.locator('[data-testid="mandate-intent-ai"] p')).toHaveText(intent);
     await expect(card.getByTestId('mandate-summary')).toBeVisible();
     await card.getByTestId('btn-give').click();
     // The computer takes it in after 6 s (its background check runs every 5 s): the phone keeps "Signing…" and then shows "Signed".
@@ -1055,7 +1055,7 @@ test.describe('stage D3: change a mandate on the phone (mockup B1, DEC-90)', () 
     await phone.page.goto(stack.appUrl);
     await phone.page.getByRole('button', { name: 'Open with a touch' }).click();
     const card = phone.page.getByTestId('give-card');
-    await expect(card.getByTestId('give-title')).toHaveText('Give the mandate for Quotes', { timeout: 20_000 });
+    await expect(card.getByTestId('give-title')).toHaveText('Sales · Quotes', { timeout: 20_000 });
     await card.getByTestId('btn-give').click();
     await signedWithoutAlarm(phone.page, computerTakesIt(comp, token, mandateId, 1, 0));
     return { phone, comp, token, state, profile, bounds, scope, intent, groupId, mandateId, authz1, mk, p1 };
@@ -1224,10 +1224,10 @@ test.describe('the phone\'s home screen (Andreas 2026-11-23)', () => {
     const prep = await http(stack.asUrl, 'POST', '/api/mandates/prepared', { token, body: { mandate_id: mandateId, mandate_version: 1, ciphertext: sealed.content.ciphertext, device_keys: sealed.content.encrypted_keys } });
     expect(prep.status, show(prep)).toBe(201);
     await phone.page.getByRole('button', { name: 'Refresh' }).click();
-    // The give opens full screen by itself (DEC-86); Cancel goes back to the list, where it is the one waiting row.
+    // The give opens full screen by itself (DEC-86); The panel's ✕ (Later) goes back to the list, where it is the one waiting row (the card's own Cancel button became this ✕ in the shared layout).
     const card = phone.page.getByTestId('give-card');
     await expect(card).toBeVisible({ timeout: 30_000 });
-    await card.getByRole('button', { name: 'Cancel' }).click();
+    await phone.page.getByTestId('approval-later').click();
     const row = phone.page.getByTestId('give-row');
     await expect(row).toBeVisible({ timeout: 15_000 });
     await expect(phone.page.getByTestId('list-empty')).toHaveCount(0);

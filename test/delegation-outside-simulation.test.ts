@@ -108,7 +108,7 @@ async function previewOf(proposalId: string) {
 }
 
 /** The approvals page in a real browser, signed in; the first card's preview text. */
-async function cardText(): Promise<{ status: string | null; text: string; hasEdit: boolean }> {
+async function cardText(): Promise<{ text: string; hasEdit: boolean }> {
   const page = await browser.newPage({ viewport: { width: 1280, height: 900 } });
   try {
     await page.goto(`${CP_URL}/login`, { waitUntil: 'networkidle' });
@@ -118,14 +118,15 @@ async function cardText(): Promise<{ status: string | null; text: string; hasEdi
     await page.locator('.sidebar a[href="/approvals"]').click();
     await page.waitForURL('**/approvals');
     await openFirstApprovalInPanel(page);
-    const box = page.locator('[data-testid="approval-preview"]').first();
+    // The shared mandate card (gateway PR #237): a mandate proposal is one "You sign this" section
+    // (sealed-values) with the intent, limits and scope as rows; it has no separate preview box.
+    const box = page.locator('[data-testid="sealed-values"]').first();
     await box.waitFor({ timeout: 20_000 });
-    await page.waitForFunction(() => document.querySelector('[data-testid="approval-preview"]')?.getAttribute('data-preview-status') !== 'loading', null, { timeout: 20_000 });
-    // UI spec §17.3 pt 6: the area is in the title, the AI's intent sits in the sealed tile above the preview rows.
-    const parts = await Promise.all(['approval-summary', 'mandate-intent-ai'].map((id) => page.getByTestId(id).first().innerText().catch(() => '')));
+    await page.locator('[data-testid="mandate-facts"]').first().waitFor({ timeout: 20_000 });
+    const parts = await Promise.all(['approval-summary'].map((id) => page.getByTestId(id).first().innerText().catch(() => '')));
     const text = [...parts, await box.innerText()].join('\n');
     if (process.env.HAP_E2E_SHOW_CARD) console.error('[DL E2E] card:\n' + text);
-    return { status: await box.getAttribute('data-preview-status'), text, hasEdit: (await page.locator('[data-testid="edit-before-signing"]').count()) > 0 };
+    return { text, hasEdit: (await page.locator('[data-testid="edit-before-signing"]').count()) > 0 };
   } finally {
     await page.close();
   }
@@ -238,8 +239,7 @@ describe.skipIf(!available)('delegation outside simulation mode: bounded by the 
   }, 60_000);
 
   it('in the browser, the card shows what would be signed — and offers Edit before signing', async () => {
-    const { status, text, hasEdit } = await cardText();
-    expect(status).toBe('ok');
+    const { text, hasEdit } = await cardText();
     expect(text).toMatch(/Sales/);
     expect(text).toContain('same day');
     expect(text).toMatch(/Written by the AI/i);
