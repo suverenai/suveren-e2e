@@ -108,7 +108,7 @@ async function previewOf(proposalId: string) {
 }
 
 /** The approvals page in a real browser, signed in; the first card's preview text. */
-async function cardText(): Promise<{ status: string | null; text: string; hasEdit: boolean }> {
+async function cardText(): Promise<{ text: string; hasEdit: boolean }> {
   const page = await browser.newPage({ viewport: { width: 1280, height: 900 } });
   try {
     await page.goto(`${CP_URL}/login`, { waitUntil: 'networkidle' });
@@ -126,7 +126,7 @@ async function cardText(): Promise<{ status: string | null; text: string; hasEdi
     const parts = await Promise.all(['approval-summary'].map((id) => page.getByTestId(id).first().innerText().catch(() => '')));
     const text = [...parts, await box.innerText()].join('\n');
     if (process.env.HAP_E2E_SHOW_CARD) console.error('[DL E2E] card:\n' + text);
-    return { status: 'ok', text, hasEdit: (await page.locator('[data-testid="edit-before-signing"]').count()) > 0 };
+    return { text, hasEdit: (await page.locator('[data-testid="edit-before-signing"]').count()) > 0 };
   } finally {
     await page.close();
   }
@@ -239,8 +239,7 @@ describe.skipIf(!available)('delegation outside simulation mode: bounded by the 
   }, 60_000);
 
   it('in the browser, the card shows what would be signed — and offers Edit before signing', async () => {
-    const { status, text, hasEdit } = await cardText();
-    expect(status).toBe('ok');
+    const { text, hasEdit } = await cardText();
     expect(text).toMatch(/Sales/);
     expect(text).toContain('same day');
     expect(text).toMatch(/Written by the AI/i);
