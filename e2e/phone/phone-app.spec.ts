@@ -1224,10 +1224,10 @@ test.describe('the phone\'s home screen (Andreas 2026-11-23)', () => {
     const prep = await http(stack.asUrl, 'POST', '/api/mandates/prepared', { token, body: { mandate_id: mandateId, mandate_version: 1, ciphertext: sealed.content.ciphertext, device_keys: sealed.content.encrypted_keys } });
     expect(prep.status, show(prep)).toBe(201);
     await phone.page.getByRole('button', { name: 'Refresh' }).click();
-    // The give opens full screen by itself (DEC-86); Cancel goes back to the list, where it is the one waiting row.
+    // The give opens full screen by itself (DEC-86); The panel's ✕ (Later) goes back to the list, where it is the one waiting row (the card's own Cancel button became this ✕ in the shared layout).
     const card = phone.page.getByTestId('give-card');
     await expect(card).toBeVisible({ timeout: 30_000 });
-    await card.getByRole('button', { name: 'Cancel' }).click();
+    await phone.page.getByTestId('approval-later').click();
     const row = phone.page.getByTestId('give-row');
     await expect(row).toBeVisible({ timeout: 15_000 });
     await expect(phone.page.getByTestId('list-empty')).toHaveCount(0);
