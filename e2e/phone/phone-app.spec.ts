@@ -874,9 +874,9 @@ test.describe('stage D3: give a mandate on the phone (plan 4.4 Transport, DEC-86
     await phone.page.getByRole('button', { name: 'Open with a touch' }).click();
     const card = phone.page.getByTestId('give-card');
     await expect(card).toBeVisible({ timeout: 20_000 });
-    await expect(card.getByTestId('give-title')).toHaveText('Give the mandate for Quotes');
+    await expect(card.getByTestId('give-title')).toHaveText('Sales · Quotes');
     await expect(card.getByTestId('give-from')).toContainText('Prepared on Office Mac');
-    await expect(card.getByTestId('give-intent')).toHaveText(intent);
+    await expect(card.locator('[data-testid="mandate-intent-ai"] p')).toHaveText(intent);
     await expect(card.getByTestId('mandate-summary')).toBeVisible();
     await card.getByTestId('btn-give').click();
     // The computer takes it in after 6 s (its background check runs every 5 s): the phone keeps "Signing…" and then shows "Signed".
@@ -1055,7 +1055,7 @@ test.describe('stage D3: change a mandate on the phone (mockup B1, DEC-90)', () 
     await phone.page.goto(stack.appUrl);
     await phone.page.getByRole('button', { name: 'Open with a touch' }).click();
     const card = phone.page.getByTestId('give-card');
-    await expect(card.getByTestId('give-title')).toHaveText('Give the mandate for Quotes', { timeout: 20_000 });
+    await expect(card.getByTestId('give-title')).toHaveText('Sales · Quotes', { timeout: 20_000 });
     await card.getByTestId('btn-give').click();
     await signedWithoutAlarm(phone.page, computerTakesIt(comp, token, mandateId, 1, 0));
     return { phone, comp, token, state, profile, bounds, scope, intent, groupId, mandateId, authz1, mk, p1 };
