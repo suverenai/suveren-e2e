@@ -184,7 +184,7 @@ async function keySignInRefusedInBrowser(base: string, b: Browserish, apiKey: st
   return !cookie && b.page.url().includes('/login');
 }
 
-const proposalsGet = (base: string, o: { apiKey?: string; cookie?: string; token?: string }) => http(base, 'GET', '/api/proposals', o);
+const proposalsGet = (base: string, o: { apiKey?: string; cookie?: string; token?: string }) => http(base, 'GET', '/api/proposals?creator=me', o);
 
 // ─── the suites ──────────────────────────────────────────────────────────────
 

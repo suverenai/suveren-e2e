@@ -67,6 +67,8 @@ async function mine(u: User): Promise<string[]> {
 async function dashboard(u: User): Promise<Page> {
   const page = await browser.newPage({ viewport: { width: 1280, height: 900 } });
   await page.goto(`${AS_URL}/login`, { waitUntil: 'networkidle' });
+  // With device keys on, the API key field sits behind "Sign in with an API key instead" (sign-in page, 2026-11-27).
+  { const k = page.getByTestId('api-key-signin'); if (await k.count()) await k.locator('summary').click(); }
   await page.locator('input[name="apiKey"]').fill(u.apiKey);
   await page.locator('form:has(input[name="apiKey"]) button[type="submit"]').click();
   await page.waitForURL((url) => !url.toString().includes('/login'), { timeout: 45_000 });
