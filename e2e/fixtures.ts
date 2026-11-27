@@ -543,9 +543,11 @@ export async function signInToGateway(page: Page, apiKey: string): Promise<void>
  */
 export async function signInToSP(page: Page, apiKey: string): Promise<void> {
   await page.goto(`${SP_URL}/login`);
+  // With device keys on, the API key field sits behind "Sign in with an API key instead" (sign-in page, 2026-11-27).
+  { const k = page.getByTestId('api-key-signin'); if (await k.count()) await k.locator('summary').click(); }
   await page.waitForSelector('input#apiKey', { timeout: 10_000 });
   await page.fill('input#apiKey', apiKey);
-  await page.click('button:has-text("Sign in")');
+  await page.click('form button[type=submit]');
   await page.waitForURL(url => url.toString().includes('/dashboard'), { timeout: 15_000 });
 }
 

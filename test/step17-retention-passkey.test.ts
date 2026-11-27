@@ -277,6 +277,8 @@ describe.skipIf(!available)('step 17, switch on (real Authority Server, real Chr
 
     it('signed in to the dashboard, the person creates a passkey in the browser; it waits for a device', async () => {
       await page.goto(`${AS_URL}/login`);
+      // The API key field sits behind "Sign in with an API key instead" when device keys are on (sign-in page, 2026-11-27).
+      { const k = page.getByTestId('api-key-signin'); if (await k.count()) await k.locator('summary').click(); }
       await page.fill('#apiKey', p.apiKey);
       await page.click('form button[type=submit]');
       await page.waitForURL(/\/dashboard/, { timeout: 30_000 });
