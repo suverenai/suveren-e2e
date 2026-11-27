@@ -21,6 +21,7 @@ import {
   registerOnSP, signInToGateway, handleOnboarding, activateIntegration,
   spApiAttest, latestProfileId, waitForPageGate } from './fixtures';
 import { hashGateContent, computeBoundsHash, computeScopeHash } from '../src/helpers/crypto.js';
+import { gatewayHas } from '../src/helpers/gateway-feature.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const SCREENSHOT_DIR = join(__dirname, '..', 'test-results', 'blocked');
@@ -33,7 +34,7 @@ const MANDATE_TITLE = 'Blocked e2e customer care';
 
 // Runs only against a gateway that stores "seen" (the redesign).
 const GW_SEEN_TS = join(__dirname, '..', '..', 'suveren-gateway', 'apps', 'control-plane', 'src', 'lib', 'blocked-seen-store.ts');
-const HAS_SEEN = existsSync(GW_SEEN_TS) && readFileSync(GW_SEEN_TS, 'utf8').length > 0;
+const HAS_SEEN = gatewayHas('blocked seen store', '0.30.0', existsSync(GW_SEEN_TS) && readFileSync(GW_SEEN_TS, 'utf8').length > 0);
 
 async function pushGateContent(authorizationId: string, boundsHash: string, scopeHash: string, intent: string): Promise<void> {
   const res = await fetch(`${GW_MCP_URL}/internal/gate-content`, {

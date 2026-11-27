@@ -15,8 +15,9 @@ import { randomUUID } from 'node:crypto';
 import { ProcessManager } from '../src/helpers/process-manager.js';
 import { SPClient } from '../src/helpers/sp-client.js';
 import { hashGateContent, hashExecutionContext, computeBoundsHash, computeScopeHash, computeProfileHash } from '../src/helpers/crypto.js';
+import { e2ePort } from '../src/helpers/ports.js';
 
-const SP_PORT = 18300;
+const SP_PORT = e2ePort(18300);
 const SP_URL = `http://localhost:${SP_PORT}`;
 const BOUNDS_KEY_ORDER = ['profile', 'write_daily_max'];
 const GATE_CONTENT = { intent: 'E2E fixture: commitment_modes coverage.' };

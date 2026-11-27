@@ -45,6 +45,7 @@ import {
   computeScopeHash,
 } from '../src/helpers/crypto.js';
 import { PROFILE_V07, profileHashFor } from '../src/helpers/profiles.js';
+import { e2ePort } from '../src/helpers/ports.js';
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 
@@ -190,7 +191,7 @@ const isProposal = (text: string): boolean => /Awaiting commitment/i.test(text) 
 describe('Selection — most-specific-wins: exception honored', () => {
   let stack: Stack;
   beforeAll(async () => {
-    stack = await bootScenario(17210, 17211, [
+    stack = await bootScenario(e2ePort(17210), e2ePort(17211), [
       { contactType: 'customer,lead', mode: 'review', intent: 'BROAD: all contact ops require my approval.' },
       { contactType: 'customer', mode: 'automatic', intent: 'SPECIFIC: customer contacts are pre-approved.' },
     ]);
@@ -220,7 +221,7 @@ describe('Selection — most-specific-wins: exception honored', () => {
 describe('Selection — most-specific-wins: approval NOT bypassed', () => {
   let stack: Stack;
   beforeAll(async () => {
-    stack = await bootScenario(17220, 17221, [
+    stack = await bootScenario(e2ePort(17220), e2ePort(17221), [
       { contactType: 'customer,lead', mode: 'automatic', intent: 'BROAD: contact ops run immediately.' },
       { contactType: 'customer', mode: 'review', intent: 'SPECIFIC: customer contacts require my approval.' },
     ]);
@@ -250,7 +251,7 @@ describe('Selection — most-specific-wins: approval NOT bypassed', () => {
 describe('Selection — incomparable overlap falls back to approval', () => {
   let stack: Stack;
   beforeAll(async () => {
-    stack = await bootScenario(17230, 17231, [
+    stack = await bootScenario(e2ePort(17230), e2ePort(17231), [
       { contactType: 'customer,vip', mode: 'automatic', intent: 'X: VIP + customer, immediate.' },
       { contactType: 'customer,partner', mode: 'review', intent: 'Y: partner + customer, needs approval.' },
     ]);

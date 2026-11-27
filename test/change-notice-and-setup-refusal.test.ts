@@ -28,10 +28,11 @@ import {
 } from '../src/helpers/gateway-stack.js';
 import { computeBoundsHash, computeScopeHash, hashGateContent, hashExecutionContext } from '../src/helpers/crypto.js';
 import { profileHashFor } from '../src/helpers/profiles.js';
+import { e2ePort } from '../src/helpers/ports.js';
 
-const AS_PORT = 18840;
-const CP_PORT = 18841;
-const MCP_PORT = 18842;
+const AS_PORT = e2ePort(18840);
+const CP_PORT = e2ePort(18841);
+const MCP_PORT = e2ePort(18842);
 const AS_URL = `http://localhost:${AS_PORT}`;
 const CP_URL = `http://localhost:${CP_PORT}`;
 const DELEGATION = 'github.com/humanagencyprotocol/hap-profiles/delegation@0.4';

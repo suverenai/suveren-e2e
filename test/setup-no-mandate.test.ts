@@ -23,10 +23,11 @@ import { ControlPlaneClient, PROFILES_DIR } from '../src/helpers/gateway-stack.j
 import { GatewayClient } from '../src/helpers/gateway-client.js';
 import { hashGateContent, hashExecutionContext, computeBoundsHash, computeScopeHash } from '../src/helpers/crypto.js';
 import { profileHashFor } from '../src/helpers/profiles.js';
+import { e2ePort } from '../src/helpers/ports.js';
 
-const AS_PORT = 19965;
-const MCP_PORT = 19966;
-const CP_PORT = 19967;
+const AS_PORT = e2ePort(19965);
+const MCP_PORT = e2ePort(19966);
+const CP_PORT = e2ePort(19967);
 const AS_URL = `http://localhost:${AS_PORT}`;
 const CP_URL = `http://localhost:${CP_PORT}`;
 

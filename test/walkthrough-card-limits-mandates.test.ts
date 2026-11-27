@@ -29,10 +29,11 @@ import {
   ControlPlaneClient, MANIFESTS_DIR, PROFILES_DIR, newSecret, startControlPlane, startMcpServer, textOf, type StackOptions,
 } from '../src/helpers/gateway-stack.js';
 import { openFirstApprovalInPanel } from '../src/helpers/gateway-ui.js';
+import { e2ePort } from '../src/helpers/ports.js';
 
-const AS_PORT = 19850;
-const CP_PORT = 19851;
-const MCP_PORT = 19852;
+const AS_PORT = e2ePort(19850);
+const CP_PORT = e2ePort(19851);
+const MCP_PORT = e2ePort(19852);
 const AS_URL = `http://localhost:${AS_PORT}`;
 const CP_URL = `http://localhost:${CP_PORT}`;
 const MCP_URL = `http://localhost:${MCP_PORT}`;

@@ -31,10 +31,11 @@ import { hashGateContent, hashExecutionContext, computeBoundsHash, computeScopeH
 import { ControlPlaneClient, newSecret, startControlPlane, startMcpServer, textOf, PROFILES_DIR, MANIFESTS_DIR, type StackOptions } from '../src/helpers/gateway-stack.js';
 import { localProfilesForAs } from '../src/helpers/local-profiles.js';
 import { profileHashFor } from '../src/helpers/profiles.js';
+import { e2ePort } from '../src/helpers/ports.js';
 
 // 18720–18729 belong to this file.
-const AS_PORT = 18720;
-const PORTS = { cp: 18721, mcp: 18722 };
+const AS_PORT = e2ePort(18720);
+const PORTS = { cp: e2ePort(18721), mcp: e2ePort(18722) };
 const AS_URL = `http://localhost:${AS_PORT}`;
 const VENUE = 'github.com/humanagencyprotocol/hap-profiles/venue@1.0';
 const KEYS = ['profile', 'read_access', 'write_daily_max'];

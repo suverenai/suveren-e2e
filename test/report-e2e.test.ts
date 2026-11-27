@@ -64,10 +64,13 @@ import {
 } from '../src/helpers/gateway-stack.js';
 import { shiftedClock, type ShiftedClock } from '../src/helpers/clock.js';
 import { localProfilesForAs } from '../src/helpers/local-profiles.js';
+import { gatewayHas } from '../src/helpers/gateway-feature.js';
+import { gwUiFile } from '../src/helpers/gw-ui-file.js';
+import { e2ePort } from '../src/helpers/ports.js';
 
-const AS_PORT = 19600;
-const CP_PORT = 19601;
-const MCP_PORT = 19602;
+const AS_PORT = e2ePort(19600);
+const CP_PORT = e2ePort(19601);
+const MCP_PORT = e2ePort(19602);
 const AS_URL = `http://localhost:${AS_PORT}`;
 const CP_URL = `http://localhost:${CP_PORT}`;
 const CLI = join(GW_DIR, 'bundle', 'dist', 'bin', 'suveren-gateway.js');
@@ -1541,7 +1544,7 @@ loose text
   // Reports mockup (gateway 0.31.2): a new report is NEW — the nav label and
   // the dashboard line — until the Reports page is opened. Gated on the
   // gateway having it; older gateways have neither.
-  const HAS_REPORT_NEWS = existsSync(join(GW_DIR, 'apps', 'ui', 'src', 'components', 'ReportLine.tsx'));
+  const HAS_REPORT_NEWS = gatewayHas('report line', '0.31.2', existsSync(gwUiFile(GW_DIR, 'components', 'ReportLine.tsx')));
   it.runIf(HAS_REPORT_NEWS)('9.0 a new report shows "New" in the nav and one dashboard line, both gone once it is opened', async () => {
     const page = await browser.newPage({ viewport: { width: 1280, height: 900 } });
     try {

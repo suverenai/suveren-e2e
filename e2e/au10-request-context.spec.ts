@@ -45,6 +45,8 @@ import {
 import { DatabaseSync } from 'node:sqlite';
 import { randomUUID } from 'node:crypto';
 import { hashGateContent, computeBoundsHash, computeScopeHash } from '../src/helpers/crypto.js';
+import { gwUiFile } from '../src/helpers/gw-ui-file.js';
+import { gatewayHas } from '../src/helpers/gateway-feature.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const SCREENSHOT_DIR = join(__dirname, '..', 'test-results', 'au10');
@@ -69,18 +71,18 @@ const salesBounds = (o: Record<string, unknown> = {}) => ({
 const HISTORY_LABEL = 'Read by the gateway — same customer, not matched to this request';
 // Gateway 0.31.1: `_source` (stripped before execution) is never shown as a
 // sent value; the manifest's request link reads "Replying to".
-const GW_ARGS_TSX = join(__dirname, '..', '..', 'suveren-gateway', 'apps', 'ui', 'src', 'components', 'ProposalArgs.tsx');
-const HAS_REQUEST_REF = existsSync(GW_ARGS_TSX) && readFileSync(GW_ARGS_TSX, 'utf8').includes('requestRefArg');
+const GW_ARGS_TSX = gwUiFile(join(__dirname, '..', '..', 'suveren-gateway'), 'components', 'ProposalArgs.tsx');
+const HAS_REQUEST_REF = gatewayHas('request link on the card', '0.31.1', existsSync(GW_ARGS_TSX) && readFileSync(GW_ARGS_TSX, 'utf8').includes('requestRefArg'));
 
 // Runs only against a gateway that has AU10 (CI runs the journeys against the
 // gateway's main branch, which may not have it yet) — same gate as AU8.
 const GW_AU10_TS = join(__dirname, '..', '..', 'suveren-gateway', 'apps', 'mcp-server', 'src', 'lib', 'request-context.ts');
-const HAS_AU10 = existsSync(GW_AU10_TS) && readFileSync(GW_AU10_TS, 'utf8').includes('stripSourceLink');
+const HAS_AU10 = gatewayHas('AU10 request context', '0.29.0', existsSync(GW_AU10_TS) && readFileSync(GW_AU10_TS, 'utf8').includes('stripSourceLink'));
 // Phase B needs both sides: the gateway's snapshot store and an AS that
 // records shown_hash per decision.
 const GW_SHOWN_TS = join(__dirname, '..', '..', 'suveren-gateway', 'apps', 'control-plane', 'src', 'lib', 'shown-snapshot.ts');
 const AS_STORE_TS = join(__dirname, '..', '..', 'suveren-as', 'apps', 'as', 'src', 'lib', 'proposal-store.ts');
-const HAS_PHASE_B = existsSync(GW_SHOWN_TS)
+const HAS_PHASE_B = gatewayHas('shown snapshot store', '0.29.0', existsSync(GW_SHOWN_TS))
   && existsSync(AS_STORE_TS) && readFileSync(AS_STORE_TS, 'utf8').includes('shownHashes');
 
 async function pushGateContent(opts: {
@@ -326,7 +328,7 @@ test.describe.serial('AU10: request and customer history on the approval card (r
   // gateway builds from the connector manifest's template and the sealed
   // values — here with three real connectors (CRM, mail, ERP).
   test('S: each waiting approval reads as one sentence from its manifest template', async () => {
-    test.skip(!existsSync(join(__dirname, '..', '..', 'suveren-gateway', 'apps', 'ui', 'src', 'lib', 'approval-summary.ts')),
+    test.skip(!gatewayHas('manifest summaries', '0.31.0', existsSync(gwUiFile(join(__dirname, '..', '..', 'suveren-gateway'), 'lib', 'approval-summary.ts'))),
       'gateway without manifest summaries (UI3)');
     test.setTimeout(90_000);
     await page.click('.sidebar-item:has-text("Dashboard")');
@@ -344,7 +346,10 @@ test.describe.serial('AU10: request and customer history on the approval card (r
 
   test('A: request linked by the AI, and the latest entries for the same email domain', async () => {
     test.setTimeout(120_000);
-    const card = await openCard(page, 'j.kraus@bavaria-umform.de');
+    // By the title ("New contact J. Kraus"): the address is in the body, which renders later, and also in the
+    // email proposal to J. Kraus (run 2 of 5, 2026-11-19).
+    const card = await openCard(page, 'New contact J. Kraus');
+    await expect(card).toContainText('j.kraus@bavaria-umform.de', { timeout: 30_000 });
     const req = card.getByTestId('au10-request');
     const hist = card.getByTestId('au10-history');
 
@@ -380,7 +385,8 @@ test.describe.serial('AU10: request and customer history on the approval card (r
 
   test('B: no link → "No request linked."; approving still creates the contact', async () => {
     test.setTimeout(120_000);
-    const card = await openCard(page, 'nosource@au10-nolink.de');
+    const card = await openCard(page, 'New contact No Source');
+    await expect(card).toContainText('nosource@au10-nolink.de', { timeout: 30_000 });
     await expect(card.getByTestId('au10-request')).toContainText('No request linked.', { timeout: 45_000 });
     await expect(card.getByTestId('au10-request')).not.toContainText('Linked by the AI');
     await expect(card.getByTestId('au10-history')).toContainText(HISTORY_LABEL);
@@ -430,11 +436,15 @@ test.describe.serial('AU10: request and customer history on the approval card (r
 
   test('C: an unreadable link is shown as such and never blocks', async () => {
     test.setTimeout(120_000);
-    const unknown = await openCard(page, 'unknown@au10-bad.de');
+    // Found by the title the card shows from the start ("New contact Unknown Connector"), not by a value
+    // in its body, which can render after the walk looked (run 4 of 5, 2026-11-19).
+    const unknown = await openCard(page, 'Unknown Connector');
+    await expect(unknown).toContainText('unknown@au10-bad.de', { timeout: 30_000 });
     await expect(unknown.getByTestId('au10-request')).toContainText('Request: link not readable', { timeout: 45_000 });
     await expect(unknown.locator('button:has-text("Approve")')).toBeEnabled();
 
-    const missing = await openApprovalCard(page, 'missing@au10-bad.de');
+    const missing = await openApprovalCard(page, 'Missing Message');
+    await expect(missing).toContainText('missing@au10-bad.de', { timeout: 30_000 });
     await expect(missing.getByTestId('au10-request')).toContainText('Request: this message no longer exists.', { timeout: 45_000 });
     await expect(missing.locator('button:has-text("Approve")')).toBeEnabled();
   });
@@ -453,7 +463,9 @@ test.describe.serial('AU10: request and customer history on the approval card (r
 
   test('F: a reply with in_reply_to shows the request although the AI gave no _source', async () => {
     test.setTimeout(120_000);
-    const card = await openCard(page, 'IMPLICIT-REPLY');
+    // By the title (the subject); the body text "IMPLICIT-REPLY" renders later (run 2 of 5, 2026-11-19).
+    const card = await openCard(page, 'Re: RF 55 Stillstand');
+    await expect(card).toContainText('IMPLICIT-REPLY', { timeout: 30_000 }); // the body is shown (it was the lookup before)
     const req = card.getByTestId('au10-request');
     await expect(req).toContainText('Linked by the AI', { timeout: 45_000 });
     await expect(req).toContainText('RF 55 Stillstand – Seriennummer 55-2291');

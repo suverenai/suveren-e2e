@@ -27,10 +27,11 @@ import {
   ControlPlaneClient, GW_DIR, RECORDS_DIST, RECORDS_INTEGRATION, RECORDS_PROFILE_ID,
   grantRecordsMandate, newSecret, startControlPlane, startMcpServer, textOf, type StackOptions,
 } from '../src/helpers/gateway-stack.js';
+import { e2ePort } from '../src/helpers/ports.js';
 
-const AS_PORT = 19860;
-const CP_PORT = 19861;
-const MCP_PORT = 19862;
+const AS_PORT = e2ePort(19860);
+const CP_PORT = e2ePort(19861);
+const MCP_PORT = e2ePort(19862);
 const AS_URL = `http://localhost:${AS_PORT}`;
 const CP_URL = `http://localhost:${CP_PORT}`;
 const COMMITMENTS = join(GW_DIR, 'apps', 'mcp-server', 'src', 'tools', 'commitments.ts');

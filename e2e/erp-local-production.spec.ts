@@ -28,6 +28,9 @@ import type { Locator, Page } from '@playwright/test';
 import { test, expect, openApprovalCard, selectQueueView, settleAfterSignIn } from './fixtures';
 import { ErpLocalStack, ERP_MANIFEST_PATH, P, TODAY_VIENNA, proposalIdOf, resultJson } from '../src/helpers/erp-local-stack.js';
 import { ViesStub } from '../src/helpers/vies-stub.js';
+import { gwUiFile } from '../src/helpers/gw-ui-file.js';
+import { gatewayHas } from '../src/helpers/gateway-feature.js';
+import { e2ePort } from '../src/helpers/ports.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const ROOT = join(__dirname, '..', '..');
@@ -38,7 +41,7 @@ const manifest = (() => { try { return JSON.parse(readFileSync(ERP_MANIFEST_PATH
 const PRE = process.env.HAP_E2E_PREINSTALLED_INTEGRATIONS;
 const preErp = PRE ? join(PRE, 'node_modules', '@humanagencyp', 'erp-mcp', 'dist', 'index.js') : '';
 const AVAILABLE = !!manifest?.credentials?.envMapping?.ERP_VIES_URL
-  && existsSync(join(ROOT, 'suveren-gateway', 'apps', 'ui', 'src', 'components', 'ChecksLines.tsx'))
+  && gatewayHas('blocking checks lines', '0.38.0', existsSync(gwUiFile(join(ROOT, 'suveren-gateway'), 'components', 'ChecksLines.tsx')))
   && existsSync(join(ROOT, 'hap-profiles', 'master-data', '0.1.profile.json'))
   && ((!!preErp && existsSync(preErp) && readFileSync(preErp, 'utf8').includes('check_customer_duplicates'))
     || String(manifest?.npmVersion ?? '').localeCompare('0.10.0', undefined, { numeric: true }) >= 0);
@@ -115,7 +118,7 @@ test.describe.serial('ERP Local in production — the approval card and Blocked 
     vies.set(OUTAGE.uid, { kind: 'unavailable' });
     vies.set(INVALID.uid, { kind: 'invalid' });
     vies.set(NEW_UID, { kind: 'valid' });
-    s = new ErpLocalStack({ asPort: 19950, mcpPort: 19951, cpPort: 19952, viesUrl: url, label: 'pw' });
+    s = new ErpLocalStack({ asPort: e2ePort(19950), mcpPort: e2ePort(19951), cpPort: e2ePort(19952), viesUrl: url, label: 'pw' });
     await s.start();
     await s.grant(MASTER_DATA, MD_BOUNDS, {}, 'E2E: customers and catalogue, each change approved.');
     await s.grant(INVOICING, INV_BOUNDS, { currency: 'EUR' }, 'E2E: invoices, each approved.');

@@ -37,6 +37,7 @@ import {
   computeScopeHash,
 } from '../src/helpers/crypto.js';
 import { PROFILE_V07, profileHashFor } from '../src/helpers/profiles.js';
+import { e2ePort } from '../src/helpers/ports.js';
 
 const PROFILE_ID = PROFILE_V07.records;
 const PROFILE_SHORT = 'records';
@@ -144,7 +145,7 @@ async function callText(client: Client, name: string, args: Record<string, unkno
 
 describe('Read gate — read_access:none is blocked', () => {
   let stack: Stack;
-  beforeAll(async () => { stack = await boot(17250, 17251, 'none'); }, 180_000);
+  beforeAll(async () => { stack = await boot(e2ePort(17250), e2ePort(17251), 'none'); }, 180_000);
   afterAll(async () => {
     try { await stack?.client.close(); } catch { /* ignore */ }
     await stack?.pm.killAll();
@@ -165,7 +166,7 @@ describe('Read gate — read_access:none is blocked', () => {
 
 describe('Read gate — read_access:unlimited is allowed', () => {
   let stack: Stack;
-  beforeAll(async () => { stack = await boot(17260, 17261, 'unlimited'); }, 180_000);
+  beforeAll(async () => { stack = await boot(e2ePort(17260), e2ePort(17261), 'unlimited'); }, 180_000);
   afterAll(async () => {
     try { await stack?.client.close(); } catch { /* ignore */ }
     await stack?.pm.killAll();

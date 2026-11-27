@@ -26,10 +26,11 @@ import { ControlPlaneClient, PROFILES_DIR, newSecret, startControlPlane, startMc
 import { localProfilesForAs } from '../src/helpers/local-profiles.js';
 import { profileHashFor } from '../src/helpers/profiles.js';
 import { openFirstApprovalInPanel } from '../src/helpers/gateway-ui.js';
+import { e2ePort } from '../src/helpers/ports.js';
 
-const AS_PORT = 18890;
-const CP_PORT = 18891;
-const MCP_PORT = 18892;
+const AS_PORT = e2ePort(18890);
+const CP_PORT = e2ePort(18891);
+const MCP_PORT = e2ePort(18892);
 const AS_URL = `http://localhost:${AS_PORT}`;
 const CP_URL = `http://localhost:${CP_PORT}`;
 const P = 'github.com/humanagencyprotocol/hap-profiles';

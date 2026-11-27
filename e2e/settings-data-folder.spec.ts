@@ -8,10 +8,11 @@
 import { existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { test, expect, registerOnSP, signInToGateway, handleOnboarding, gatewayDataDir, waitForPageGate } from './fixtures';
+import { gatewayHas } from '../src/helpers/gateway-feature.js';
 
 // Runs only against a gateway that has the data-folder line (CI runs the
 // journeys against the gateway's main branch, which may not have it yet).
-const HAS_DATA_FOLDER = existsSync(join(import.meta.dirname, '..', '..', 'suveren-gateway', 'apps', 'ui', 'src', 'components', 'DataFolderLine.tsx'));
+const HAS_DATA_FOLDER = gatewayHas('data folder line', '0.43.0', existsSync(join(import.meta.dirname, '..', '..', 'suveren-gateway', 'apps', 'ui', 'src', 'components', 'DataFolderLine.tsx')));
 
 test.skip(!HAS_DATA_FOLDER, 'gateway without the Settings data-folder line (gateway #191)');
 

@@ -17,6 +17,31 @@ import { localProfilesForAs } from '../src/helpers/local-profiles';
 import { profileHashFor } from '../src/helpers/profiles';
 import { assertPortFree, stopTracked, trackProcess } from '../src/helpers/process-registry';
 import { typeTitle } from '../src/helpers/give-page';
+import { e2ePort, worldDbName, PORT_OFFSET } from '../src/helpers/ports.js';
+import { npmLimits } from '../src/helpers/gateway-stack.js';
+import pg from 'pg';
+
+/**
+ * The Playwright run's database. Offset 0: the given URL, unchanged. Another world
+ * (HAP_E2E_PORT_OFFSET) gets its own database next to it, created when missing, so
+ * two worlds never share one.
+ */
+async function worldDbUrl(url: string): Promise<string> {
+  if (PORT_OFFSET === 0) return url;
+  const u = new URL(url);
+  const name = worldDbName(u.pathname.replace(/^\//, '') || 'suveren_as');
+  if (!/^[a-z0-9_]+$/.test(name)) throw new Error(`world database name "${name}" is not plain`);
+  const admin = new URL(url);
+  admin.pathname = '/postgres';
+  const c = new pg.Client({ connectionString: admin.toString() });
+  await c.connect();
+  try {
+    const { rowCount } = await c.query('select 1 from pg_database where datname = $1', [name]);
+    if (!rowCount) await c.query(`create database ${name}`);
+  } finally { await c.end(); }
+  u.pathname = `/${name}`;
+  return u.toString();
+}
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -45,9 +70,9 @@ export function latestProfileId(short: string): string {
 // ─── Ports ───────────────────────────────────────────────────────────────────
 
 // Default 19100; HAP_E2E_PW_AS_PORT moves it when a stray process of another run holds it.
-export const SP_PORT = Number(process.env.HAP_E2E_PW_AS_PORT ?? 19100);
-export const GW_CP_PORT = 19402;
-export const GW_MCP_PORT = 19430;
+export const SP_PORT = process.env.HAP_E2E_PW_AS_PORT ? Number(process.env.HAP_E2E_PW_AS_PORT) : e2ePort(19100);
+export const GW_CP_PORT = e2ePort(19402);
+export const GW_MCP_PORT = e2ePort(19430);
 
 export const SP_URL = `http://localhost:${SP_PORT}`;
 export const GW_URL = `http://localhost:${GW_CP_PORT}`;
@@ -206,6 +231,7 @@ async function startServersInner(): Promise<void> {
   // PROFILE_HASH_MISMATCH. next start is still pointed at SP_DIR; only the
   // cwd (bundled-profiles/migrations source) changes.
   const localProfiles = localProfilesForAs(PROFILES_DIR);
+  const dbUrl = await worldDbUrl(process.env.SUVEREN_DB_URL ?? 'postgres://postgres:suveren_test@localhost:55432/suveren_as');
   const sp = launch('as', process.execPath, [nextBin, 'start', SP_DIR, '-p', String(SP_PORT)], {
     cwd: localProfiles.cwd,
     env: {
@@ -218,7 +244,7 @@ async function startServersInner(): Promise<void> {
       // This AS build refuses to start with no durable store even with
       // SUVEREN_ALLOW_EPHEMERAL set — point it at the local test Postgres
       // (already running) rather than loosening that refusal.
-      SUVEREN_DB_URL: process.env.SUVEREN_DB_URL ?? 'postgres://postgres:suveren_test@localhost:55432/suveren_as',
+      SUVEREN_DB_URL: dbUrl,
       ...localProfiles.env,
     },
   });
@@ -273,6 +299,7 @@ async function startServersInner(): Promise<void> {
       SUVEREN_MANIFESTS_DIR: join(GW_DIR, 'content', 'integrations'),
       SUVEREN_INTEGRATIONS_DIR: join(dataDir, 'integrations'),
       SUVEREN_DATA_DIR: dataDir,
+      ...npmLimits(),
       SUVEREN_INTERNAL_SECRET: INTERNAL_SECRET,
       // Its own control plane. Without this the MCP server falls back to the
       // default 3402 — on a developer machine that is the running dev gateway,
@@ -298,6 +325,7 @@ async function startServersInner(): Promise<void> {
       SUVEREN_AS_URL: SP_URL,
       SUVEREN_MCP_INTERNAL_URL: `http://127.0.0.1:${GW_MCP_PORT}`,
       SUVEREN_DATA_DIR: dataDir,
+      ...npmLimits(),
       SUVEREN_INTERNAL_SECRET: INTERNAL_SECRET,
       HAP_UI_DIST: join(GW_DIR, 'apps/ui/dist'), // still HAP_-prefixed in v0.4
       ...simulationEnv(),
@@ -466,7 +494,14 @@ export async function waitForPageGate(page: Page, timeout = 30_000): Promise<voi
 export async function signInToGateway(page: Page, apiKey: string): Promise<void> {
   const lastGatewayKey = readLastGatewayKey();
   if (lastGatewayKey && lastGatewayKey !== apiKey) {
-    const out = await page.request.post(`${GW_URL}/auth/logout`, { headers: { 'X-API-Key': lastGatewayKey } });
+    // A fresh connection, and one retry on a reset socket: at the end of a long run the request
+    // context reused a keep-alive connection the control plane had just closed (ECONNRESET,
+    // zz-connector-mode-switch). Signing out is idempotent, and a second 401 reads as "already gone".
+    const logout = () => page.request.post(`${GW_URL}/auth/logout`, { headers: { 'X-API-Key': lastGatewayKey, connection: 'close' } });
+    const out = await logout().catch(async (err: unknown) => {
+      if (!/ECONNRESET|socket hang up/i.test(String(err))) throw err;
+      return logout();
+    });
     // 401 = that session is already gone (expired, or signed out elsewhere): nothing to undo.
     if (!out.ok() && out.status() !== 401) {
       throw new Error(`signing the previous account out failed: ${out.status()} ${await out.text()}`);
@@ -536,6 +571,15 @@ export async function signInToGateway(page: Page, apiKey: string): Promise<void>
   writeLastGatewayKey(apiKey);
   await settleAfterSignIn(page);
   await expect(page.locator('.page-title')).toBeVisible({ timeout: 15_000 });
+  // The gateway registers its end-to-end key with the AS in the background after sign-in. A proposal
+  // made before that is refused ("No recipient … has a registered end-to-end key"; AU10 setup, 5 of 8
+  // runs, 2026-11-19): wait until the AS has the key.
+  await expect.poll(async () => {
+    const r = await page.request.get(`${SP_URL}/api/users/me/pubkey`, { headers: { 'x-api-key': apiKey } }).catch(() => null);
+    if (!r?.ok()) return false;
+    const b = await r.json().catch(() => ({})) as { pubkey?: unknown };
+    return typeof b.pubkey === 'string' && b.pubkey.length > 0;
+  }, { timeout: 30_000, message: 'the gateway registered its end-to-end key with the AS after sign-in' }).toBe(true);
 }
 
 /**
@@ -588,14 +632,17 @@ export async function activateIntegration(page: Page, integrationName: string): 
   // ("CRM · Test data", "ERP · Local") and renamed "Email (simulation)" to
   // "Email" — match the name alone or followed by " · <label>".
   const card = page.locator('.card', { has: page.locator('.card-title', { hasText: cardTitlePattern(integrationName) }) }).first();
-  await card.waitFor({ state: 'visible', timeout: 10_000 });
+  // Right after a gateway starts, the connector list is still being read from its manifests
+  // (approval-outcome setup missed the CRM card at 10 s): wait for the card, with a bound that is
+  // a ceiling, not a pause.
+  await card.waitFor({ state: 'visible', timeout: 45_000 });
   await card.scrollIntoViewIfNeeded();
 
   // Wait for the card to know its state — "Running" or an Activate button —
   // instead of reading it once, before the integration status has loaded.
   const running = card.locator('text=Running');
   const activateBtn = card.locator('button:has-text("Activate")');
-  await expect(running.or(activateBtn).first()).toBeVisible({ timeout: 10_000 });
+  await expect(running.or(activateBtn).first()).toBeVisible({ timeout: 30_000 });
   if (await running.isVisible()) return;
 
   await activateBtn.click();
@@ -874,8 +921,14 @@ async function showApprovalInPanel(page: Page, hasText: string | RegExp): Promis
   // while it slides out — a card found there passes a few checks and then detaches (CI 2026-11-07, AU10 A).
   const card = page.locator('[data-testid="approval-panel"][aria-hidden="false"]').getByTestId('approval-card').filter({ hasText }).first();
   const isOpen = async () => (await panel.getAttribute('aria-hidden').catch(() => 'true')) === 'false';
+  // A card shows its content only once it has decrypted it ("Decrypting…" until then). Checking a
+  // card's text before that made the walk step past the right card on every pass (AU10 C, "No
+  // approval containing unknown@au10-bad.de"): settle each card before reading it.
+  const openCards = page.locator('[data-testid="approval-panel"][aria-hidden="false"]').getByTestId('approval-card');
+  const settled = () => expect(openCards.getByTestId('proposal-decrypting').filter({ hasText: 'Decrypting' })).toHaveCount(0, { timeout: 15_000 }).catch(() => {});
   const deadline = Date.now() + 60_000;
   while (Date.now() < deadline) {
+    await settled();
     if (await card.isVisible().catch(() => false)) return card;
     if (await isOpen()) {
       const prev = page.getByTestId('approval-prev');
@@ -884,10 +937,15 @@ async function showApprovalInPanel(page: Page, hasText: string | RegExp): Promis
       // Walk from the first to the last.
       for (let i = 0; i < 50 && (await prev.isEnabled().catch(() => false)); i++) await prev.click();
       for (let i = 0; i < 50; i++) {
-        if (await card.isVisible().catch(() => false)) return card;
+        await settled();
+        // The panel slides a card in: a single visibility check right after "next" can miss it (AU10 C,
+        // "Missing Message", 2026-11-19). Give each card a moment to show before moving on.
+        if (await card.waitFor({ state: 'visible', timeout: 1_500 }).then(() => true, () => false)) return card;
         if (!(await next.isEnabled().catch(() => false))) break;
+        const before = await openCards.first().getAttribute('data-proposal-id').catch(() => null);
         await next.click();
-        await page.waitForTimeout(300);
+        // The next card is a different proposal: wait until it is the one shown, then until it decrypted.
+        await expect(openCards.first()).not.toHaveAttribute('data-proposal-id', before ?? '', { timeout: 5_000 }).catch(() => {});
       }
     } else {
       const strip = page.getByTestId('approval-strip-open');

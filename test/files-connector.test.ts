@@ -53,11 +53,12 @@ import {
   pdfJavaScriptNameTree, pdfObfuscatedOpenAction, pdfOfSize, pdfOpenActionScript, pdfScriptInObjectStream, png,
   sha256, wav, webm, webp, xlsx, zip,
 } from '../src/helpers/file-fixtures.js';
+import { e2ePort } from '../src/helpers/ports.js';
 
 // 19970–19979 belong to this file.
-const AS_PORT = 19970;
-const MCP_PORT = 19971;
-const CP_PORT = 19972;
+const AS_PORT = e2ePort(19970);
+const MCP_PORT = e2ePort(19971);
+const CP_PORT = e2ePort(19972);
 const AS_URL = `http://localhost:${AS_PORT}`;
 const MCP_URL = `http://localhost:${MCP_PORT}`;
 const CP_URL = `http://localhost:${CP_PORT}`;

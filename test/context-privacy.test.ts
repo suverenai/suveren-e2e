@@ -14,10 +14,11 @@ import { ProcessManager } from '../src/helpers/process-manager.js';
 import { SPClient, mintAuthorizationId } from '../src/helpers/sp-client.js';
 import { hashGateContent, computeBoundsHash, computeScopeHash, hashExecutionContext } from '../src/helpers/crypto.js';
 import { PROFILE_V07, profileHashFor } from '../src/helpers/profiles.js';
+import { e2ePort } from '../src/helpers/ports.js';
 
 // ── Constants ─────────────────────────────────────────────
 
-const SP_PORT = 14200;
+const SP_PORT = e2ePort(14200);
 const SP_URL = `http://localhost:${SP_PORT}`;
 const PROFILES_DIR = `${process.cwd()}/../hap-profiles`;
 

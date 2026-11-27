@@ -25,6 +25,8 @@ import {
   registerOnSP, signInToGateway, handleOnboarding, activateIntegration,
   spApiAttest, latestProfileId, waitForPageGate } from './fixtures';
 import { hashGateContent, computeBoundsHash, computeScopeHash } from '../src/helpers/crypto.js';
+import { gwUiFile } from '../src/helpers/gw-ui-file.js';
+import { gatewayHas } from '../src/helpers/gateway-feature.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const SCREENSHOT_DIR = join(__dirname, '..', 'test-results', 'core-objects');
@@ -32,11 +34,11 @@ mkdirSync(SCREENSHOT_DIR, { recursive: true });
 
 // Runs only against a gateway with the core-objects UI (CI runs the journeys
 // against the gateway's main branch, which may not have it yet).
-const HAS_CORE = existsSync(join(__dirname, '..', '..', 'suveren-gateway', 'apps', 'ui', 'src', 'lib', 'core-objects.ts'));
+const HAS_CORE = gatewayHas('core-objects UI', '0.31.0', existsSync(gwUiFile(join(__dirname, '..', '..', 'suveren-gateway'), 'lib', 'core-objects.ts')));
 // UI spec §13 (gateway 0.32.0): areas first, tools second.
 // UI spec §14: automatic tickets show what was sent.
-const HAS_TICKET_CONTENT = existsSync(join(__dirname, '..', '..', 'suveren-gateway', 'apps', 'mcp-server', 'src', 'lib', 'ticket-content.ts'));
-const HAS_AREAS = existsSync(join(__dirname, '..', '..', 'suveren-gateway', 'apps', 'ui', 'src', 'lib', 'area.ts'));
+const HAS_TICKET_CONTENT = gatewayHas('ticket content', '0.33.0', existsSync(join(__dirname, '..', '..', 'suveren-gateway', 'apps', 'mcp-server', 'src', 'lib', 'ticket-content.ts')));
+const HAS_AREAS = gatewayHas('areas first', '0.32.0', existsSync(gwUiFile(join(__dirname, '..', '..', 'suveren-gateway'), 'lib', 'area.ts')));
 /**
  * The area name the gateway must show: the newest customers profile's own
  * `name`, as the Authority Server lists it (what the gateway receives).

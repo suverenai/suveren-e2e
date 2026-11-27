@@ -35,9 +35,10 @@ import {
   readPairingFile, recordTitles, seedOperatorGroup, startControlPlane, startMcpServer, textOf,
   type StackOptions,
 } from '../src/helpers/gateway-stack';
+import { e2ePort } from '../src/helpers/ports.js';
 
-const AS1_PORT = 18110;
-const AS2_PORT = 18111;
+const AS1_PORT = e2ePort(18110);
+const AS2_PORT = e2ePort(18111);
 const AS1_URL = `http://localhost:${AS1_PORT}`;
 const AS2_URL = `http://localhost:${AS2_PORT}`;
 const KEY1 = ed25519Keypair();
@@ -66,8 +67,8 @@ afterAll(async () => {
 }, 30_000);
 
 const ORDERS = [
-  { label: 'control plane boots first', cpFirst: true, cp: 18112, mcp: 18113 },
-  { label: 'MCP server boots first', cpFirst: false, cp: 18114, mcp: 18115 },
+  { label: 'control plane boots first', cpFirst: true, cp: e2ePort(18112), mcp: e2ePort(18113) },
+  { label: 'MCP server boots first', cpFirst: false, cp: e2ePort(18114), mcp: e2ePort(18115) },
 ];
 
 describe.each(ORDERS)('Re-pairing on an AS URL change ($label)', ({ label, cpFirst, cp: cpPort, mcp: mcpPort }) => {
@@ -234,7 +235,7 @@ describe.each(ORDERS)('Re-pairing on an AS URL change ($label)', ({ label, cpFir
 describe('Upgrade from a gateway with no pairing record, switching AS in the same restart', () => {
   const dataDir = mkdtempSync(join(tmpdir(), 'hap-e2e-repair-upgrade-'));
   const secret = newSecret();
-  const ports = { cp: 18116, mcp: 18117 };
+  const ports = { cp: e2ePort(18116), mcp: e2ePort(18117) };
   const at = (asUrl: string): StackOptions => ({ dataDir, ports, secret, asUrl });
   const cp = new ControlPlaneClient(`http://localhost:${ports.cp}`);
   const mcpInternal = new GatewayClient(`http://localhost:${ports.mcp}`, secret);
@@ -295,7 +296,7 @@ describe('Upgrade from a gateway with no pairing record, switching AS in the sam
 describe('Upgrade from a gateway with no pairing record, SAME Authority Server', () => {
   const dataDir = mkdtempSync(join(tmpdir(), 'hap-e2e-repair-sameas-'));
   const secret = newSecret();
-  const ports = { cp: 18118, mcp: 18119 };
+  const ports = { cp: e2ePort(18118), mcp: e2ePort(18119) };
   const at = (asUrl: string): StackOptions => ({ dataDir, ports, secret, asUrl });
   const cp = new ControlPlaneClient(`http://localhost:${ports.cp}`);
   const mcpInternal = new GatewayClient(`http://localhost:${ports.mcp}`, secret);

@@ -27,11 +27,12 @@ import { ProcessManager } from '../src/helpers/process-manager';
 import {
   GW_DIR, ROOT, SEED_API_KEY, ControlPlaneClient, asKeyEnv, ed25519Keypair, readPairingFile, sleep,
 } from '../src/helpers/gateway-stack';
+import { e2ePort } from '../src/helpers/ports.js';
 
-const CP_PORT = 18130;
-const MCP_PORT = 18139;
-const AS_PORT = 18140;
-const TLS_PORT = 18141;
+const CP_PORT = e2ePort(18130);
+const MCP_PORT = e2ePort(18139);
+const AS_PORT = e2ePort(18140);
+const TLS_PORT = e2ePort(18141);
 const TLS_URL = `https://localhost:${TLS_PORT}`;
 
 const CLI = join(GW_DIR, 'bundle', 'dist', 'bin', 'suveren-gateway.js');

@@ -42,6 +42,7 @@ import {
   computeScopeHash,
 } from '../src/helpers/crypto.js';
 import { PROFILE_V07, profileHashFor } from '../src/helpers/profiles.js';
+import { e2ePort } from '../src/helpers/ports.js';
 
 const ROOT = join(import.meta.dirname, '..', '..');
 const PROFILES_DIR = join(ROOT, 'hap-profiles');
@@ -201,7 +202,7 @@ describe.skipIf(!available)('Mail (email-mcp) read-age window — get_message pe
     // Window of 30 days, set as the integration's LOCAL readAgeDays (the
     // owner's live setting — wins over any grant bound, per read-gate.ts's
     // precedence comment).
-    stack = await boot(19120, 19121, { readAgeDays: WINDOW_DAYS });
+    stack = await boot(e2ePort(19120), e2ePort(19121), { readAgeDays: WINDOW_DAYS });
 
     const pkg = minimalPackage('Mail Read Age Co', 'c1');
     const r = await stack.client.callTool({ name: 'mail__load_simulation', arguments: { package: pkg } });
@@ -257,7 +258,7 @@ describe.skipIf(!available)('Mail (email-mcp) read-age window — fail-closed wh
     // read_max_age_days bound is set — both opts are omitted, and `boot`
     // leaves read_max_age_days out of the bounds object entirely (not 0),
     // so resolveAgeBoundField/maxReadAgeDays see genuinely no value.
-    stack = await boot(19122, 19123, {});
+    stack = await boot(e2ePort(19122), e2ePort(19123), {});
 
     const pkg = minimalPackage('Mail No Window Co', 'c1');
     const r = await stack.client.callTool({ name: 'mail__load_simulation', arguments: { package: pkg } });

@@ -22,15 +22,18 @@ import {
   grantRecordsMandate, newSecret, startControlPlane, startMcpServer, type StackOptions,
 } from '../src/helpers/gateway-stack.js';
 import { openFirstApprovalInPanel } from '../src/helpers/gateway-ui.js';
+import { gwUiFile } from '../src/helpers/gw-ui-file.js';
+import { gatewayHas } from '../src/helpers/gateway-feature.js';
+import { e2ePort } from '../src/helpers/ports.js';
 
-const AS_PORT = 19840;
-const CP_PORT = 19841;
-const MCP_PORT = 19842;
+const AS_PORT = e2ePort(19840);
+const CP_PORT = e2ePort(19841);
+const MCP_PORT = e2ePort(19842);
 const CP_URL = `http://localhost:${CP_PORT}`;
 /** Only meaningful against a gateway that has the fix. */
-const VIEW = join(GW_DIR, 'apps', 'ui', 'src', 'lib', 'approval-preview-view.ts');
-const available = existsSync(RECORDS_DIST) && existsSync(VIEW)
-  && readFileSync(VIEW, 'utf8').includes('boundValuesOpen');
+const VIEW = gwUiFile(GW_DIR, 'lib', 'approval-preview-view.ts');
+const available = existsSync(RECORDS_DIST)
+  && gatewayHas('bound values open on the card', '0.25.0', existsSync(VIEW) && readFileSync(VIEW, 'utf8').includes('boundValuesOpen'));
 
 const pm = new ProcessManager();
 const sp = new SPClient(`http://localhost:${AS_PORT}`);

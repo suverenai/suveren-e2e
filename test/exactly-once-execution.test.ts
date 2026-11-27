@@ -27,9 +27,10 @@ import { SPClient } from '../src/helpers/sp-client';
 import { GatewayClient, internalSecretHeaders } from '../src/helpers/gateway-client';
 import { computeBoundsHash, hashGateContent, hashExecutionContext } from '../src/helpers/crypto';
 import { PROFILE_V07, profileHashFor } from '../src/helpers/profiles';
+import { e2ePort } from '../src/helpers/ports.js';
 
-const SP_PORT = 16410;
-const GW_PORT = 16440;
+const SP_PORT = e2ePort(16410);
+const GW_PORT = e2ePort(16440);
 const PROFILES_DIR = `${process.cwd()}/../hap-profiles`;
 
 const pm = new ProcessManager();

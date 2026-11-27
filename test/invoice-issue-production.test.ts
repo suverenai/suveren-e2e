@@ -41,10 +41,11 @@ import { GatewayClient } from '../src/helpers/gateway-client.js';
 import { ControlPlaneClient, GW_DIR, PROFILES_DIR } from '../src/helpers/gateway-stack.js';
 import { hashGateContent, hashExecutionContext, computeBoundsHash, computeScopeHash } from '../src/helpers/crypto.js';
 import { profileHashFor } from '../src/helpers/profiles.js';
+import { e2ePort } from '../src/helpers/ports.js';
 
-const AS_PORT = 19910;
-const MCP_PORT = 19911;
-const CP_PORT = 19912;
+const AS_PORT = e2ePort(19910);
+const MCP_PORT = e2ePort(19911);
+const CP_PORT = e2ePort(19912);
 const AS_URL = `http://localhost:${AS_PORT}`;
 const MCP_URL = `http://localhost:${MCP_PORT}`;
 const CP_URL = `http://localhost:${CP_PORT}`;

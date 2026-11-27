@@ -38,11 +38,12 @@ import { GatewayClient } from '../src/helpers/gateway-client.js';
 import { hashGateContent, hashExecutionContext, computeBoundsHash, computeScopeHash } from '../src/helpers/crypto.js';
 import { ControlPlaneClient, newSecret, startControlPlane, startMcpServer, textOf, PROFILES_DIR, type StackOptions } from '../src/helpers/gateway-stack.js';
 import { profileHashFor, newestProfileId } from '../src/helpers/profiles.js';
+import { e2ePort } from '../src/helpers/ports.js';
 
 // 18540–18549 belong to this file.
-const AS_PORT = 18540;
-const PERSONAL_PORTS = { cp: 18541, mcp: 18542 };
-const TEAM_PORTS = { cp: 18543, mcp: 18544 };
+const AS_PORT = e2ePort(18540);
+const PERSONAL_PORTS = { cp: e2ePort(18541), mcp: e2ePort(18542) };
+const TEAM_PORTS = { cp: e2ePort(18543), mcp: e2ePort(18544) };
 const AS_URL = `http://localhost:${AS_PORT}`;
 const P = 'github.com/humanagencyprotocol/hap-profiles';
 const DELEGATION = `${P}/delegation@0.3`;

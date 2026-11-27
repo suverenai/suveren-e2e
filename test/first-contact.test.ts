@@ -21,9 +21,10 @@ import { SPClient } from '../src/helpers/sp-client.js';
 import { GatewayClient } from '../src/helpers/gateway-client.js';
 import { localProfilesForAs } from '../src/helpers/local-profiles.js';
 import { hashGateContent, hashExecutionContext, computeBoundsHash, computeScopeHash, computeProfileHash } from '../src/helpers/crypto.js';
+import { e2ePort } from '../src/helpers/ports.js';
 
-const SP_PORT = 18620;
-const GW_PORT = 18621;
+const SP_PORT = e2ePort(18620);
+const GW_PORT = e2ePort(18621);
 const SP_URL = `http://localhost:${SP_PORT}`;
 const GW_URL = `http://localhost:${GW_PORT}`;
 const ROOT = join(import.meta.dirname, '..', '..');

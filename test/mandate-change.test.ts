@@ -20,11 +20,12 @@ import { GatewayClient } from '../src/helpers/gateway-client.js';
 import { hashGateContent, hashExecutionContext, computeBoundsHash, computeScopeHash } from '../src/helpers/crypto.js';
 import { ControlPlaneClient, newSecret, startControlPlane, startMcpServer, textOf, PROFILES_DIR, type StackOptions } from '../src/helpers/gateway-stack.js';
 import { profileHashFor, newestProfileId } from '../src/helpers/profiles.js';
+import { e2ePort } from '../src/helpers/ports.js';
 
-const AS_PORT = 18560;
-const RELAY_PORT = 18561;
-const ANNA = { cp: 18562, mcp: 18563 };
-const TEAM = { cp: 18564, mcp: 18565 };
+const AS_PORT = e2ePort(18560);
+const RELAY_PORT = e2ePort(18561);
+const ANNA = { cp: e2ePort(18562), mcp: e2ePort(18563) };
+const TEAM = { cp: e2ePort(18564), mcp: e2ePort(18565) };
 const AS_URL = `http://localhost:${AS_PORT}`;
 const RELAY_URL = `http://localhost:${RELAY_PORT}`;
 const P = 'github.com/humanagencyprotocol/hap-profiles';

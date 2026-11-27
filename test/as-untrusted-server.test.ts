@@ -39,11 +39,12 @@ import {
   readPairingFile, recordTitles, seedOperatorGroup, sleep, startControlPlane, startMcpServer, textOf,
   type StackOptions,
 } from '../src/helpers/gateway-stack';
+import { e2ePort } from '../src/helpers/ports.js';
 
-const AS_PORT = 18150;
-const RELAY_PORT = 18151;
-const CP_PORT = 18152;
-const MCP_PORT = 18153;
+const AS_PORT = e2ePort(18150);
+const RELAY_PORT = e2ePort(18151);
+const CP_PORT = e2ePort(18152);
+const MCP_PORT = e2ePort(18153);
 const REAL_AS = `http://localhost:${AS_PORT}`;
 const AS_URL = `http://localhost:${RELAY_PORT}`; // what the gateway is configured with
 

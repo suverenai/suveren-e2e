@@ -20,12 +20,13 @@ import { SPClient } from '../src/helpers/sp-client.js';
 import { GatewayClient } from '../src/helpers/gateway-client.js';
 import { hashGateContent, hashExecutionContext, computeBoundsHash, computeScopeHash } from '../src/helpers/crypto.js';
 import { PROFILE_V07, profileHashFor } from '../src/helpers/profiles.js';
+import { e2ePort } from '../src/helpers/ports.js';
 
 const PROFILE_ID = PROFILE_V07.customers;
 const PROFILES_DIR = join(import.meta.dirname, '..', '..', 'hap-profiles');
 const BOUNDS_KEY_ORDER = ['profile', 'read_access', 'export_access', 'write_daily_max', 'delete_daily_max', 'setup_daily_max'];
 const CONTEXT_KEY_ORDER = ['contact_type'];
-const SP_PORT = 17970;
+const SP_PORT = e2ePort(17970);
 const SP_URL = `http://localhost:${SP_PORT}`;
 
 const CRM_INTEGRATION = {
@@ -64,8 +65,8 @@ beforeAll(async () => {
   const user = await sp.register('Revoked Waiting', `revoked-waiting-${Date.now()}@test.local`);
   apiKey = user.apiKey;
   const groupId = await sp.getPersonalGroupId(apiKey);
-  const gwPort = 17971;
-  await gwPm.startGateway({ simulation: true, port: gwPort, cpPort: 17972, spUrl: SP_URL, spApiKey: apiKey, profilesDir: PROFILES_DIR });
+  const gwPort = e2ePort(17971);
+  await gwPm.startGateway({ simulation: true, port: gwPort, cpPort: e2ePort(17972), spUrl: SP_URL, spApiKey: apiKey, profilesDir: PROFILES_DIR });
   const gw = new GatewayClient(`http://localhost:${gwPort}`);
   await gw.configure({ sessionCookie: 'revoked-waiting', apiKey });
 

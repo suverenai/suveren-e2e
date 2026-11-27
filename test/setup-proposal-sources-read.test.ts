@@ -24,10 +24,11 @@ import { GatewayClient } from '../src/helpers/gateway-client.js';
 import { hashGateContent, hashExecutionContext, computeBoundsHash, computeScopeHash } from '../src/helpers/crypto.js';
 import { ControlPlaneClient, newSecret, startControlPlane, startMcpServer, textOf, PROFILES_DIR, type StackOptions } from '../src/helpers/gateway-stack.js';
 import { profileHashFor } from '../src/helpers/profiles.js';
+import { e2ePort } from '../src/helpers/ports.js';
 
-const AS_PORT = 19870;
-const CP_PORT = 19871;
-const MCP_PORT = 19872;
+const AS_PORT = e2ePort(19870);
+const CP_PORT = e2ePort(19871);
+const MCP_PORT = e2ePort(19872);
 const AS_URL = `http://localhost:${AS_PORT}`;
 const CP_URL = `http://localhost:${CP_PORT}`;
 const P = 'github.com/humanagencyprotocol/hap-profiles';

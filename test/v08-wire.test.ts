@@ -27,10 +27,11 @@ import { ProcessManager } from '../src/helpers/process-manager.js';
 import { SPClient, mintAuthorizationId } from '../src/helpers/sp-client.js';
 import { hashGateContent, computeBoundsHash, computeScopeHash, computeProfileHash, sha256Hash } from '../src/helpers/crypto.js';
 import { PROFILE_V07, profileHashFor, loadProfile } from '../src/helpers/profiles.js';
+import { e2ePort } from '../src/helpers/ports.js';
 
-const SP_PORT = 19510; // unused elsewhere in the suite as of 2026-11-04
+const SP_PORT = e2ePort(19510); // unused elsewhere in the suite as of 2026-11-04
 const SP_URL = `http://localhost:${SP_PORT}`;
-const SWITCH_PORT = 19511;
+const SWITCH_PORT = e2ePort(19511);
 const SWITCH_URL = `http://localhost:${SWITCH_PORT}`;
 const PROFILES_DIR = join(process.cwd(), '..', 'hap-profiles');
 const CHARGE_ID = PROFILE_V07.charge;

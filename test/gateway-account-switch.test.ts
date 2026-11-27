@@ -21,10 +21,11 @@ import { ProcessManager } from '../src/helpers/process-manager';
 import { SPClient } from '../src/helpers/sp-client';
 import { computeBoundsHash, hashGateContent, hashExecutionContext } from '../src/helpers/crypto';
 import { PROFILE_V07, profileHashFor } from '../src/helpers/profiles';
+import { e2ePort } from '../src/helpers/ports.js';
 
-const SP_PORT = 19540;
-const CP_PORT = 19541;
-const MCP_PORT = 19542;
+const SP_PORT = e2ePort(19540);
+const CP_PORT = e2ePort(19541);
+const MCP_PORT = e2ePort(19542);
 const SP_URL = `http://localhost:${SP_PORT}`;
 const CP_URL = `http://localhost:${CP_PORT}`;
 const PROFILES_DIR = `${process.cwd()}/../hap-profiles`;

@@ -72,6 +72,20 @@ export interface StackOptions {
   extraEnv?: Record<string, string>;
 }
 
+/**
+ * A connector install on a dead network must fail the test, not hang the whole run (a run hung
+ * overnight on `npm install`, 2026-11-19). npm's own network limits, plus the gateway's inactivity
+ * limit for the install (gateway >= the npm-inactivity fix). A value the caller set wins.
+ */
+export function npmLimits(env: NodeJS.ProcessEnv = process.env): Record<string, string> {
+  return {
+    npm_config_fetch_timeout: env.npm_config_fetch_timeout ?? '60000',
+    npm_config_fetch_retries: env.npm_config_fetch_retries ?? '1',
+    npm_config_fetch_retry_maxtimeout: env.npm_config_fetch_retry_maxtimeout ?? '20000',
+    SUVEREN_NPM_INSTALL_IDLE_MS: env.SUVEREN_NPM_INSTALL_IDLE_MS ?? '120000',
+  };
+}
+
 export function newSecret(): string {
   return randomBytes(32).toString('hex');
 }
@@ -96,6 +110,7 @@ export function stackEnv(o: StackOptions): NodeJS.ProcessEnv {
     SUVEREN_PROFILES_DIR: PROFILES_DIR,
     SUVEREN_MANIFESTS_DIR: MANIFESTS_DIR,
     SUVEREN_INTEGRATIONS_DIR: join(o.dataDir, 'integrations'),
+    ...npmLimits(),
   });
   if (o.asUrl) env.SUVEREN_AS_URL = o.asUrl;
   Object.assign(env, o.extraEnv ?? {});

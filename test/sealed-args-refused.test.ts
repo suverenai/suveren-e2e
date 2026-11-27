@@ -36,17 +36,19 @@ import { GatewayClient } from '../src/helpers/gateway-client.js';
 import { ControlPlaneClient, recordTitles } from '../src/helpers/gateway-stack.js';
 import { hashGateContent, hashExecutionContext, computeBoundsHash, computeScopeHash } from '../src/helpers/crypto.js';
 import { PROFILE_V07, profileHashFor } from '../src/helpers/profiles.js';
+import { gatewayHas } from '../src/helpers/gateway-feature.js';
+import { e2ePort } from '../src/helpers/ports.js';
 
-const SP_PORT = 18990;
-const GW_PORT = 18991;
-const CP_PORT = 18992;
+const SP_PORT = e2ePort(18990);
+const GW_PORT = e2ePort(18991);
+const CP_PORT = e2ePort(18992);
 const SP_URL = `http://localhost:${SP_PORT}`;
 const GW_URL = `http://localhost:${GW_PORT}`;
 
 const ROOT = join(import.meta.dirname, '..', '..');
 const PROFILES_DIR = join(ROOT, 'hap-profiles');
 const RECORDS_DIST = join(ROOT, 'hap-records-mcp', 'dist', 'index.js');
-const HAS_RULE = existsSync(join(ROOT, 'suveren-gateway', 'apps', 'mcp-server', 'src', 'lib', 'sealed-args.ts'));
+const HAS_RULE = gatewayHas('sealed-args rule', '0.43.0', existsSync(join(ROOT, 'suveren-gateway', 'apps', 'mcp-server', 'src', 'lib', 'sealed-args.ts')));
 
 const PROFILE_ID = PROFILE_V07.publish;
 const BOUNDS_KEY_ORDER = ['profile', 'post_daily_max', 'post_monthly_max'];

@@ -16,10 +16,11 @@ import { SPClient } from '../src/helpers/sp-client.js';
 import {
   ControlPlaneClient, GW_DIR, newSecret, startControlPlane, startMcpServer, type StackOptions,
 } from '../src/helpers/gateway-stack.js';
+import { e2ePort } from '../src/helpers/ports.js';
 
-const AS_PORT = 19880;
-const CP_PORT = 19881;
-const MCP_PORT = 19882;
+const AS_PORT = e2ePort(19880);
+const CP_PORT = e2ePort(19881);
+const MCP_PORT = e2ePort(19882);
 const AS_URL = `http://localhost:${AS_PORT}`;
 const POLICY = join(GW_DIR, 'apps', 'control-plane', 'src', 'lib', 'policy.ts');
 /** Only meaningful against a gateway that knows the `Team` policy value. */

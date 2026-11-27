@@ -59,6 +59,7 @@ import { SPClient, mintAuthorizationId } from '../src/helpers/sp-client.js';
 import { hashGateContent, hashExecutionContext, computeScopeHash } from '../src/helpers/crypto.js';
 import { PROFILE_V07, profileHashFor } from '../src/helpers/profiles.js';
 import { AS_DIR } from '../src/helpers/as-dir.js';
+import { e2ePort } from '../src/helpers/ports.js';
 
 // ── Feature gate: skip only when this AS checkout lacks TR5/TR6 ────────────
 // Mirrors ws-account-one-workspace.test.ts's gate (a known route file must
@@ -68,7 +69,7 @@ const PROFILE_CONFIG_ROUTE = join(AS_DIR, 'src', 'app', 'api', 'groups', '[id]',
 const hasTeamRolesCaps =
   existsSync(PROFILE_CONFIG_ROUTE) && readFileSync(PROFILE_CONFIG_ROUTE, 'utf8').includes('grantors');
 
-const SP_PORT = 19210; // unused in the suite as of 2026-10-14 (max assigned elsewhere: 18951)
+const SP_PORT = e2ePort(19210); // unused in the suite as of 2026-10-14 (max assigned elsewhere: 18951)
 const SP_URL = `http://localhost:${SP_PORT}`;
 const PROFILES_DIR = join(process.cwd(), '..', 'hap-profiles');
 

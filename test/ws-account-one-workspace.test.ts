@@ -21,10 +21,11 @@ import {
   ControlPlaneClient, RECORDS_DIST, RECORDS_INTEGRATION, RECORDS_PROFILE_ID,
   grantRecordsMandate, newSecret, startControlPlane, startMcpServer, textOf, type StackOptions,
 } from '../src/helpers/gateway-stack.js';
+import { e2ePort } from '../src/helpers/ports.js';
 
-const AS_PORT = 19870;
-const CP_PORT = 19871;
-const MCP_PORT = 19872;
+const AS_PORT = e2ePort(19870);
+const CP_PORT = e2ePort(19871);
+const MCP_PORT = e2ePort(19872);
 const AS_URL = `http://localhost:${AS_PORT}`;
 /** Only meaningful against an AS that has WS0 (join requests). */
 const available = existsSync(RECORDS_DIST)

@@ -43,6 +43,7 @@ import {
   computeScopeHash,
 } from '../src/helpers/crypto.js';
 import { PROFILE_V07, profileHashFor } from '../src/helpers/profiles.js';
+import { e2ePort } from '../src/helpers/ports.js';
 
 const ROOT = join(import.meta.dirname, '..', '..');
 const PROFILES_DIR = join(ROOT, 'hap-profiles');
@@ -143,8 +144,8 @@ describe.skipIf(!available)('Write-capability gate — records delete_access:non
   let stack: Stack;
   let spUrl: string;
   beforeAll(async () => {
-    stack = await boot(19140, 19141, 'none');
-    spUrl = `http://localhost:19140`;
+    stack = await boot(e2ePort(19140), e2ePort(19141), 'none');
+    spUrl = `http://localhost:${e2ePort(19140)}`;
   }, 180_000);
   afterAll(async () => {
     try { await stack?.client.close(); } catch { /* ignore */ }
@@ -191,8 +192,8 @@ describe.skipIf(!available)('Write-capability gate — records delete_access:all
   let stack: Stack;
   let spUrl: string;
   beforeAll(async () => {
-    stack = await boot(19150, 19151, 'allowed');
-    spUrl = `http://localhost:19150`;
+    stack = await boot(e2ePort(19150), e2ePort(19151), 'allowed');
+    spUrl = `http://localhost:${e2ePort(19150)}`;
   }, 180_000);
   afterAll(async () => {
     try { await stack?.client.close(); } catch { /* ignore */ }

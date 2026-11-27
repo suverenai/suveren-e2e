@@ -27,9 +27,10 @@ import { GatewayClient } from '../src/helpers/gateway-client.js';
 import { hashGateContent, hashExecutionContext, computeBoundsHash, computeScopeHash } from '../src/helpers/crypto.js';
 import { ControlPlaneClient, newSecret, startControlPlane, startMcpServer, textOf, PROFILES_DIR, type StackOptions } from '../src/helpers/gateway-stack.js';
 import { PROFILE_V07, profileHashFor } from '../src/helpers/profiles.js';
+import { e2ePort } from '../src/helpers/ports.js';
 
 // 19980–19989 belong to this file.
-const AS_PORT = 19980;
+const AS_PORT = e2ePort(19980);
 const AS_URL = `http://localhost:${AS_PORT}`;
 const P = 'github.com/humanagencyprotocol/hap-profiles';
 const DELEGATION = `${P}/delegation@0.3`;
@@ -70,7 +71,7 @@ afterAll(async () => { await pm.killAll(); }, 30_000); // the one Authority Serv
 
 describe.skipIf(!available)('(a) a team with grantors and no approvers: the AI can propose a mandate', () => {
   const stack: StackOptions = {
-    dataDir: mkdtempSync(join(tmpdir(), 'hap-e2e-grantors-')), ports: { cp: 19981, mcp: 19982 }, secret: newSecret(), asUrl: AS_URL,
+    dataDir: mkdtempSync(join(tmpdir(), 'hap-e2e-grantors-')), ports: { cp: e2ePort(19981), mcp: e2ePort(19982) }, secret: newSecret(), asUrl: AS_URL,
     extraEnv: { SUVEREN_SIMULATION: '1', SUVEREN_DISABLE_AUTO_INTEGRATIONS: '1' },
   };
   const cp = new ControlPlaneClient(`http://localhost:${stack.ports.cp}`);
@@ -193,8 +194,8 @@ describe.skipIf(!available)('(b) the limit fills up after the proposal: the fact
     const t = await makeTeam('refusal');
     bernd = t.bernd; carla = t.carla; teamId = t.teamId;
     await sp.setProfileConfig(t.tom.apiKey, teamId, CUSTOMERS, { approvers: [bernd.user.id, carla.user.id] });
-    await gwPm.startGateway({ simulation: true, port: 19983, cpPort: 19984, spUrl: AS_URL, spApiKey: bernd.apiKey, profilesDir: PROFILES_DIR });
-    gw = new GatewayClient('http://localhost:19983');
+    await gwPm.startGateway({ simulation: true, port: e2ePort(19983), cpPort: e2ePort(19984), spUrl: AS_URL, spApiKey: bernd.apiKey, profilesDir: PROFILES_DIR });
+    gw = new GatewayClient(`http://localhost:${e2ePort(19983)}`);
     await gw.configure({ sessionCookie: 'grantors-b', apiKey: bernd.apiKey });
     // Bernd's review mandate (two a day) and Carla's automatic one on a scope the AI never calls with:
     // Carla is the colleague whose use counts against the team's day.
@@ -204,7 +205,7 @@ describe.skipIf(!available)('(b) the limit fills up after the proposal: the fact
     await gw.waitForIntegration('crm');
     await sleep(2_000);
     client = new Client({ name: 'grantors-b', version: '1.0.0' }, { capabilities: {} });
-    await client.connect(new SSEClientTransport(new URL('http://localhost:19983/sse')));
+    await client.connect(new SSEClientTransport(new URL(`http://localhost:${e2ePort(19983)}/sse`)));
   }, 240_000);
 
   afterAll(async () => {

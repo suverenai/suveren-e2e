@@ -17,6 +17,7 @@ import { ErpLocalStack, ERP_MANIFEST_PATH, P, proposalIdOf, resultJson } from '.
 import { ViesStub } from '../src/helpers/vies-stub.js';
 import { PROFILES_DIR } from '../src/helpers/gateway-stack.js';
 import { openFirstApprovalInPanel } from '../src/helpers/gateway-ui.js';
+import { e2ePort } from '../src/helpers/ports.js';
 
 const SHOTS = process.env.HAP_E2E_SHOTS_DIR;
 const MASTER_DATA = `${P}/master-data@0.1`;
@@ -96,7 +97,7 @@ describe.skipIf(!available)('ERP updates show Now → New (real AS + gateway + e
 
   beforeAll(async () => {
     const url = await vies.start();
-    s = new ErpLocalStack({ asPort: 19855, mcpPort: 19856, cpPort: 19857, viesUrl: url, label: 'walkthrough-e' });
+    s = new ErpLocalStack({ asPort: e2ePort(19855), mcpPort: e2ePort(19856), cpPort: e2ePort(19857), viesUrl: url, label: 'walkthrough-e' });
     await s.start();
     await s.grant(MASTER_DATA, MD_BOUNDS, {}, 'Walkthrough E: customers and catalogue, each change approved.');
     await new Promise((r) => setTimeout(r, 1_000));
