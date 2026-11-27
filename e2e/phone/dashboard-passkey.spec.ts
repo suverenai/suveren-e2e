@@ -102,6 +102,8 @@ test('a dashboard passkey: made on the dashboard, shown with the same code on th
   await cdp.send('WebAuthn.enable');
   await cdp.send('WebAuthn.addVirtualAuthenticator', { options: { protocol: 'ctap2', transport: 'internal', hasResidentKey: true, hasUserVerification: true, isUserVerified: true, automaticPresenceSimulation: true } });
   await dash.goto(`${stack.asUrl}/login`);
+  // The API key field sits behind "Sign in with an API key instead" when device keys are on (sign-in page, 2026-11-27).
+  { const k = dash.getByTestId('api-key-signin'); if (await k.count()) await k.locator('summary').click(); }
   await dash.locator('#apiKey').fill(p.apiKey);
   await dash.getByRole('button', { name: 'Sign in', exact: true }).click();
   await dash.waitForURL((u) => u.pathname.startsWith('/dashboard'), { timeout: 30_000 });

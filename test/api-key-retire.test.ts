@@ -146,6 +146,8 @@ async function newBrowser(browser: Browser): Promise<Browserish> {
 
 async function signInWithKeyInBrowser(base: string, b: Browserish, apiKey: string): Promise<void> {
   await b.page.goto(`${base}/login`);
+  // The API key field sits behind "Sign in with an API key instead" when device keys are on (sign-in page, 2026-11-27).
+  { const k = b.page.getByTestId('api-key-signin'); if (await k.count()) await k.locator('summary').click(); }
   await b.page.fill('#apiKey', apiKey);
   await b.page.click('form button[type=submit]');
   await b.page.waitForURL(/\/dashboard/, { timeout: 30_000 });
@@ -173,6 +175,8 @@ async function signInWithPasskeyInBrowser(base: string, b: Browserish): Promise<
 async function keySignInRefusedInBrowser(base: string, b: Browserish, apiKey: string): Promise<boolean> {
   await b.context.clearCookies();
   await b.page.goto(`${base}/login`);
+  // The API key field sits behind "Sign in with an API key instead" when device keys are on (sign-in page, 2026-11-27).
+  { const k = b.page.getByTestId('api-key-signin'); if (await k.count()) await k.locator('summary').click(); }
   await b.page.fill('#apiKey', apiKey);
   await b.page.click('form button[type=submit]');
   await b.page.waitForTimeout(3_000);
