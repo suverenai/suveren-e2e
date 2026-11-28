@@ -29,6 +29,16 @@ import { ProcessManager } from '../../src/helpers/process-manager';
 import { newSecret, startControlPlane, startMcpServer, type StackOptions } from '../../src/helpers/gateway-stack';
 import { http, show, stackFromEnv, type PhoneStack } from '../../src/helpers/phone-app';
 
+/**
+ * The Connect waiting text names the Authority Server in use. Gateways up to 0.47 always said
+ * "suveren.ai"; later ones name the server's own host (a local test server: localhost:<port>).
+ * Both are accepted until the oldest gateway this suite runs against names the host.
+ */
+function stillMissingText(asUrl: string): RegExp {
+  const host = new URL(asUrl).host.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  return new RegExp(`^Still missing: press Connect on the (suveren\\.ai|${host}) page in that tab\\.$`);
+}
+
 const unavailable = process.env.HAP_E2E_PHONE_UNAVAILABLE ?? process.env.HAP_E2E_PHONE_GW_UNAVAILABLE;
 test.skip(!!unavailable, `chain gateway not available: ${unavailable}`);
 test.skip(({ browserName }) => browserName !== 'chromium', 'the gateway page is the same in every browser; one engine is enough here');
@@ -174,7 +184,7 @@ test('DEC-93 + DEC-91: a new gateway starts at Connect without an account key, t
   const popupP = context.waitForEvent('page');
   await page.getByRole('button', { name: 'Connect', exact: true }).click();
   const popup = await popupP;
-  await expect(page.getByText('Still missing: press Connect on the suveren.ai page in that tab.')).toBeVisible({ timeout: 15_000 });
+  await expect(page.getByText(stillMissingText(stack.asUrl))).toBeVisible({ timeout: 15_000 });
   await shot(page, info, 'a-waiting');
   await confirmOnAs(popup, info, account.email, true, 'a');
 
@@ -299,7 +309,7 @@ test('the Connect waiting page says what is missing, and after 45 s offers "Star
   await page.getByRole('button', { name: 'Connect', exact: true }).click();
   const popup = await popupP;
   await popup.close(); // the person closed the tab without pressing Connect
-  await expect(page.getByText('Still missing: press Connect on the suveren.ai page in that tab.')).toBeVisible({ timeout: 15_000 });
+  await expect(page.getByText(stillMissingText(stack.asUrl))).toBeVisible({ timeout: 15_000 });
   await expect(page.getByRole('button', { name: 'Start again' })).toHaveCount(0);
   await shot(page, info, 'c-waiting');
   await page.clock.fastForward(46_000);

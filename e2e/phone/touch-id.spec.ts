@@ -15,6 +15,7 @@
  *   S4 the AI writes a note; the person approves on the card; the note exists in the connector
  *   S5 a write over the daily limit is refused before anything happens, with a plain reason
  *   S6 a new page session (sign-out) is opened with Touch ID; the AI continues under its mandates
+ *   S7 "Add a phone" names the phone app address the gateway holds
  */
 import { test, expect, type Page } from '@playwright/test';
 import { titleField, typeTitle } from '../../src/helpers/give-page';
@@ -233,6 +234,17 @@ test('Touch ID on the gateway page: set-up, unlock, give, the card in place, an 
     await expect(page.locator('.page-title').first()).toBeVisible({ timeout: 30_000 });
     await shot('t9-new-session-with-touch');
     expect((await callTool(agent, 'list-authorizations', {})).text).toMatch(/records@/);
+
+    // S7: "Add a phone" names where the phone app is opened: the address the gateway holds (SUVEREN_APP_ORIGIN, global-setup),
+    // never one the Authority Server sends. A computer with a check key shows the code; nothing is scanned here.
+    await page.getByRole('link', { name: 'Devices' }).first().click();
+    await page.getByRole('button', { name: 'Add a phone' }).click();
+    await page.getByRole('button', { name: 'Show the code' }).click();
+    const appHost = new URL(process.env.HAP_E2E_PHONE_APP_URL!).host;
+    await expect(page.getByText(`On your phone, open ${appHost}, choose Add this phone to my account, and scan this code.`, { exact: true })).toBeVisible({ timeout: 30_000 });
+    await expect(page.getByTestId('pairing-qr')).toBeVisible();
+    await shot('t10-add-phone-code');
+    await page.getByRole('button', { name: 'Cancel' }).click();
   } finally {
     await agent.close().catch(() => undefined);
   }
