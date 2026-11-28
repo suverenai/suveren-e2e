@@ -146,6 +146,8 @@ export default async function globalSetup(): Promise<() => Promise<void>> {
       dataDir: gwDir, ports: { cp: GW_CP_PORT, mcp: GW_MCP_PORT }, secret: gwSecret, asUrl,
       extraEnv: {
         SUVEREN_DEVICE_KEYS: 'on', SUVEREN_DISABLE_AUTO_INTEGRATIONS: '1',
+        // Where "Add a phone" sends the person: the gateway holds it (IT sets it), never the Authority Server.
+        SUVEREN_APP_ORIGIN: appUrl,
         // The macOS job only (touch-id.spec.ts): the unlock helper's DEBUG build with its software backend, so the Touch ID
         // path runs in a real browser on a runner with no Secure Enclave (DESIGN.md section 9; never shipped).
         ...(process.env.HAP_E2E_HELPER_APP ? { SUVEREN_HELPER_APP: process.env.HAP_E2E_HELPER_APP, SUVEREN_HELPER_ARGS: '--backend software --allow-any-caller' } : {}),
